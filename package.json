@@ -4,10 +4,12 @@
   "description": "Zilswap TypeScript SDK",
   "main": "index.ts",
   "repository": "https://github.com/Switcheo/zilswap-sdk",
+  "homepage": "https://github.com/Switcheo/zilswap-sdk#readme",
   "author": "Switcheo",
   "license": "MIT",
   "scripts": {
-    "test": "tsc index.ts && node index.js"
+    "build": "tsc",
+    "test": "tsc && node dist/test.js"
   },
   "dependencies": {
     "@zilliqa-js/zilliqa": "^0.9.1",
@@ -15,6 +17,7 @@
     "tslib": "^1.11.2"
   },
   "devDependencies": {
-    "@types/node": "^13.13.5"
+    "@types/node": "^13.13.5",
+    "@types/websocket": "^1.0.0"
   }
 }
