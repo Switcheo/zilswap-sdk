@@ -8,17 +8,25 @@ import { APIS, CONTRACTS, TOKENS, CHAIN_VERSIONS, Network } from './constants'
 import { toPositiveQa } from './utils'
 
 const PRIVATE_KEY: string = process.env.PRIVATE_KEY || ''
-const GAS_PRICE = toPositiveQa('1000', units.Units.Li)
 
+export type Options = { deadlineBuffer?: number, gasPrice?: number, gasLimit?: number }
+
+type TxParams = { version: number, gasPrice: BN, gasLimit: Long }
 type TokenDetails = { contract: Contract, address: string, decimals: number }
-class Zilswap {
-  private zilliqa : Zilliqa
-  private tokens : { [key in string] : string}
-  private contract : Contract
-  private contractAddress : string
-  private chainVersion : number
 
-  constructor(network: Network) {
+class Zilswap {
+  private readonly zilliqa : Zilliqa
+  private readonly tokens : { [key in string] : string}
+  private readonly contract : Contract
+  private readonly contractAddress : string
+  private readonly deadlineBuffer : number = 10
+  private readonly txParams: TxParams = {
+    version: -1,
+    gasPrice: toPositiveQa(1000, units.Units.Li),
+    gasLimit: Long.fromNumber(10000)
+  }
+
+  constructor(network: Network, options?: Options) {
     this.zilliqa = new Zilliqa(APIS[network])
     this.zilliqa.wallet.addByPrivateKey(PRIVATE_KEY)
 
@@ -27,7 +35,13 @@ class Zilswap {
     this.contractAddress = fromBech32Address(contractHash)
 
     this.tokens = TOKENS[network]
-    this.chainVersion = CHAIN_VERSIONS[network]
+    this.txParams.version = CHAIN_VERSIONS[network]
+
+    if (options) {
+      if (options.deadlineBuffer) this.deadlineBuffer = options.deadlineBuffer
+      if (options.gasPrice) this.txParams.gasPrice = toPositiveQa(options.gasPrice, units.Units.Li)
+      if (options.gasLimit) this.txParams.gasLimit = Long.fromNumber(options.gasLimit)
+    }
   }
 
   private async getTokenDetails(tokenSymbol: string) : Promise<TokenDetails> {
@@ -40,6 +54,11 @@ class Zilswap {
     const decimals = parseInt(decimalStr, 10)
 
     return { contract, address, decimals }
+  }
+
+  private async deadlineBlock() : Promise<string> {
+    const response = await this.zilliqa.blockchain.getNumTxBlocks()
+    return (parseInt(response.result!, 10) + this.deadlineBuffer!).toString()
   }
 
   async addLiquidity(tokenSymbol: string, zilsToAddHuman: string, tokensToAddHuman: string) {
@@ -58,10 +77,8 @@ class Zilswap {
       type: 'Uint128',
       value: tokensToAdd.toString(),
     }], {
-      version: this.chainVersion,
       amount: new BN(0),
-      gasPrice: GAS_PRICE,
-      gasLimit: Long.fromNumber(10000),
+      ...this.txParams
     })
 
     console.log("approve txn sent!")
@@ -95,12 +112,10 @@ class Zilswap {
     }, {
       vname: 'deadline_block',
       type: 'BNum',
-      value: '1400000',
+      value: await this.deadlineBlock(),
     }], {
-      version: this.chainVersion,
       amount: zilsToAdd, // _amount
-      gasPrice: GAS_PRICE,
-      gasLimit: Long.fromNumber(10000),
+      ...this.txParams
     })
 
     console.log("add liquidity txn sent!")
