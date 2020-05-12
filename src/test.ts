@@ -1,6 +1,6 @@
 
-import { Zilswap } from './src/index'
-import { Network } from './src/constants'
+import { Zilswap } from './index'
+import { Network } from './constants'
 
 const test = async () => {
   const zilswap = new Zilswap(Network.TestNet)
