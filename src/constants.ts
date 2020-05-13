@@ -11,6 +11,10 @@ export const APIS : { [key in Networks]: string } = {
   [Network.TestNet]: 'https://dev-api.zilliqa.com',
 }
 
+export const WSS : { [key in Networks]: string } = {
+  [Network.MainNet]: 'wss://ws.zilliqa.com',
+  [Network.TestNet]: 'wss://dev-ws.zilliqa.com',
+}
 
 export const CONTRACTS : { [key in Networks]: string } = {
   [Network.MainNet]: '',

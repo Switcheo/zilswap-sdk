@@ -1,16 +1,19 @@
 import { Zilliqa } from '@zilliqa-js/zilliqa'
-import { Contract } from '@zilliqa-js/contract'
+import { Contract, Value } from '@zilliqa-js/contract'
 import { fromBech32Address, toBech32Address } from '@zilliqa-js/crypto'
-import { Value } from '@zilliqa-js/contract'
+import { StatusType, MessageType } from '@zilliqa-js/subscriptions'
+
 import { BN, Long, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
 
-import { APIS, CONTRACTS, TOKENS, CHAIN_VERSIONS, Network } from './constants'
+import { APIS, WSS, CONTRACTS, TOKENS, CHAIN_VERSIONS, Network } from './constants'
 import { toPositiveQa } from './utils'
 
-const PRIVATE_KEY: string = process.env.PRIVATE_KEY || ''
-
-export type Options = { deadlineBuffer?: number, gasPrice?: number, gasLimit?: number }
+export type Options = {
+  deadlineBuffer?: number
+  gasPrice?: number
+  gasLimit?: number
+}
 
 type TxParams = {
   version: number
@@ -44,26 +47,34 @@ type Pool = {
 }
 
 class Zilswap {
+  /* Internals */
   private readonly zilliqa: Zilliqa
   private readonly tokens: { [key in string]: string } // symbol => hash mappings
-  private readonly contract: Contract
-  private readonly contractAddress: string
-  private readonly deadlineBuffer: number = 10
-  private readonly txParams: TxParams = {
+  private appState?: AppState
+
+  /* Zilswap contract attributes */
+  readonly contract: Contract
+  readonly contractAddress: string
+  readonly contractHash: string
+
+  /* Transaction attributes */
+  readonly deadlineBuffer: number = 10
+  readonly txParams: TxParams = {
     version: -1,
     gasPrice: toPositiveQa(1000, units.Units.Li),
     gasLimit: Long.fromNumber(10000)
   }
 
-  private appState?: AppState
-
-  constructor(network: Network, options?: Options) {
+  constructor(readonly network: Network, options?: Options) {
     this.zilliqa = new Zilliqa(APIS[network])
-    if (!!PRIVATE_KEY) this.zilliqa.wallet.addByPrivateKey(PRIVATE_KEY)
 
-    const contractHash = CONTRACTS[network]
-    this.contract = this.zilliqa.contracts.at(contractHash)
-    this.contractAddress = fromBech32Address(contractHash).toLowerCase()
+    // TODO: allow other wallet provider
+    const key: string = process.env.PRIVATE_KEY || ''
+    if (!!key) this.zilliqa.wallet.addByPrivateKey(key)
+
+    this.contractAddress = CONTRACTS[network]
+    this.contract = this.zilliqa.contracts.at(this.contractAddress)
+    this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
 
     this.tokens = TOKENS[network]
     this.txParams.version = CHAIN_VERSIONS[network]
@@ -75,11 +86,86 @@ class Zilswap {
     }
   }
 
-  async getAppState(forceUpdate: boolean = false): Promise<AppState> {
-    if (!this.appState || forceUpdate) {
-      await this.updateAppState()
+  public async initialize() {
+    this.subscribeToAppChanges()
+    await this.updateAppState()
+  }
+
+  public getAppState(): AppState {
+    if (!this.appState) {
+      throw new Error('App state not loaded, call #initialize first!')
     }
-    return this.appState!
+    return this.appState
+  }
+
+  public async addLiquidity(tokenSymbol: string, zilsToAddHuman: string, tokensToAddHuman: string) {
+    if (!this.appState) await this.updateAppState()
+
+    // Check user address
+    if (this.appState!.currentUser === null) {
+      throw new Error('Wallet not connected!')
+    }
+
+    // Format token amounts
+    const token = await this.getTokenDetails(tokenSymbol)
+    const tokensToAdd = new BN(toPositiveQa(tokensToAddHuman, token.decimals))
+    const zilsToAdd = new BN(toPositiveQa(zilsToAddHuman, units.Units.Zil))
+
+    // Check balance
+    const tokenState = await token.contract.getState()
+    const balance = new BN(tokenState.balances_map[this.appState!.currentUser!] || 0)
+    if (balance.lt(tokensToAdd)) {
+      throw new Error('Insufficent tokens in wallet to add liquidity!')
+    }
+
+    // We need to pre-approve the transfer of tokens whenever tokens
+    // are moved from the user's address
+    await this.approveTokenTransferIfRequired(token, tokensToAdd)
+
+    console.log('sending add liquidity txn..')
+    const addLiquidityTxn = await this.contract.call('AddLiquidity', [{
+      vname: 'token_address',
+      type: 'ByStr20',
+      value: token.hash,
+    }, {
+      vname: 'min_contribution_amount',
+      type: 'Uint128',
+      value: '0',
+    }, {
+      vname: 'max_token_amount',
+      type: 'Uint128',
+      value: tokensToAdd.toString(),
+    }, {
+      vname: 'deadline_block',
+      type: 'BNum',
+      value: await this.deadlineBlock(),
+    }], {
+      amount: zilsToAdd, // _amount
+      ...this.txParams
+    })
+    console.log("add liquidity txn sent!")
+    const addLiquidityTxnReceipt = addLiquidityTxn.getReceipt()!
+    console.log(JSON.stringify(addLiquidityTxnReceipt, null, 4))
+  }
+
+  private subscribeToAppChanges() {
+    const subscriber = this.zilliqa.subscriptionBuilder.buildEventLogSubscriptions(WSS[this.network], { addresses: [this.contractHash] })
+
+    subscriber.emitter.on(StatusType.SUBSCRIBE_EVENT_LOG, event => {
+      console.log('SUBSCRIBE_EVENT_LOG success: ', event);
+    })
+
+    subscriber.emitter.on(MessageType.EVENT_LOG, event => {
+      if (!event.value) return
+      console.log('EVENT_LOG new: ', JSON.stringify(event))
+      this.updateAppState()
+    })
+
+    subscriber.emitter.on(MessageType.UNSUBSCRIBE, event => {
+      console.log('UNSUBSCRIBE_EVENT_LOG success: ', event)
+    })
+
+    subscriber.start()
   }
 
   private async updateAppState(): Promise<void> {
@@ -149,41 +235,24 @@ class Zilswap {
     return { contract, address, hash, symbol, decimals }
   }
 
-  private async deadlineBlock(): Promise<string> {
-    const appState = await this.getAppState()
-    return (appState.updatedAtBNum + this.deadlineBuffer!).toString()
-  }
-
-  async addLiquidity(tokenSymbol: string, zilsToAddHuman: string, tokensToAddHuman: string) {
-    if (!this.appState) await this.updateAppState()
-
-    // Check user address
-    if (this.appState!.currentUser === null) {
-      throw new Error('Wallet not connected!')
-    }
-
-    // Format token amounts
-    const token = await this.getTokenDetails(tokenSymbol)
-    const tokensToAdd = new BN(toPositiveQa(tokensToAddHuman, token.decimals))
-    const zilsToAdd = new BN(toPositiveQa(zilsToAddHuman, units.Units.Zil))
-
+  private async approveTokenTransferIfRequired(token: TokenDetails, amount: BN) {
     // Check balance
     const tokenState = await token.contract.getState()
     const balance = new BN(tokenState.balances_map[this.appState!.currentUser!] || 0)
-    if (balance.lt(tokensToAdd)) {
-      throw new Error('Insufficent tokens in wallet to add liquidity!')
+    if (balance.lt(amount)) {
+      throw new Error('Insufficent tokens in wallet to transfer!')
     }
 
     // We need to pre-approve the transfer of tokens whenever tokens
     // are moved from the user's address
-    const allowance = new BN(tokenState.allowances_map[this.appState!.currentUser!][this.contractAddress] || 0)
-    console.log(allowance.toString(), tokensToAdd.toString())
-    if (allowance.lt(tokensToAdd)) {
+    const allowance = new BN(tokenState.allowances_map[this.appState!.currentUser!][this.contractHash] || 0)
+
+    if (allowance.lt(amount)) {
       console.log('sending approve txn..')
       const approveTxn = await token.contract.call('IncreaseAllowance', [{
         vname: 'spender',
         type: 'ByStr20',
-        value: this.contractAddress,
+        value: this.contractHash,
       }, {
         vname: 'amount',
         type: 'Uint128',
@@ -199,34 +268,12 @@ class Zilswap {
       if (!approveTxnReceipt.success) {
         throw new Error('Failed to approve token transfer!')
       }
-
-      this.updateAppState()
     }
+  }
 
-    console.log('sending add liquidity txn..')
-    const addLiquidityTxn = await this.contract.call('AddLiquidity', [{
-      vname: 'token_address',
-      type: 'ByStr20',
-      value: token.address,
-    }, {
-      vname: 'min_contribution_amount',
-      type: 'Uint128',
-      value: '0',
-    }, {
-      vname: 'max_token_amount',
-      type: 'Uint128',
-      value: tokensToAdd.toString(),
-    }, {
-      vname: 'deadline_block',
-      type: 'BNum',
-      value: await this.deadlineBlock(),
-    }], {
-      amount: zilsToAdd, // _amount
-      ...this.txParams
-    })
-    console.log("add liquidity txn sent!")
-    const addLiquidityTxnReceipt = addLiquidityTxn.getReceipt()!
-    console.log(JSON.stringify(addLiquidityTxnReceipt, null, 4))
+  private async deadlineBlock(): Promise<string> {
+    const appState = await this.getAppState()
+    return (appState.updatedAtBNum + this.deadlineBuffer!).toString()
   }
 }
 
