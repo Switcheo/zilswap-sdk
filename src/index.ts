@@ -1,7 +1,7 @@
 import { Zilliqa } from '@zilliqa-js/zilliqa'
 import { Contract, Value } from '@zilliqa-js/contract'
 import { fromBech32Address, toBech32Address } from '@zilliqa-js/crypto'
-import { StatusType, MessageType } from '@zilliqa-js/subscriptions'
+import { StatusType, MessageType, NewEventSubscription } from '@zilliqa-js/subscriptions'
 
 import { BN, Long, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
@@ -50,6 +50,7 @@ class Zilswap {
   /* Internals */
   private readonly zilliqa: Zilliqa
   private readonly tokens: { [key in string]: string } // symbol => hash mappings
+  private subscription: NewEventSubscription | null = null
   private appState?: AppState
 
   /* Zilswap contract attributes */
@@ -89,6 +90,23 @@ class Zilswap {
   public async initialize() {
     this.subscribeToAppChanges()
     await this.updateAppState()
+  }
+
+  public async teardown() {
+    if (this.subscription) {
+      this.subscription.stop()
+    }
+    const stopped = new Promise(resolve => {
+      const checkSubscription = () => {
+        if (this.subscription) {
+          setTimeout(checkSubscription, 100)
+        } else {
+          resolve()
+        }
+      }
+      checkSubscription()
+    })
+    await stopped
   }
 
   public getAppState(): AppState {
@@ -149,23 +167,26 @@ class Zilswap {
   }
 
   private subscribeToAppChanges() {
-    const subscriber = this.zilliqa.subscriptionBuilder.buildEventLogSubscriptions(WSS[this.network], { addresses: [this.contractHash] })
+    const subscription = this.zilliqa.subscriptionBuilder.buildEventLogSubscriptions(WSS[this.network], { addresses: [this.contractHash] })
 
-    subscriber.emitter.on(StatusType.SUBSCRIBE_EVENT_LOG, event => {
-      console.log('SUBSCRIBE_EVENT_LOG success: ', event);
+    subscription.emitter.on(StatusType.SUBSCRIBE_EVENT_LOG, event => {
+      console.log('SUBSCRIBE_EVENT_LOG success: ', event)
     })
 
-    subscriber.emitter.on(MessageType.EVENT_LOG, event => {
+    subscription.emitter.on(MessageType.EVENT_LOG, event => {
       if (!event.value) return
       console.log('EVENT_LOG new: ', JSON.stringify(event))
       this.updateAppState()
     })
 
-    subscriber.emitter.on(MessageType.UNSUBSCRIBE, event => {
+    subscription.emitter.on(MessageType.UNSUBSCRIBE, event => {
       console.log('UNSUBSCRIBE_EVENT_LOG success: ', event)
+      this.subscription = null
     })
 
-    subscriber.start()
+    subscription.start()
+
+    this.subscription = subscription
   }
 
   private async updateAppState(): Promise<void> {
