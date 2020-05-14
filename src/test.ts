@@ -1,4 +1,3 @@
-
 import { Zilswap } from './index'
 import { Network } from './constants'
 
@@ -11,7 +10,7 @@ const test = async () => {
   await zilswap.teardown()
 }
 
-(async () => {
+;(async () => {
   console.log('test starting..')
   await test()
   console.log('test done!')

@@ -64,11 +64,11 @@ class Zilswap {
   readonly txParams: TxParams = {
     version: -1,
     gasPrice: toPositiveQa(1000, units.Units.Li),
-    gasLimit: Long.fromNumber(10000)
+    gasLimit: Long.fromNumber(10000),
   }
 
   constructor(readonly network: Network, providerOrKey?: Provider | string, options?: Options) {
-    if (typeof(providerOrKey) === 'string') {
+    if (typeof providerOrKey === 'string') {
       this.zilliqa = new Zilliqa(APIS[network])
       this.zilliqa.wallet.addByPrivateKey(providerOrKey)
     } else {
@@ -203,27 +203,36 @@ class Zilswap {
     await this.approveTokenTransferIfRequired(token, tokensToAdd)
 
     console.log('sending add liquidity txn..')
-    const addLiquidityTxn = await this.contract.call('AddLiquidity', [{
-      vname: 'token_address',
-      type: 'ByStr20',
-      value: token.hash,
-    }, {
-      vname: 'min_contribution_amount',
-      type: 'Uint128',
-      value: minContribution.toString(),
-    }, {
-      vname: 'max_token_amount',
-      type: 'Uint128',
-      value: maxTokens.toString(),
-    }, {
-      vname: 'deadline_block',
-      type: 'BNum',
-      value: await this.deadlineBlock(),
-    }], {
-      amount: zilsToAdd, // _amount
-      ...this.txParams
-    })
-    console.log("add liquidity txn found..")
+    const addLiquidityTxn = await this.contract.call(
+      'AddLiquidity',
+      [
+        {
+          vname: 'token_address',
+          type: 'ByStr20',
+          value: token.hash,
+        },
+        {
+          vname: 'min_contribution_amount',
+          type: 'Uint128',
+          value: minContribution.toString(),
+        },
+        {
+          vname: 'max_token_amount',
+          type: 'Uint128',
+          value: maxTokens.toString(),
+        },
+        {
+          vname: 'deadline_block',
+          type: 'BNum',
+          value: await this.deadlineBlock(),
+        },
+      ],
+      {
+        amount: zilsToAdd, // _amount
+        ...this.txParams,
+      }
+    )
+    console.log('add liquidity txn found..')
     const addLiquidityTxnReceipt = addLiquidityTxn.getReceipt()!
     console.log(JSON.stringify(addLiquidityTxnReceipt, null, 4))
 
@@ -233,7 +242,9 @@ class Zilswap {
   }
 
   private subscribeToAppChanges() {
-    const subscription = this.zilliqa.subscriptionBuilder.buildEventLogSubscriptions(WSS[this.network], { addresses: [this.contractHash] })
+    const subscription = this.zilliqa.subscriptionBuilder.buildEventLogSubscriptions(WSS[this.network], {
+      addresses: [this.contractHash],
+    })
 
     subscription.emitter.on(StatusType.SUBSCRIBE_EVENT_LOG, event => {
       console.log('SUBSCRIBE_EVENT_LOG success: ', event)
@@ -264,13 +275,17 @@ class Zilswap {
     const bNum = parseInt(response.result!, 10)
 
     const state: AppState = {
-      contractState: contractState, currentUser: this.appState?.currentUser || null,
-      tokens: this.appState?.tokens || {}, pools: {}, updatedAtBNum: bNum }
+      contractState,
+      currentUser: this.appState?.currentUser || null,
+      tokens: this.appState?.tokens || {},
+      pools: {},
+      updatedAtBNum: bNum,
+    }
 
     const tokenHashes = Object.keys(contractState.pools)
 
     // Get token details
-    const promises = tokenHashes.map(async (hash) => {
+    const promises = tokenHashes.map(async hash => {
       const d = await this.getTokenDetails(hash)
       state.tokens[hash] = d
     })
@@ -289,20 +304,27 @@ class Zilswap {
       const userContribution = new BigNumber(contractState.balances[tokenHash][state.currentUser || ''] || 0)
       const contributionPercentage = userContribution.dividedBy(totalContribution).times(100)
 
-      state.pools[tokenHash] = { zilReserve, tokenReserve, exchangeRate, totalContribution, userContribution, contributionPercentage }
+      state.pools[tokenHash] = {
+        zilReserve,
+        tokenReserve,
+        exchangeRate,
+        totalContribution,
+        userContribution,
+        contributionPercentage,
+      }
     })
 
     // Set new state
     this.appState = state
   }
 
-  private getTokenAddresses(id: string) : { hash: string, address: string } {
+  private getTokenAddresses(id: string): { hash: string; address: string } {
     let hash, address
 
     if (id.substr(0, 2) === '0x') {
       hash = id.toLowerCase()
       address = toBech32Address(hash)
-    } else if (id.substr(0, 3) == 'zil') {
+    } else if (id.substr(0, 3) === 'zil') {
       address = id
       hash = fromBech32Address(address).toLowerCase()
     } else {
@@ -334,18 +356,25 @@ class Zilswap {
 
     if (allowance.lt(amount)) {
       console.log('sending approve txn..')
-      const approveTxn = await token.contract.call('IncreaseAllowance', [{
-        vname: 'spender',
-        type: 'ByStr20',
-        value: this.contractHash,
-      }, {
-        vname: 'amount',
-        type: 'Uint128',
-        value: tokenState.total_supply.toString(),
-      }], {
-        amount: new BN(0),
-        ...this.txParams
-      })
+      const approveTxn = await token.contract.call(
+        'IncreaseAllowance',
+        [
+          {
+            vname: 'spender',
+            type: 'ByStr20',
+            value: this.contractHash,
+          },
+          {
+            vname: 'amount',
+            type: 'Uint128',
+            value: tokenState.total_supply.toString(),
+          },
+        ],
+        {
+          amount: new BN(0),
+          ...this.txParams,
+        }
+      )
       console.log('approve txn found..')
       const approveTxnReceipt = approveTxn.getReceipt()!
       console.log(JSON.stringify(approveTxnReceipt, null, 4))

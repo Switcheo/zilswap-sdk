@@ -13,9 +13,7 @@ const unitMap = new Map<units.Units, string>([
 const numToStr = (input: string | number | BN) => {
   if (typeof input === 'string') {
     if (!input.match(/^-?[0-9.]+$/)) {
-      throw new Error(
-        `while converting number to string, invalid number value '${input}', should be a number matching (^[0-9.]+).`,
-      )
+      throw new Error(`while converting number to string, invalid number value '${input}', should be a number matching (^[0-9.]+).`)
     }
     return input
   } else if (typeof input === 'number') {
@@ -24,25 +22,25 @@ const numToStr = (input: string | number | BN) => {
     return input.toString(10)
   }
 
-  throw new Error(
-    `while converting number to string, invalid number value '${input}' type ${typeof input}.`,
-  )
+  throw new Error(`while converting number to string, invalid number value '${input}' type ${typeof input}.`)
 }
 
 export const toPositiveQa = (input: string | number | BN, unitOrDecimals: units.Units | number) => {
-  let inputStr = numToStr(input)
+  const inputStr = numToStr(input)
 
-  let base : BN
-  let baseNumDecimals : number
+  let base: BN
+  let baseNumDecimals: number
 
-  if (typeof(unitOrDecimals) === 'number')  { // decimals
+  if (typeof unitOrDecimals === 'number') {
+    // decimals
     if (unitOrDecimals < 0 || unitOrDecimals % 1 !== 0) {
       throw new Error(`Invalid decimals ${unitOrDecimals}, must be non-negative integer.`)
     }
 
     baseNumDecimals = unitOrDecimals
     base = new BN(10).pow(new BN(baseNumDecimals))
-  } else { // unit
+  } else {
+    // unit
     const baseStr = unitMap.get(unitOrDecimals)
 
     if (!baseStr) {
@@ -82,7 +80,7 @@ export const toPositiveQa = (input: string | number | BN, unitOrDecimals: units.
 
   const wholeBN = new BN(whole)
   const fractionBN = new BN(fraction)
-  let qa = wholeBN.mul(base).add(fractionBN)
+  const qa = wholeBN.mul(base).add(fractionBN)
 
   return new BN(qa.toString(10), 10)
 }
