@@ -6,7 +6,7 @@ import { StatusType, MessageType, NewEventSubscription } from '@zilliqa-js/subsc
 import { BN, Long, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
 
-import { APIS, WSS, CONTRACTS, TOKENS, CHAIN_VERSIONS, Network } from './constants'
+import { APIS, WSS, CONTRACTS, TOKENS, CHAIN_VERSIONS, BASIS, Network } from './constants'
 import { toPositiveQa } from './utils'
 
 export type Options = {
@@ -33,7 +33,7 @@ type AppState = {
   contractState: object
   currentUser: string | null
   tokens: { [key in string]: TokenDetails }
-  pools: { [key in string]: Pool }
+  pools: { [key in string]?: Pool }
   updatedAtBNum: number
 }
 
@@ -116,24 +116,84 @@ class Zilswap {
     return this.appState
   }
 
-  public async addLiquidity(tokenSymbol: string, zilsToAddHuman: string, tokensToAddHuman: string) {
+  /**
+   * Gets the pool details for the given `tokenID`.
+   *
+   * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...).
+   * @returns {Pool} if pool exists, or `null` otherwise.
+   */
+  public getPool(tokenID: string): Pool | null {
+    if (!this.appState) {
+      throw new Error('App state not loaded, call #initialize first!')
+    }
+    return this.appState.pools[this.getTokenAddresses(tokenID).hash] || null
+  }
+
+  /**
+   * Adds liquidity to the pool with the given `tokenID`. The given `zilsToAddHuman` represents the exact quantity of ZIL
+   * that will be contributed, while the given `tokensToAddHuman` represents the target quantity of ZRC-2 tokens to be
+   * contributed.
+   *
+   * To ensure the liquidity contributor does not lose value to arbitrage, the target token amount should be strictly
+   * derived from the current exchange rate that can be found using {@linkcode getPool}.
+   *
+   * The maximum fluctuation in exchange rate from the given parameters can be controlled through `maxExchangeRateChange`,
+   * to protect against changes in pool reserves between the txn submission and txn confirmation on the Zilliqa blockchain.
+   *
+   * If the pool has no liquidity yet, the token amount given will be the exact quantity of tokens that will be contributed,
+   * and the `maxExchangeRateChange` is ignored.
+   *
+   * Note that all amounts should be given with decimals in it's human represented form, rather than as a unitless integer.
+   *
+   * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...).
+   * @param zilsToAddHuman is the exact amount of zilliqas to contribute to the pool in ZILs as a string.
+   * @param tokensToAddHuman is the target amount of tokens to contribute to the pool with decimals as a string.
+   * @param maxExchangeRateChange is the maximum allowed exchange rate flucuation
+   * given in {@link https://www.investopedia.com/terms/b/basispoint.asp |basis points}. Defaults to 200 = 2.00% if not provided.
+   */
+  public async addLiquidity(tokenID: string, zilsToAddHuman: string, tokensToAddHuman: string, maxExchangeRateChange: number = 200) {
     if (!this.appState) await this.updateAppState()
 
     // Check user address
     if (this.appState!.currentUser === null) {
-      throw new Error('Wallet not connected!')
+      throw new Error('No wllet connected!')
     }
 
     // Format token amounts
-    const token = await this.getTokenDetails(tokenSymbol)
+    const token = await this.getTokenDetails(tokenID)
     const tokensToAdd = new BN(toPositiveQa(tokensToAddHuman, token.decimals))
     const zilsToAdd = new BN(toPositiveQa(zilsToAddHuman, units.Units.Zil))
 
-    // Check balance
+    // Calculate allowances
+    const pool = this.getPool(token.hash)
+    const zilReserve = pool ? new BN(pool.zilReserve.shiftedBy(12).toString()) : new BN(0)
+    const maxTokens = pool ? tokensToAdd.muln(BASIS + maxExchangeRateChange).divn(BASIS) : tokensToAdd
+    let minContribution = new BN(0)
+    if (pool) {
+      // sqrt(delta) * x = max allowed change in zil reserve
+      // min contribution = zil added / max zil reserve * current total contributions
+      if (maxExchangeRateChange >= BASIS || maxExchangeRateChange < 0) {
+        throw new Error(`maxExchangeRateChange: ${maxExchangeRateChange} must be between 0 and ${maxExchangeRateChange}!`)
+      }
+      const totalContribution = pool.totalContribution
+      const numerator = totalContribution.times(zilsToAdd.toString())
+      const denominator = new BigNumber(BASIS).plus(maxExchangeRateChange).sqrt().times(zilReserve.toString())
+      minContribution = new BN(numerator.dividedToIntegerBy(denominator).toString())
+    }
+    // console.log(`zilReserve: ${zilReserve.toString()}`)
+    // console.log(`maxTokens: ${maxTokens.toString()}, minContribution: ${minContribution.toString()}`)
+
+    // Check balances
     const tokenState = await token.contract.getState()
-    const balance = new BN(tokenState.balances_map[this.appState!.currentUser!] || 0)
-    if (balance.lt(tokensToAdd)) {
+    const tokenBalance = new BN(tokenState.balances_map[this.appState!.currentUser!] || 0)
+    if (tokenBalance.lt(tokensToAdd)) {
       throw new Error('Insufficent tokens in wallet to add liquidity!')
+    }
+    const zilBalance = new BN((await this.zilliqa.blockchain.getBalance(this.appState!.currentUser)).result.balance)
+    if (zilBalance.lt(zilsToAdd)) {
+      throw new Error('Insufficent zilliqa in wallet to add liquidity!')
     }
 
     // We need to pre-approve the transfer of tokens whenever tokens
@@ -148,11 +208,11 @@ class Zilswap {
     }, {
       vname: 'min_contribution_amount',
       type: 'Uint128',
-      value: '0',
+      value: minContribution.toString(),
     }, {
       vname: 'max_token_amount',
       type: 'Uint128',
-      value: tokensToAdd.toString(),
+      value: maxTokens.toString(),
     }, {
       vname: 'deadline_block',
       type: 'BNum',
@@ -161,9 +221,13 @@ class Zilswap {
       amount: zilsToAdd, // _amount
       ...this.txParams
     })
-    console.log("add liquidity txn sent!")
+    console.log("add liquidity txn found..")
     const addLiquidityTxnReceipt = addLiquidityTxn.getReceipt()!
     console.log(JSON.stringify(addLiquidityTxnReceipt, null, 4))
+
+    if (!addLiquidityTxnReceipt.success) {
+      throw new Error('Failed to add liquidity!')
+    }
   }
 
   private subscribeToAppChanges() {
@@ -230,19 +294,25 @@ class Zilswap {
     this.appState = state
   }
 
-  private async getTokenDetails(id: string): Promise<TokenDetails> {
+  private getTokenAddresses(id: string) : { hash: string, address: string } {
     let hash, address
 
     if (id.substr(0, 2) === '0x') {
-      hash = id
+      hash = id.toLowerCase()
       address = toBech32Address(hash)
     } else if (id.substr(0, 3) == 'zil') {
       address = id
-      hash = fromBech32Address(address)
+      hash = fromBech32Address(address).toLowerCase()
     } else {
       address = this.tokens[id]
-      hash = fromBech32Address(address)
+      hash = fromBech32Address(address).toLowerCase()
     }
+
+    return { hash, address }
+  }
+
+  private async getTokenDetails(id: string): Promise<TokenDetails> {
+    const { hash, address } = this.getTokenAddresses(id)
 
     if (!!this.appState?.tokens[hash]) return this.appState.tokens[hash]
 
@@ -257,15 +327,7 @@ class Zilswap {
   }
 
   private async approveTokenTransferIfRequired(token: TokenDetails, amount: BN) {
-    // Check balance
     const tokenState = await token.contract.getState()
-    const balance = new BN(tokenState.balances_map[this.appState!.currentUser!] || 0)
-    if (balance.lt(amount)) {
-      throw new Error('Insufficent tokens in wallet to transfer!')
-    }
-
-    // We need to pre-approve the transfer of tokens whenever tokens
-    // are moved from the user's address
     const allowance = new BN(tokenState.allowances_map[this.appState!.currentUser!][this.contractHash] || 0)
 
     if (allowance.lt(amount)) {
@@ -282,7 +344,7 @@ class Zilswap {
         amount: new BN(0),
         ...this.txParams
       })
-      console.log('approve txn sent!')
+      console.log('approve txn found..')
       const approveTxnReceipt = approveTxn.getReceipt()!
       console.log(JSON.stringify(approveTxnReceipt, null, 4))
 

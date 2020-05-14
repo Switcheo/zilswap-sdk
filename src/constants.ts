@@ -18,7 +18,7 @@ export const WSS : { [key in Networks]: string } = {
 
 export const CONTRACTS : { [key in Networks]: string } = {
   [Network.MainNet]: '',
-  [Network.TestNet]: 'zil1saezdfa2xqlc58gq7cwrrypvka3wyfl250fy5n',
+  [Network.TestNet]: 'zil1k7tvctylv6m84yf4l7wf26k7l6aafuukk63x5a',
 }
 
 export const TOKENS : { [key in Networks]: { [key in string]: string } } = {
@@ -32,3 +32,5 @@ export const CHAIN_VERSIONS : { [key in Networks]: number } = {
   [Network.MainNet]: bytes.pack(1, 1),
   [Network.TestNet]: bytes.pack(333, 1),
 }
+
+export const BASIS = 10000

@@ -6,7 +6,7 @@ const test = async () => {
   const zilswap = new Zilswap(Network.TestNet)
   await zilswap.initialize()
   console.log(JSON.stringify(zilswap.getAppState(), null, 4))
-  // await zilswap.addLiquidity('ITN', '1.8', '1.8')
+  await zilswap.addLiquidity('ITN', '1', '1')
   await zilswap.teardown()
 }
 
