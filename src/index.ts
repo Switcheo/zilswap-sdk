@@ -1,4 +1,5 @@
 import { Zilliqa } from '@zilliqa-js/zilliqa'
+import { Provider } from '@zilliqa-js/core'
 import { Contract, Value } from '@zilliqa-js/contract'
 import { fromBech32Address, toBech32Address } from '@zilliqa-js/crypto'
 import { StatusType, MessageType, NewEventSubscription } from '@zilliqa-js/subscriptions'
@@ -66,12 +67,13 @@ class Zilswap {
     gasLimit: Long.fromNumber(10000)
   }
 
-  constructor(readonly network: Network, options?: Options) {
-    this.zilliqa = new Zilliqa(APIS[network])
-
-    // TODO: allow other wallet provider
-    const key: string = process.env.PRIVATE_KEY || ''
-    if (!!key) this.zilliqa.wallet.addByPrivateKey(key)
+  constructor(readonly network: Network, providerOrKey?: Provider | string, options?: Options) {
+    if (typeof(providerOrKey) === 'string') {
+      this.zilliqa = new Zilliqa(APIS[network])
+      this.zilliqa.wallet.addByPrivateKey(providerOrKey)
+    } else {
+      this.zilliqa = new Zilliqa(APIS[network], providerOrKey)
+    }
 
     this.contractAddress = CONTRACTS[network]
     this.contract = this.zilliqa.contracts.at(this.contractAddress)
