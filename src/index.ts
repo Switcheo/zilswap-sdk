@@ -1,5 +1,6 @@
 import { Zilliqa } from '@zilliqa-js/zilliqa'
 import { Provider } from '@zilliqa-js/core'
+import { TxReceipt } from '@zilliqa-js/account'
 import { Contract, Value } from '@zilliqa-js/contract'
 import { fromBech32Address, toBech32Address } from '@zilliqa-js/crypto'
 import { StatusType, MessageType, NewEventSubscription } from '@zilliqa-js/subscriptions'
@@ -35,7 +36,6 @@ type AppState = {
   currentUser: string | null
   tokens: { [key in string]: TokenDetails }
   pools: { [key in string]?: Pool }
-  updatedAtBNum: number
 }
 
 type Pool = {
@@ -67,6 +67,14 @@ class Zilswap {
     gasLimit: Long.fromNumber(10000),
   }
 
+  /**
+   * Creates the Zilswap SDK object. {@linkcode initalize} needs to be called after
+   * the object is created to begin watching the blockchain's state.
+   *
+   * @param network the Network to use, either `TestNet` or `MainNet`.
+   * @param providerOrKey a wallet Provider of private key string to be used for signing txns
+   * @param options a set of Options that will be used for all txns
+   */
   constructor(readonly network: Network, providerOrKey?: Provider | string, options?: Options) {
     if (typeof providerOrKey === 'string') {
       this.zilliqa = new Zilliqa(APIS[network])
@@ -89,11 +97,18 @@ class Zilswap {
     }
   }
 
+  /**
+   * Intializes the SDK, fetching a cache of the Zilswap contract state and
+   * subscribing to subsequent state changes.
+   */
   public async initialize() {
     this.subscribeToAppChanges()
     await this.updateAppState()
   }
 
+  /**
+   * Stops watching the Zilswap contract state.
+   */
   public async teardown() {
     if (this.subscription) {
       this.subscription.stop()
@@ -111,6 +126,9 @@ class Zilswap {
     await stopped
   }
 
+  /**
+   * Gets the latest Zilswap app state.
+   */
   public getAppState(): AppState {
     if (!this.appState) {
       throw new Error('App state not loaded, call #initialize first!')
@@ -130,6 +148,62 @@ class Zilswap {
       throw new Error('App state not loaded, call #initialize first!')
     }
     return this.appState.pools[this.getTokenAddresses(tokenID).hash] || null
+  }
+
+  /**
+   * Approves allowing the Zilswap contract to transfer ZRC-2 token with `tokenID`, if the current
+   * approved allowance is less than `amount`. If the allowance is sufficient, this method is a no-op.
+   *
+   * The approval is done by calling `IncreaseAllowance` with the allowance amount as the entire
+   * token supply. This is done so that the approval needs to only be done once per token contract,
+   * reducing the number of approval transactions required for users conducting multiple swaps.
+   *
+   * Non-custodial control of the token is ensured by the Zilswap contract itself, which does not
+   * allow for the transfer of tokens unless explicitly invoked by the sender.
+   *
+   * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...).
+   * @param amount is the required allowance amount the Zilswap contract requires, below which the
+   * `IncreaseAllowance` transition is invoked.
+   *
+   * @returns a transaction receipt if IncreaseAllowance was called, null if not.
+   */
+  public async approveTokenTransferIfRequired(tokenID: string, amount: BN): Promise<TxReceipt | null> {
+    const token = await this.getTokenDetails(tokenID)
+    const tokenState = await token.contract.getState()
+    const allowance = new BN(tokenState.allowances_map[this.appState!.currentUser!][this.contractHash] || 0)
+
+    if (allowance.lt(amount)) {
+      console.log('sending increase allowance txn..')
+      const approveTxn = await token.contract.call(
+        'IncreaseAllowance',
+        [
+          {
+            vname: 'spender',
+            type: 'ByStr20',
+            value: this.contractHash,
+          },
+          {
+            vname: 'amount',
+            type: 'Uint128',
+            value: tokenState.total_supply.toString(),
+          },
+        ],
+        {
+          amount: new BN(0),
+          ...this.txParams,
+        },
+        undefined,
+        undefined,
+        true
+      )
+      const approveTxnReceipt = approveTxn.getReceipt()!
+      // console.log(JSON.stringify(approveTxnReceipt, null, 4))
+
+      return approveTxnReceipt
+    }
+
+    return null
   }
 
   /**
@@ -153,14 +227,19 @@ class Zilswap {
    * @param zilsToAddHuman is the exact amount of zilliqas to contribute to the pool in ZILs as a string.
    * @param tokensToAddHuman is the target amount of tokens to contribute to the pool with decimals as a string.
    * @param maxExchangeRateChange is the maximum allowed exchange rate flucuation
-   * given in {@link https://www.investopedia.com/terms/b/basispoint.asp |basis points}. Defaults to 200 = 2.00% if not provided.
+   * given in {@link https://www.investopedia.com/terms/b/basispoint.asp basis points}. Defaults to 200 = 2.00% if not provided.
    */
-  public async addLiquidity(tokenID: string, zilsToAddHuman: string, tokensToAddHuman: string, maxExchangeRateChange: number = 200) {
+  public async addLiquidity(
+    tokenID: string,
+    zilsToAddHuman: string,
+    tokensToAddHuman: string,
+    maxExchangeRateChange: number = 200
+  ): Promise<TxReceipt> {
     if (!this.appState) await this.updateAppState()
 
     // Check user address
     if (this.appState!.currentUser === null) {
-      throw new Error('No wllet connected!')
+      throw new Error('No wallet connected!')
     }
 
     // Format token amounts
@@ -176,9 +255,7 @@ class Zilswap {
     if (pool) {
       // sqrt(delta) * x = max allowed change in zil reserve
       // min contribution = zil added / max zil reserve * current total contributions
-      if (maxExchangeRateChange >= BASIS || maxExchangeRateChange < 0) {
-        throw new Error(`maxExchangeRateChange: ${maxExchangeRateChange} must be between 0 and ${maxExchangeRateChange}!`)
-      }
+      this.validateMaxExchangeRateChange(maxExchangeRateChange)
       const totalContribution = pool.totalContribution
       const numerator = totalContribution.times(zilsToAdd.toString())
       const denominator = new BigNumber(BASIS).plus(maxExchangeRateChange).sqrt().times(zilReserve.toString())
@@ -200,7 +277,11 @@ class Zilswap {
 
     // We need to pre-approve the transfer of tokens whenever tokens
     // are moved from the user's address
-    await this.approveTokenTransferIfRequired(token, tokensToAdd)
+    const receiptOrNull = await this.approveTokenTransferIfRequired(tokenID, tokensToAdd)
+
+    if (receiptOrNull !== null && !receiptOrNull.success) {
+      throw new Error('Failed to approve token transfer!')
+    }
 
     console.log('sending add liquidity txn..')
     const addLiquidityTxn = await this.contract.call(
@@ -230,15 +311,163 @@ class Zilswap {
       {
         amount: zilsToAdd, // _amount
         ...this.txParams,
-      }
+      },
+      undefined,
+      undefined,
+      true
     )
-    console.log('add liquidity txn found..')
     const addLiquidityTxnReceipt = addLiquidityTxn.getReceipt()!
-    console.log(JSON.stringify(addLiquidityTxnReceipt, null, 4))
+    // console.log(JSON.stringify(addLiquidityTxnReceipt, null, 4))
 
-    if (!addLiquidityTxnReceipt.success) {
-      throw new Error('Failed to add liquidity!')
+    return addLiquidityTxnReceipt
+  }
+
+  /**
+   * Removes `contributionAmount` worth of liquidity from the pool with the given `tokenID`.
+   *
+   * The current user's contribution can be fetched in {@linkcode getPool}, and the expected returned amounts at the
+   * current prevailing exchange rates can be calculated by prorating the liquidity pool reserves by the fraction of
+   * the user's current contribution against the pool's total contribution.
+   *
+   * The maximum fluctuation in exchange rate from the given parameters can be controlled through `maxExchangeRateChange`,
+   * to protect against changes in pool reserves between the txn submission and txn confirmation on the Zilliqa blockchain.
+   *
+   * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...).
+   * @param contributionAmount is the exact amount of zilliqas to contribute to the pool in ZILs as a string.
+   * @param maxExchangeRateChange is the maximum allowed exchange rate flucuation
+   * given in {@link https://www.investopedia.com/terms/b/basispoint.asp basis points}. Defaults to 200 = 2.00% if not provided.
+   */
+  public async removeLiquidity(tokenID: string, contributionAmount: string, maxExchangeRateChange: number = 200): Promise<TxReceipt> {
+    if (!this.appState) await this.updateAppState()
+
+    // Check user address
+    if (this.appState!.currentUser === null) {
+      throw new Error('No wallet connected!')
     }
+
+    // Check parameters
+    this.validateMaxExchangeRateChange(maxExchangeRateChange)
+
+    // Calculate allowances
+    const token = await this.getTokenDetails(tokenID)
+    const pool = this.getPool(token.hash)
+    if (!pool) {
+      throw new Error('Pool not found!')
+    }
+
+    const { zilReserve, tokenReserve, userContribution, contributionPercentage } = pool
+    // expected = reserve * (contributionPercentage / 100) * (contributionAmount / userContribution)
+    const expectedZilAmount = zilReserve
+      .shiftedBy(12)
+      .times(contributionPercentage)
+      .times(contributionAmount)
+      .dividedBy(userContribution.times(100))
+    const expectedTokenAmount = tokenReserve
+      .shiftedBy(token.decimals)
+      .times(contributionPercentage)
+      .times(contributionAmount)
+      .dividedBy(userContribution.times(100))
+    const minZilAmount = expectedZilAmount.times(BASIS).dividedToIntegerBy(BASIS + maxExchangeRateChange)
+    const minTokenAmount = expectedTokenAmount.times(BASIS).dividedToIntegerBy(BASIS + maxExchangeRateChange)
+    // console.log(JSON.stringify({contributionPercentage, contributionAmount, userContribution, expectedZilAmount, expectedTokenAmount, minZilAmount, minTokenAmount}, null, 4))
+
+    console.log('sending remove liquidity txn..')
+    const removeLiquidityTxn = await this.contract.call(
+      'RemoveLiquidity',
+      [
+        {
+          vname: 'token_address',
+          type: 'ByStr20',
+          value: token.hash,
+        },
+        {
+          vname: 'contribution_amount',
+          type: 'Uint128',
+          value: contributionAmount,
+        },
+        {
+          vname: 'min_zil_amount',
+          type: 'Uint128',
+          value: minZilAmount.toString(),
+        },
+        {
+          vname: 'min_token_amount',
+          type: 'Uint128',
+          value: minTokenAmount.toString(),
+        },
+        {
+          vname: 'deadline_block',
+          type: 'BNum',
+          value: await this.deadlineBlock(),
+        },
+      ],
+      {
+        amount: new BN(0),
+        ...this.txParams,
+      },
+      undefined,
+      undefined,
+      true
+    )
+    const removeLiquidityTxnReceipt = removeLiquidityTxn.getReceipt()!
+    // console.log(JSON.stringify(removeLiquidityTxn, null, 4))
+
+    return removeLiquidityTxnReceipt
+  }
+
+  /**
+   * Swaps ZIL or a ZRC-2 token with `tokenInID` for a corresponding ZIL or ZRC-2 token with `tokenOutID`.
+   *
+   * The exact amount of ZIL or ZRC-2 to be sent in (sold) is `tokenInAmountHuman`. The amount received is determined by the prevailing
+   * exchange rate at the current AppState. The expected amount to be received can be given fetched by getExpectedOutput (NYI).
+   *
+   * The maximum additional slippage incurred due to fluctuations in exchange rate from when the
+   * transaction is signed and when it is processed by the Zilliqa blockchain can be bounded by the
+   * `maxAdditionalSlippage` variable.
+   *
+   * @param tokenInID is the token ID to be sent to Zilswap (sold), which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param tokenOutID is the token ID to be taken from Zilswap (bought), which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param tokenInAmountHuman is the exact amount of tokens to be sent to Zilswap as human representable string (with decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to constant product formula) that the
+   * transition will allow before reverting.
+   */
+  public async swapWithExactInput(
+    tokenInID: string,
+    tokenOutID: string,
+    tokenInAmountHuman: string,
+    maxAdditionalSlippage: number = 200
+  ): Promise<TxReceipt> {
+    throw new Error('Not yet implemented')
+  }
+
+  /**
+   * Swaps ZIL or a ZRC-2 token with `tokenInID` for a corresponding ZIL or ZRC-2 token with `tokenOutID`.
+   *
+   * The exact amount of ZIL or ZRC-2 to be received (bought) is `tokenOutAmountHuman`. The amount sent is determined by the prevailing
+   * exchange rate at the current AppState. The expected amount to be sent can be given fetched by getExpectedInput (NYI).
+   *
+   * The maximum additional slippage incurred due to fluctuations in exchange rate from when the
+   * transaction is signed and when it is processed by the Zilliqa blockchain can be bounded by the
+   * `maxAdditionalSlippage` variable.
+   *
+   * @param tokenInID is the token ID to be sent to Zilswap (sold), which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param tokenOutID is the token ID to be taken from Zilswap (bought), which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param tokenInAmountHuman is the exact amount of tokens to be received from Zilswap as human representable string (with decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to constant product formula) that the
+   * transition will allow before reverting.
+   */
+  public async swapWithExactOutput(
+    tokenInID: string,
+    tokenOutID: string,
+    tokenOutAmountHuman: string,
+    maxAdditionalSlippage: number = 200
+  ): Promise<TxReceipt> {
+    throw new Error('Not yet implemented')
   }
 
   private subscribeToAppChanges() {
@@ -247,17 +476,17 @@ class Zilswap {
     })
 
     subscription.emitter.on(StatusType.SUBSCRIBE_EVENT_LOG, event => {
-      console.log('SUBSCRIBE_EVENT_LOG success: ', event)
+      console.log('ws connected: ', event)
     })
 
     subscription.emitter.on(MessageType.EVENT_LOG, event => {
       if (!event.value) return
-      console.log('EVENT_LOG new: ', JSON.stringify(event))
+      console.log('ws update: ', JSON.stringify(event))
       this.updateAppState()
     })
 
     subscription.emitter.on(MessageType.UNSUBSCRIBE, event => {
-      console.log('UNSUBSCRIBE_EVENT_LOG success: ', event)
+      console.log('ws disconnected: ', event)
       this.subscription = null
     })
 
@@ -270,18 +499,15 @@ class Zilswap {
     // Get the contract state
     const contractState = await this.contract.getState()
 
-    // Get block number
-    const response = await this.zilliqa.blockchain.getNumTxBlocks()
-    const bNum = parseInt(response.result!, 10)
-
+    // New app state
     const state: AppState = {
       contractState,
       currentUser: this.appState?.currentUser || null,
       tokens: this.appState?.tokens || {},
       pools: {},
-      updatedAtBNum: bNum,
     }
 
+    // Get id of tokens that have liquidity pools
     const tokenHashes = Object.keys(contractState.pools)
 
     // Get token details
@@ -350,44 +576,16 @@ class Zilswap {
     return { contract, address, hash, symbol, decimals }
   }
 
-  private async approveTokenTransferIfRequired(token: TokenDetails, amount: BN) {
-    const tokenState = await token.contract.getState()
-    const allowance = new BN(tokenState.allowances_map[this.appState!.currentUser!][this.contractHash] || 0)
-
-    if (allowance.lt(amount)) {
-      console.log('sending approve txn..')
-      const approveTxn = await token.contract.call(
-        'IncreaseAllowance',
-        [
-          {
-            vname: 'spender',
-            type: 'ByStr20',
-            value: this.contractHash,
-          },
-          {
-            vname: 'amount',
-            type: 'Uint128',
-            value: tokenState.total_supply.toString(),
-          },
-        ],
-        {
-          amount: new BN(0),
-          ...this.txParams,
-        }
-      )
-      console.log('approve txn found..')
-      const approveTxnReceipt = approveTxn.getReceipt()!
-      console.log(JSON.stringify(approveTxnReceipt, null, 4))
-
-      if (!approveTxnReceipt.success) {
-        throw new Error('Failed to approve token transfer!')
-      }
-    }
+  private async deadlineBlock(): Promise<string> {
+    const response = await this.zilliqa.blockchain.getNumTxBlocks()
+    const bNum = parseInt(response.result!, 10)
+    return (bNum + this.deadlineBuffer!).toString()
   }
 
-  private async deadlineBlock(): Promise<string> {
-    const appState = await this.getAppState()
-    return (appState.updatedAtBNum + this.deadlineBuffer!).toString()
+  private validateMaxExchangeRateChange(maxExchangeRateChange: number) {
+    if (maxExchangeRateChange % 1 !== 0 || maxExchangeRateChange >= BASIS || maxExchangeRateChange < 0) {
+      throw new Error(`maxExchangeRateChange: ${maxExchangeRateChange} must be an integer between 0 and ${BASIS + 1}!`)
+    }
   }
 }
 
