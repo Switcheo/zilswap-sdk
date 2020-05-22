@@ -444,9 +444,10 @@ class Zilswap {
     const tokenIn = await this.getTokenDetails(tokenInID)
     const tokenOut = await this.getTokenDetails(tokenOutID)
 
-    let txn: { transition: string, args: Value[], params: CallParams }
+    let txn: { transition: string; args: Value[]; params: CallParams }
 
-    if (tokenIn.hash === ZIL_HASH) { // zil to zrc2
+    if (tokenIn.hash === ZIL_HASH) {
+      // zil to zrc2
       const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
       const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(12).integerValue()
       const expectedOutput = this.getOutputFor(tokenInAmount, zilReserve, tokenReserve)
@@ -475,7 +476,8 @@ class Zilswap {
           ...this.txParams,
         },
       }
-    } else if (tokenOut.hash === ZIL_HASH) { // zrc2 to zil
+    } else if (tokenOut.hash === ZIL_HASH) {
+      // zrc2 to zil
       const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
       const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
       const expectedOutput = this.getOutputFor(tokenInAmount, tokenReserve, zilReserve)
@@ -515,7 +517,8 @@ class Zilswap {
           ...this.txParams,
         },
       }
-    } else { // zrc2 to zrc2
+    } else {
+      // zrc2 to zrc2
       const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenIn)
       const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
       const intermediateOutput = this.getOutputFor(tokenInAmount, tr1, zr1)
@@ -601,9 +604,10 @@ class Zilswap {
     const tokenIn = await this.getTokenDetails(tokenInID)
     const tokenOut = await this.getTokenDetails(tokenOutID)
 
-    let txn: { transition: string, args: Value[], params: CallParams }
+    let txn: { transition: string; args: Value[]; params: CallParams }
 
-    if (tokenIn.hash === ZIL_HASH) { // zil to zrc2
+    if (tokenIn.hash === ZIL_HASH) {
+      // zil to zrc2
       const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
       const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
       const expectedInput = this.getInputFor(tokenOutAmount, zilReserve, tokenReserve)
@@ -632,7 +636,8 @@ class Zilswap {
           ...this.txParams,
         },
       }
-    } else if (tokenOut.hash === ZIL_HASH) { // zrc2 to zil
+    } else if (tokenOut.hash === ZIL_HASH) {
+      // zrc2 to zil
       const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
       const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(12).integerValue()
       const expectedInput = this.getInputFor(tokenOutAmount, tokenReserve, zilReserve)
@@ -672,7 +677,8 @@ class Zilswap {
           ...this.txParams,
         },
       }
-    } else { // zrc2 to zrc2
+    } else {
+      // zrc2 to zrc2
       const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenOut)
       const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
       const intermediateInput = this.getInputFor(tokenOutAmount, zr1, tr1)
@@ -755,7 +761,7 @@ class Zilswap {
     const { zilReserve, tokenReserve } = pool!
     return {
       zilReserve: zilReserve.shiftedBy(12),
-      tokenReserve: tokenReserve.shiftedBy(token.decimals)
+      tokenReserve: tokenReserve.shiftedBy(token.decimals),
     }
   }
 
