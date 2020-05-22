@@ -171,7 +171,8 @@ class Zilswap {
   public async approveTokenTransferIfRequired(tokenID: string, amount: BN): Promise<TxReceipt | null> {
     const token = await this.getTokenDetails(tokenID)
     const tokenState = await token.contract.getState()
-    const allowance = new BN(tokenState.allowances_map[this.appState!.currentUser!][this.contractHash] || 0)
+    const userAllowanceMap = tokenState.allowances_map[this.appState!.currentUser!] || {}
+    const allowance = new BN(userAllowanceMap[this.contractHash] || 0)
 
     if (allowance.lt(amount)) {
       console.log('sending increase allowance txn..')
@@ -181,7 +182,7 @@ class Zilswap {
           {
             vname: 'spender',
             type: 'ByStr20',
-            value: this.contractHash,
+            value: this.appState!.currentUser!,
           },
           {
             vname: 'amount',
