@@ -182,7 +182,7 @@ class Zilswap {
           {
             vname: 'spender',
             type: 'ByStr20',
-            value: this.appState!.currentUser!,
+            value: this.contractHash,
           },
           {
             vname: 'amount',
