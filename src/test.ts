@@ -26,7 +26,38 @@ const test = async () => {
       console.error(JSON.stringify(receipt2, null, 4))
       throw new Error('txn failed')
     }
+    console.log(JSON.stringify(zilswap.getAppState(), null, 4))
 
+    // swap exact zrc2 to zil
+    const receipt3 = await zilswap.swapWithExactInput('ITN', 'ZIL', '0.1')
+    if (!receipt3.success) {
+      console.error(JSON.stringify(receipt3, null, 4))
+      throw new Error('txn failed')
+    }
+    console.log(JSON.stringify(zilswap.getAppState(), null, 4))
+
+    // swap exact zil to zrc
+    const receipt4 = await zilswap.swapWithExactInput('ZIL', 'ITN', '0.1')
+    if (!receipt4.success) {
+      console.error(JSON.stringify(receipt4, null, 4))
+      throw new Error('txn failed')
+    }
+    console.log(JSON.stringify(zilswap.getAppState(), null, 4))
+
+    // swap zrc2 to exact zil
+    const receipt5 = await zilswap.swapWithExactOutput('ITN', 'ZIL', '0.1')
+    if (!receipt5.success) {
+      console.error(JSON.stringify(receipt5, null, 4))
+      throw new Error('txn failed')
+    }
+    console.log(JSON.stringify(zilswap.getAppState(), null, 4))
+
+    // swap zil to exact zrc2
+    const receipt6 = await zilswap.swapWithExactOutput('ZIL', 'ITN', '0.1')
+    if (!receipt6.success) {
+      console.error(JSON.stringify(receipt6, null, 4))
+      throw new Error('txn failed')
+    }
     console.log(JSON.stringify(zilswap.getAppState(), null, 4))
   } finally {
     await zilswap.teardown()

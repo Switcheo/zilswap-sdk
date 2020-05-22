@@ -1,14 +1,14 @@
 import { Zilliqa } from '@zilliqa-js/zilliqa'
 import { Provider } from '@zilliqa-js/core'
 import { TxReceipt } from '@zilliqa-js/account'
-import { Contract, Value } from '@zilliqa-js/contract'
+import { Contract, Value, CallParams } from '@zilliqa-js/contract'
 import { fromBech32Address, toBech32Address } from '@zilliqa-js/crypto'
 import { StatusType, MessageType, NewEventSubscription } from '@zilliqa-js/subscriptions'
 
 import { BN, Long, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
 
-import { APIS, WSS, CONTRACTS, TOKENS, CHAIN_VERSIONS, BASIS, Network } from './constants'
+import { APIS, WSS, CONTRACTS, TOKENS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { toPositiveQa } from './utils'
 
 export type Options = {
@@ -164,7 +164,8 @@ class Zilswap {
    * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...).
    * @param amount is the required allowance amount the Zilswap contract requires, below which the
-   * `IncreaseAllowance` transition is invoked.
+   * `IncreaseAllowance` transition is invoked. Note that this amount is specified with a BN as a
+   * unit-less integer, and not a human string.
    *
    * @returns a transaction receipt if IncreaseAllowance was called, null if not.
    */
@@ -440,7 +441,137 @@ class Zilswap {
     tokenInAmountHuman: string,
     maxAdditionalSlippage: number = 200
   ): Promise<TxReceipt> {
-    throw new Error('Not yet implemented')
+    const tokenIn = await this.getTokenDetails(tokenInID)
+    const tokenOut = await this.getTokenDetails(tokenOutID)
+
+    let txn: { transition: string, args: Value[], params: CallParams }
+
+    if (tokenIn.hash === ZIL_HASH) { // zil to zrc2
+      const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
+      const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(12).integerValue()
+      const expectedOutput = this.getOutputFor(tokenInAmount, zilReserve, tokenReserve)
+      const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
+      txn = {
+        transition: 'SwapExactZILForTokens',
+        args: [
+          {
+            vname: 'token_address',
+            type: 'ByStr20',
+            value: tokenOut.hash,
+          },
+          {
+            vname: 'min_token_amount',
+            type: 'Uint128',
+            value: minimumOutput.toString(),
+          },
+          {
+            vname: 'deadline_block',
+            type: 'BNum',
+            value: await this.deadlineBlock(),
+          },
+        ],
+        params: {
+          amount: new BN(tokenInAmount.toString()),
+          ...this.txParams,
+        },
+      }
+    } else if (tokenOut.hash === ZIL_HASH) { // zrc2 to zil
+      const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
+      const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
+      const expectedOutput = this.getOutputFor(tokenInAmount, tokenReserve, zilReserve)
+      const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
+
+      const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(tokenInAmount.toString()))
+      if (receiptOrNull !== null && !receiptOrNull.success) {
+        throw new Error('Failed to approve token transfer!')
+      }
+
+      txn = {
+        transition: 'SwapExactTokensForZIL',
+        args: [
+          {
+            vname: 'token_address',
+            type: 'ByStr20',
+            value: tokenIn.hash,
+          },
+          {
+            vname: 'token_amount',
+            type: 'Uint128',
+            value: tokenInAmount.toString(),
+          },
+          {
+            vname: 'min_zil_amount',
+            type: 'Uint128',
+            value: minimumOutput.toString(),
+          },
+          {
+            vname: 'deadline_block',
+            type: 'BNum',
+            value: await this.deadlineBlock(),
+          },
+        ],
+        params: {
+          amount: new BN(0),
+          ...this.txParams,
+        },
+      }
+    } else { // zrc2 to zrc2
+      const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenIn)
+      const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
+      const intermediateOutput = this.getOutputFor(tokenInAmount, tr1, zr1)
+
+      const { zilReserve: zr2, tokenReserve: tr2 } = this.getRawReserves(tokenOut)
+      const expectedOutput = this.getOutputFor(intermediateOutput, zr2, tr2)
+      const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
+
+      const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(tokenInAmount.toString()))
+      if (receiptOrNull !== null && !receiptOrNull.success) {
+        throw new Error('Failed to approve token transfer!')
+      }
+
+      txn = {
+        transition: 'SwapExactTokensForTokens',
+        args: [
+          {
+            vname: 'token0_address',
+            type: 'ByStr20',
+            value: tokenIn.hash,
+          },
+          {
+            vname: 'token1_address',
+            type: 'ByStr20',
+            value: tokenOut.hash,
+          },
+          {
+            vname: 'token0_amount',
+            type: 'Uint128',
+            value: tokenInAmount.toString(),
+          },
+          {
+            vname: 'min_token1_amount',
+            type: 'Uint128',
+            value: minimumOutput.toString(),
+          },
+          {
+            vname: 'deadline_block',
+            type: 'BNum',
+            value: await this.deadlineBlock(),
+          },
+        ],
+        params: {
+          amount: new BN(0),
+          ...this.txParams,
+        },
+      }
+    }
+
+    console.log('sending swap txn..')
+    const swapTxn = await this.contract.call(txn.transition, txn.args, txn.params, undefined, undefined, true)
+
+    const swapTxnReceipt = swapTxn.getReceipt()!
+    // console.log(JSON.stringify(swapTxnReceipt, null, 4))
+
+    return swapTxnReceipt
   }
 
   /**
@@ -467,7 +598,165 @@ class Zilswap {
     tokenOutAmountHuman: string,
     maxAdditionalSlippage: number = 200
   ): Promise<TxReceipt> {
-    throw new Error('Not yet implemented')
+    const tokenIn = await this.getTokenDetails(tokenInID)
+    const tokenOut = await this.getTokenDetails(tokenOutID)
+
+    let txn: { transition: string, args: Value[], params: CallParams }
+
+    if (tokenIn.hash === ZIL_HASH) { // zil to zrc2
+      const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
+      const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
+      const expectedInput = this.getInputFor(tokenOutAmount, zilReserve, tokenReserve)
+      const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
+      txn = {
+        transition: 'SwapZILForExactTokens',
+        args: [
+          {
+            vname: 'token_address',
+            type: 'ByStr20',
+            value: tokenOut.hash,
+          },
+          {
+            vname: 'token_amount',
+            type: 'Uint128',
+            value: tokenOutAmount.toString(),
+          },
+          {
+            vname: 'deadline_block',
+            type: 'BNum',
+            value: await this.deadlineBlock(),
+          },
+        ],
+        params: {
+          amount: new BN(maximumInput.toString()),
+          ...this.txParams,
+        },
+      }
+    } else if (tokenOut.hash === ZIL_HASH) { // zrc2 to zil
+      const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
+      const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(12).integerValue()
+      const expectedInput = this.getInputFor(tokenOutAmount, tokenReserve, zilReserve)
+      const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
+
+      const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(maximumInput.toString()))
+      if (receiptOrNull !== null && !receiptOrNull.success) {
+        throw new Error('Failed to approve token transfer!')
+      }
+
+      txn = {
+        transition: 'SwapTokensForExactZIL',
+        args: [
+          {
+            vname: 'token_address',
+            type: 'ByStr20',
+            value: tokenIn.hash,
+          },
+          {
+            vname: 'max_token_amount',
+            type: 'Uint128',
+            value: maximumInput.toString(),
+          },
+          {
+            vname: 'zil_amount',
+            type: 'Uint128',
+            value: tokenOutAmount.toString(),
+          },
+          {
+            vname: 'deadline_block',
+            type: 'BNum',
+            value: await this.deadlineBlock(),
+          },
+        ],
+        params: {
+          amount: new BN(0),
+          ...this.txParams,
+        },
+      }
+    } else { // zrc2 to zrc2
+      const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenOut)
+      const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
+      const intermediateInput = this.getInputFor(tokenOutAmount, zr1, tr1)
+
+      const { zilReserve: zr2, tokenReserve: tr2 } = this.getRawReserves(tokenIn)
+      const expectedInput = this.getInputFor(intermediateInput, tr2, zr2)
+      const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
+
+      const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(maximumInput.toString()))
+      if (receiptOrNull !== null && !receiptOrNull.success) {
+        throw new Error('Failed to approve token transfer!')
+      }
+
+      txn = {
+        transition: 'SwapTokensForExactTokens',
+        args: [
+          {
+            vname: 'token0_address',
+            type: 'ByStr20',
+            value: tokenIn.hash,
+          },
+          {
+            vname: 'token1_address',
+            type: 'ByStr20',
+            value: tokenOut.hash,
+          },
+          {
+            vname: 'max_token0_amount',
+            type: 'Uint128',
+            value: maximumInput.toString(),
+          },
+          {
+            vname: 'token1_amount',
+            type: 'Uint128',
+            value: tokenOutAmount.toString(),
+          },
+          {
+            vname: 'deadline_block',
+            type: 'BNum',
+            value: await this.deadlineBlock(),
+          },
+        ],
+        params: {
+          amount: new BN(0),
+          ...this.txParams,
+        },
+      }
+    }
+
+    console.log('sending swap txn..')
+    const swapTxn = await this.contract.call(txn.transition, txn.args, txn.params, undefined, undefined, true)
+
+    const swapTxnReceipt = swapTxn.getReceipt()!
+    // console.log(JSON.stringify(swapTxnReceipt, null, 4))
+
+    return swapTxnReceipt
+  }
+
+  private getInputFor(outputAmount: BigNumber, inputReserve: BigNumber, outputReserve: BigNumber): BigNumber {
+    if (inputReserve.isZero() || outputReserve.isZero()) {
+      throw new Error('Reserve has 0 tokens!')
+    }
+    const numerator = inputReserve.times(outputAmount).times(1000)
+    const denominator = outputReserve.minus(outputAmount).times(997)
+    return numerator.dividedToIntegerBy(denominator).plus(1)
+  }
+
+  private getOutputFor(inputAmount: BigNumber, inputReserve: BigNumber, outputReserve: BigNumber): BigNumber {
+    if (inputReserve.isZero() || outputReserve.isZero()) {
+      throw new Error('Reserve has 0 tokens!')
+    }
+    const inputAfterFee = inputAmount.times(997)
+    const numerator = inputAfterFee.times(outputReserve)
+    const denominator = inputReserve.times(1000).plus(inputAfterFee)
+    return numerator.dividedToIntegerBy(denominator)
+  }
+
+  private getRawReserves(token: TokenDetails) {
+    const pool = this.getPool(token.hash)
+    const { zilReserve, tokenReserve } = pool!
+    return {
+      zilReserve: zilReserve.shiftedBy(12),
+      tokenReserve: tokenReserve.shiftedBy(token.decimals)
+    }
   }
 
   private subscribeToAppChanges() {
@@ -550,11 +839,11 @@ class Zilswap {
     if (id.substr(0, 2) === '0x') {
       hash = id.toLowerCase()
       address = toBech32Address(hash)
-    } else if (id.substr(0, 3) === 'zil') {
+    } else if (id.substr(0, 3) === 'zil' && id.length > 3) {
       address = id
       hash = fromBech32Address(address).toLowerCase()
     } else {
-      address = this.tokens[id]
+      address = this.tokens[id.toUpperCase()]
       hash = fromBech32Address(address).toLowerCase()
     }
 
@@ -567,6 +856,11 @@ class Zilswap {
     if (!!this.appState?.tokens[hash]) return this.appState.tokens[hash]
 
     const contract = this.zilliqa.contracts.at(address)
+
+    if (hash === ZIL_HASH) {
+      return { contract, address, hash, symbol: 'ZIL', decimals: 12 }
+    }
+
     const init = await contract.getInit()
 
     const decimalStr = init.find((e: Value) => e.vname === 'decimals').value as string
