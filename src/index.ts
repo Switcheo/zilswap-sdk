@@ -23,7 +23,7 @@ type TxParams = {
   gasLimit: Long
 }
 
-type TokenDetails = {
+export type TokenDetails = {
   contract: Contract // instance
   address: string
   hash: string
@@ -31,14 +31,14 @@ type TokenDetails = {
   decimals: number
 }
 
-type AppState = {
+export type AppState = {
   contractState: object
   currentUser: string | null
   tokens: { [key in string]: TokenDetails }
   pools: { [key in string]?: Pool }
 }
 
-type Pool = {
+export type Pool = {
   zilReserve: BigNumber
   tokenReserve: BigNumber
   exchangeRate: BigNumber
@@ -47,7 +47,7 @@ type Pool = {
   contributionPercentage: BigNumber
 }
 
-class Zilswap {
+export class Zilswap {
   /* Internals */
   private readonly zilliqa: Zilliqa
   private readonly tokens: { [key in string]: string } // symbol => hash mappings
@@ -889,5 +889,3 @@ class Zilswap {
     }
   }
 }
-
-export { Zilswap }
