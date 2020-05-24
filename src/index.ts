@@ -165,7 +165,7 @@ class Zilswap {
    * hash (0x...) or bech32 address (zil...).
    * @param amount is the required allowance amount the Zilswap contract requires, below which the
    * `IncreaseAllowance` transition is invoked. Note that this amount is specified with a BN as a
-   * unit-less integer, and not a human string.
+   * smallest unit representation (unit-less integer), and not a human string.
    *
    * @returns a transaction receipt if IncreaseAllowance was called, null if not.
    */
@@ -209,8 +209,8 @@ class Zilswap {
   }
 
   /**
-   * Adds liquidity to the pool with the given `tokenID`. The given `zilsToAddHuman` represents the exact quantity of ZIL
-   * that will be contributed, while the given `tokensToAddHuman` represents the target quantity of ZRC-2 tokens to be
+   * Adds liquidity to the pool with the given `tokenID`. The given `zilsToAddStr` represents the exact quantity of ZIL
+   * that will be contributed, while the given `tokensToAddStr` represents the target quantity of ZRC-2 tokens to be
    * contributed.
    *
    * To ensure the liquidity contributor does not lose value to arbitrage, the target token amount should be strictly
@@ -222,19 +222,19 @@ class Zilswap {
    * If the pool has no liquidity yet, the token amount given will be the exact quantity of tokens that will be contributed,
    * and the `maxExchangeRateChange` is ignored.
    *
-   * Note that all amounts should be given with decimals in it's human represented form, rather than as a unitless integer.
+   * Note that all amounts should be given with smallest unit representation form, rather than in decimals.
    *
    * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...).
-   * @param zilsToAddHuman is the exact amount of zilliqas to contribute to the pool in ZILs as a string.
-   * @param tokensToAddHuman is the target amount of tokens to contribute to the pool with decimals as a string.
+   * @param zilsToAddStr is the exact amount of zilliqas to contribute to the pool in ZILs as a string.
+   * @param tokensToAddStr is the target amount of tokens to contribute to the pool with decimals as a string.
    * @param maxExchangeRateChange is the maximum allowed exchange rate flucuation
    * given in {@link https://www.investopedia.com/terms/b/basispoint.asp basis points}. Defaults to 200 = 2.00% if not provided.
    */
   public async addLiquidity(
     tokenID: string,
-    zilsToAddHuman: string,
-    tokensToAddHuman: string,
+    zilsToAddStr: string,
+    tokensToAddStr: string,
     maxExchangeRateChange: number = 200
   ): Promise<TxReceipt> {
     if (!this.appState) await this.updateAppState()
@@ -246,12 +246,12 @@ class Zilswap {
 
     // Format token amounts
     const token = await this.getTokenDetails(tokenID)
-    const tokensToAdd = new BN(toPositiveQa(tokensToAddHuman, token.decimals))
-    const zilsToAdd = new BN(toPositiveQa(zilsToAddHuman, units.Units.Zil))
+    const zilsToAdd = new BN(zilsToAddStr)
+    const tokensToAdd = new BN(tokensToAddStr)
 
     // Calculate allowances
     const pool = this.getPool(token.hash)
-    const zilReserve = pool ? new BN(pool.zilReserve.shiftedBy(12).toString()) : new BN(0)
+    const zilReserve = pool ? new BN(pool.zilReserve.toString()) : new BN(0)
     const maxTokens = pool ? tokensToAdd.muln(BASIS + maxExchangeRateChange).divn(BASIS) : tokensToAdd
     let minContribution = new BN(0)
     if (pool) {
@@ -361,12 +361,10 @@ class Zilswap {
     const { zilReserve, tokenReserve, userContribution, contributionPercentage } = pool
     // expected = reserve * (contributionPercentage / 100) * (contributionAmount / userContribution)
     const expectedZilAmount = zilReserve
-      .shiftedBy(12)
       .times(contributionPercentage)
       .times(contributionAmount)
       .dividedBy(userContribution.times(100))
     const expectedTokenAmount = tokenReserve
-      .shiftedBy(token.decimals)
       .times(contributionPercentage)
       .times(contributionAmount)
       .dividedBy(userContribution.times(100))
@@ -421,7 +419,7 @@ class Zilswap {
   /**
    * Swaps ZIL or a ZRC-2 token with `tokenInID` for a corresponding ZIL or ZRC-2 token with `tokenOutID`.
    *
-   * The exact amount of ZIL or ZRC-2 to be sent in (sold) is `tokenInAmountHuman`. The amount received is determined by the prevailing
+   * The exact amount of ZIL or ZRC-2 to be sent in (sold) is `tokenInAmountStr`. The amount received is determined by the prevailing
    * exchange rate at the current AppState. The expected amount to be received can be given fetched by getExpectedOutput (NYI).
    *
    * The maximum additional slippage incurred due to fluctuations in exchange rate from when the
@@ -432,14 +430,14 @@ class Zilswap {
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
    * @param tokenOutID is the token ID to be taken from Zilswap (bought), which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
-   * @param tokenInAmountHuman is the exact amount of tokens to be sent to Zilswap as human representable string (with decimals).
+   * @param tokenInAmountStr is the exact amount of tokens to be sent to Zilswap in smallest unit representation (without decimals).
    * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to constant product formula) that the
    * transition will allow before reverting.
    */
   public async swapWithExactInput(
     tokenInID: string,
     tokenOutID: string,
-    tokenInAmountHuman: string,
+    tokenInAmountStr: string,
     maxAdditionalSlippage: number = 200
   ): Promise<TxReceipt> {
     const tokenIn = await this.getTokenDetails(tokenInID)
@@ -450,7 +448,7 @@ class Zilswap {
     if (tokenIn.hash === ZIL_HASH) {
       // zil to zrc2
       const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
-      const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(12).integerValue()
+      const tokenInAmount = new BigNumber(tokenInAmountStr).integerValue()
       const expectedOutput = this.getOutputFor(tokenInAmount, zilReserve, tokenReserve)
       const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
       txn = {
@@ -480,7 +478,7 @@ class Zilswap {
     } else if (tokenOut.hash === ZIL_HASH) {
       // zrc2 to zil
       const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
-      const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
+      const tokenInAmount = new BigNumber(tokenInAmountStr).integerValue()
       const expectedOutput = this.getOutputFor(tokenInAmount, tokenReserve, zilReserve)
       const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
 
@@ -521,7 +519,7 @@ class Zilswap {
     } else {
       // zrc2 to zrc2
       const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenIn)
-      const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
+      const tokenInAmount = new BigNumber(tokenInAmountStr).integerValue()
       const intermediateOutput = this.getOutputFor(tokenInAmount, tr1, zr1)
 
       const { zilReserve: zr2, tokenReserve: tr2 } = this.getRawReserves(tokenOut)
@@ -581,7 +579,7 @@ class Zilswap {
   /**
    * Swaps ZIL or a ZRC-2 token with `tokenInID` for a corresponding ZIL or ZRC-2 token with `tokenOutID`.
    *
-   * The exact amount of ZIL or ZRC-2 to be received (bought) is `tokenOutAmountHuman`. The amount sent is determined by the prevailing
+   * The exact amount of ZIL or ZRC-2 to be received (bought) is `tokenOutAmountStr`. The amount sent is determined by the prevailing
    * exchange rate at the current AppState. The expected amount to be sent can be given fetched by getExpectedInput (NYI).
    *
    * The maximum additional slippage incurred due to fluctuations in exchange rate from when the
@@ -592,14 +590,14 @@ class Zilswap {
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
    * @param tokenOutID is the token ID to be taken from Zilswap (bought), which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
-   * @param tokenInAmountHuman is the exact amount of tokens to be received from Zilswap as human representable string (with decimals).
+   * @param tokenOutAmountStr is the exact amount of tokens to be received from Zilswap in smallest unit representation (without decimals).
    * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to constant product formula) that the
    * transition will allow before reverting.
    */
   public async swapWithExactOutput(
     tokenInID: string,
     tokenOutID: string,
-    tokenOutAmountHuman: string,
+    tokenOutAmountStr: string,
     maxAdditionalSlippage: number = 200
   ): Promise<TxReceipt> {
     const tokenIn = await this.getTokenDetails(tokenInID)
@@ -610,7 +608,7 @@ class Zilswap {
     if (tokenIn.hash === ZIL_HASH) {
       // zil to zrc2
       const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
-      const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
+      const tokenOutAmount = new BigNumber(tokenOutAmountStr).integerValue()
       const expectedInput = this.getInputFor(tokenOutAmount, zilReserve, tokenReserve)
       const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
       txn = {
@@ -640,7 +638,7 @@ class Zilswap {
     } else if (tokenOut.hash === ZIL_HASH) {
       // zrc2 to zil
       const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
-      const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(12).integerValue()
+      const tokenOutAmount = new BigNumber(tokenOutAmountStr).integerValue()
       const expectedInput = this.getInputFor(tokenOutAmount, tokenReserve, zilReserve)
       const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
 
@@ -681,7 +679,7 @@ class Zilswap {
     } else {
       // zrc2 to zrc2
       const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenOut)
-      const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
+      const tokenOutAmount = new BigNumber(tokenOutAmountStr).integerValue()
       const intermediateInput = this.getInputFor(tokenOutAmount, zr1, tr1)
 
       const { zilReserve: zr2, tokenReserve: tr2 } = this.getRawReserves(tokenIn)
@@ -760,10 +758,7 @@ class Zilswap {
   private getRawReserves(token: TokenDetails) {
     const pool = this.getPool(token.hash)
     const { zilReserve, tokenReserve } = pool!
-    return {
-      zilReserve: zilReserve.shiftedBy(12),
-      tokenReserve: tokenReserve.shiftedBy(token.decimals),
-    }
+    return { zilReserve, tokenReserve, }
   }
 
   private subscribeToAppChanges() {
@@ -819,8 +814,8 @@ class Zilswap {
     // Get exchange rates
     tokenHashes.forEach(tokenHash => {
       const [x, y] = contractState.pools[tokenHash].arguments
-      const zilReserve = new BigNumber(x).shiftedBy(-12)
-      const tokenReserve = new BigNumber(y).shiftedBy(-state.tokens[tokenHash].decimals)
+      const zilReserve = new BigNumber(x)
+      const tokenReserve = new BigNumber(y)
       const exchangeRate = zilReserve.dividedBy(tokenReserve)
       const totalContribution = new BigNumber(contractState.total_contributions[tokenHash])
       const userContribution = new BigNumber(contractState.balances[tokenHash][state.currentUser || ''] || 0)
