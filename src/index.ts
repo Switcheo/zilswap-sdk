@@ -41,16 +41,22 @@ type AppState = {
 type Pool = {
   zilReserve: BigNumber
   tokenReserve: BigNumber
-  exchangeRate: BigNumber
+  exchangeRate: BigNumber // the zero slippage exchange rate
   totalContribution: BigNumber
   userContribution: BigNumber
   contributionPercentage: BigNumber
+}
+
+type Rates = {
+  expectedAmount: BigNumber // in human amounts (with decimals)
+  slippage: BigNumber // in percentage points
 }
 
 class Zilswap {
   /* Internals */
   private readonly zilliqa: Zilliqa
   private readonly tokens: { [key in string]: string } // symbol => hash mappings
+  private deadlineBuffer: number = 10
   private subscription: NewEventSubscription | null = null
   private appState?: AppState
 
@@ -60,7 +66,6 @@ class Zilswap {
   readonly contractHash: string
 
   /* Transaction attributes */
-  readonly deadlineBuffer: number = 10
   readonly txParams: TxParams = {
     version: -1,
     gasPrice: toPositiveQa(1000, units.Units.Li),
@@ -91,9 +96,9 @@ class Zilswap {
     this.txParams.version = CHAIN_VERSIONS[network]
 
     if (options) {
-      if (options.deadlineBuffer) this.deadlineBuffer = options.deadlineBuffer
-      if (options.gasPrice) this.txParams.gasPrice = toPositiveQa(options.gasPrice, units.Units.Li)
-      if (options.gasLimit) this.txParams.gasLimit = Long.fromNumber(options.gasLimit)
+      if (options.deadlineBuffer && options.deadlineBuffer > 0) this.deadlineBuffer = options.deadlineBuffer
+      if (options.gasPrice && options.gasPrice > 0) this.txParams.gasPrice = toPositiveQa(options.gasPrice, units.Units.Li)
+      if (options.gasLimit && options.gasLimit > 0) this.txParams.gasLimit = Long.fromNumber(options.gasLimit)
     }
   }
 
@@ -148,6 +153,64 @@ class Zilswap {
       throw new Error('App state not loaded, call #initialize first!')
     }
     return this.appState.pools[this.getTokenAddresses(tokenID).hash] || null
+  }
+
+  /**
+   * Sets the number of blocks to use as the allowable buffer duration before transactions
+   * are considered invalid.
+   *
+   * When a transaction is signed, the deadline block by adding the buffer blocks to
+   * the latest confirmed block height.
+   *
+   * @params bufferBlocks is the number of blocks to use as buffer for the deadline block.
+   */
+  public setDeadlineBlocks(bufferBlocks: number) {
+    if (bufferBlocks <= 0) {
+      throw new Error('Buffer blocks must be greater than 0!')
+    }
+    this.deadlineBuffer = bufferBlocks
+  }
+
+  /**
+   * Gets the expected output amount and slippage for a particular set of ZRC-2 or ZIL tokens at the given input amount.
+   *
+   * @param tokenInID is the token ID to be sent to Zilswap (sold), which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param tokenOutID is the token ID to be taken from Zilswap (bought), which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param tokenInAmountHuman is the exact amount of tokens to be sent to Zilswap as human representable string (with decimals).
+   */
+  public async getRatesForInput(tokenInID: string, tokenOutID: string, tokenInAmountHuman: string): Promise<Rates> {
+    const tokenIn = await this.getTokenDetails(tokenInID)
+    const tokenOut = await this.getTokenDetails(tokenOutID)
+    const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
+    const { epsilonOutput, expectedOutput } = this.getOutputs(tokenIn, tokenOut, tokenInAmount)
+
+    return {
+      expectedAmount: expectedOutput.shiftedBy(-tokenOut.decimals),
+      slippage: epsilonOutput.minus(expectedOutput).times(100).dividedBy(epsilonOutput).minus(0.3)
+    }
+  }
+
+  /**
+   * Gets the expected input amount and slippage for a particular set of ZRC-2 or ZIL tokens at the given output amount.
+   *
+   * @param tokenInID is the token ID to be sent to Zilswap (sold), which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param tokenOutID is the token ID to be taken from Zilswap (bought), which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param tokenOutAmountHuman is the exact amount of tokens to be received from Zilswap as human representable string (with decimals).
+   */
+  public async getRatesForOutput(tokenInID: string, tokenOutID: string, tokenOutAmountHuman: string): Promise<Rates> {
+    const tokenIn = await this.getTokenDetails(tokenInID)
+    const tokenOut = await this.getTokenDetails(tokenOutID)
+    const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
+    const { epsilonInput, expectedInput } = this.getInputs(tokenIn, tokenOut, tokenOutAmount)
+
+    return {
+      expectedAmount: expectedInput.shiftedBy(-tokenIn.decimals),
+      slippage: expectedInput.minus(epsilonInput).times(100).dividedBy(expectedInput).minus(0.3)
+    }
   }
 
   /**
@@ -444,15 +507,14 @@ class Zilswap {
   ): Promise<TxReceipt> {
     const tokenIn = await this.getTokenDetails(tokenInID)
     const tokenOut = await this.getTokenDetails(tokenOutID)
+    const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
+    const { expectedOutput } = this.getOutputs(tokenIn, tokenOut, tokenInAmount)
+    const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
 
     let txn: { transition: string; args: Value[]; params: CallParams }
 
     if (tokenIn.hash === ZIL_HASH) {
       // zil to zrc2
-      const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
-      const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(12).integerValue()
-      const expectedOutput = this.getOutputFor(tokenInAmount, zilReserve, tokenReserve)
-      const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
       txn = {
         transition: 'SwapExactZILForTokens',
         args: [
@@ -479,11 +541,6 @@ class Zilswap {
       }
     } else if (tokenOut.hash === ZIL_HASH) {
       // zrc2 to zil
-      const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
-      const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
-      const expectedOutput = this.getOutputFor(tokenInAmount, tokenReserve, zilReserve)
-      const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
-
       const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(tokenInAmount.toString()))
       if (receiptOrNull !== null && !receiptOrNull.success) {
         throw new Error('Failed to approve token transfer!')
@@ -520,14 +577,6 @@ class Zilswap {
       }
     } else {
       // zrc2 to zrc2
-      const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenIn)
-      const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
-      const intermediateOutput = this.getOutputFor(tokenInAmount, tr1, zr1)
-
-      const { zilReserve: zr2, tokenReserve: tr2 } = this.getRawReserves(tokenOut)
-      const expectedOutput = this.getOutputFor(intermediateOutput, zr2, tr2)
-      const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
-
       const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(tokenInAmount.toString()))
       if (receiptOrNull !== null && !receiptOrNull.success) {
         throw new Error('Failed to approve token transfer!')
@@ -592,7 +641,7 @@ class Zilswap {
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
    * @param tokenOutID is the token ID to be taken from Zilswap (bought), which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
-   * @param tokenInAmountHuman is the exact amount of tokens to be received from Zilswap as human representable string (with decimals).
+   * @param tokenOutAmountHuman is the exact amount of tokens to be received from Zilswap as human representable string (with decimals).
    * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to constant product formula) that the
    * transition will allow before reverting.
    */
@@ -604,15 +653,14 @@ class Zilswap {
   ): Promise<TxReceipt> {
     const tokenIn = await this.getTokenDetails(tokenInID)
     const tokenOut = await this.getTokenDetails(tokenOutID)
+    const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
+    const { expectedInput } = this.getInputs(tokenIn, tokenOut, tokenOutAmount)
+    const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
 
     let txn: { transition: string; args: Value[]; params: CallParams }
 
     if (tokenIn.hash === ZIL_HASH) {
       // zil to zrc2
-      const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
-      const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
-      const expectedInput = this.getInputFor(tokenOutAmount, zilReserve, tokenReserve)
-      const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
       txn = {
         transition: 'SwapZILForExactTokens',
         args: [
@@ -639,11 +687,6 @@ class Zilswap {
       }
     } else if (tokenOut.hash === ZIL_HASH) {
       // zrc2 to zil
-      const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
-      const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(12).integerValue()
-      const expectedInput = this.getInputFor(tokenOutAmount, tokenReserve, zilReserve)
-      const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
-
       const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(maximumInput.toString()))
       if (receiptOrNull !== null && !receiptOrNull.success) {
         throw new Error('Failed to approve token transfer!')
@@ -680,14 +723,6 @@ class Zilswap {
       }
     } else {
       // zrc2 to zrc2
-      const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenOut)
-      const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
-      const intermediateInput = this.getInputFor(tokenOutAmount, zr1, tr1)
-
-      const { zilReserve: zr2, tokenReserve: tr2 } = this.getRawReserves(tokenIn)
-      const expectedInput = this.getInputFor(intermediateInput, tr2, zr2)
-      const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
-
       const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(maximumInput.toString()))
       if (receiptOrNull !== null && !receiptOrNull.success) {
         throw new Error('Failed to approve token transfer!')
@@ -736,6 +771,66 @@ class Zilswap {
     // console.log(JSON.stringify(swapTxnReceipt, null, 4))
 
     return swapTxnReceipt
+  }
+
+  private getInputs(tokenIn: TokenDetails, tokenOut: TokenDetails, tokenOutAmount: BigNumber) :
+    { epsilonInput: BigNumber, expectedInput: BigNumber } {
+
+    let expectedInput: BigNumber // the expected amount after slippage and fees
+    let epsilonInput: BigNumber // the zero slippage input
+
+    if (tokenIn.hash === ZIL_HASH) {
+      // zil to zrc2
+      const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
+      epsilonInput = tokenOutAmount.times(zilReserve).dividedToIntegerBy(tokenReserve)
+      expectedInput = this.getInputFor(tokenOutAmount, zilReserve, tokenReserve)
+    } else if (tokenOut.hash === ZIL_HASH) {
+      // zrc2 to zil
+      const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
+      epsilonInput = tokenOutAmount.times(tokenReserve).dividedToIntegerBy(zilReserve)
+      expectedInput = this.getInputFor(tokenOutAmount, tokenReserve, zilReserve)
+    } else {
+      // zrc2 to zrc2
+      const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenOut)
+      const intermediateEpsilonInput = tokenOutAmount.times(zr1).dividedToIntegerBy(tr1)
+      const intermediateInput = this.getInputFor(tokenOutAmount, zr1, tr1)
+
+      const { zilReserve: zr2, tokenReserve: tr2 } = this.getRawReserves(tokenIn)
+      epsilonInput = intermediateEpsilonInput.times(tr2).dividedToIntegerBy(zr2)
+      expectedInput = this.getInputFor(intermediateInput, tr2, zr2)
+    }
+
+    return { epsilonInput, expectedInput }
+  }
+
+  private getOutputs(tokenIn: TokenDetails, tokenOut: TokenDetails, tokenInAmount: BigNumber) :
+    { epsilonOutput: BigNumber, expectedOutput: BigNumber } {
+
+    let epsilonOutput: BigNumber // the zero slippage output
+    let expectedOutput: BigNumber // the expected amount after slippage and fees
+
+    if (tokenIn.hash === ZIL_HASH) {
+      // zil to zrc2
+      const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
+      epsilonOutput = tokenInAmount.times(tokenReserve).dividedToIntegerBy(zilReserve)
+      expectedOutput = this.getOutputFor(tokenInAmount, zilReserve, tokenReserve)
+    } else if (tokenOut.hash === ZIL_HASH) {
+      // zrc2 to zil
+      const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
+      epsilonOutput = tokenInAmount.times(zilReserve).dividedToIntegerBy(tokenReserve)
+      expectedOutput = this.getOutputFor(tokenInAmount, tokenReserve, zilReserve)
+    } else {
+      // zrc2 to zrc2
+      const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenIn)
+      const intermediateEpsilonOutput = tokenInAmount.times(zr1).dividedToIntegerBy(tr1)
+      const intermediateOutput = this.getOutputFor(tokenInAmount, tr1, zr1)
+
+      const { zilReserve: zr2, tokenReserve: tr2 } = this.getRawReserves(tokenOut)
+      epsilonOutput = intermediateEpsilonOutput.times(tr2).dividedToIntegerBy(zr1)
+      expectedOutput = this.getOutputFor(intermediateOutput, zr2, tr2)
+    }
+
+    return { epsilonOutput, expectedOutput }
   }
 
   private getInputFor(outputAmount: BigNumber, inputReserve: BigNumber, outputReserve: BigNumber): BigNumber {

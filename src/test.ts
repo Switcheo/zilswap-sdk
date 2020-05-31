@@ -28,6 +28,11 @@ const test = async () => {
     }
     console.log(JSON.stringify(zilswap.getAppState(), null, 4))
 
+    // get expected rates for exact input
+    const r1 = await zilswap.getRatesForInput('ITN', 'ZIL', '0.1')
+    console.log("\n0.1 ITN -> ZIL\n")
+    console.log(JSON.stringify(r1, null, 4))
+
     // swap exact zrc2 to zil
     const receipt3 = await zilswap.swapWithExactInput('ITN', 'ZIL', '0.1')
     if (!receipt3.success) {
@@ -35,6 +40,11 @@ const test = async () => {
       throw new Error('txn failed')
     }
     console.log(JSON.stringify(zilswap.getAppState(), null, 4))
+
+    // get expected rates for exact input
+    const r2 = await zilswap.getRatesForInput('ZIL', 'ITN', '0.1')
+    console.log("\n0.1 ZIL -> ITN\n")
+    console.log(JSON.stringify(r2, null, 4))
 
     // swap exact zil to zrc
     const receipt4 = await zilswap.swapWithExactInput('ZIL', 'ITN', '0.1')
@@ -44,6 +54,11 @@ const test = async () => {
     }
     console.log(JSON.stringify(zilswap.getAppState(), null, 4))
 
+    // get expected rates for exact output
+    const r3 = await zilswap.getRatesForOutput('ITN', 'ZIL', '0.1')
+    console.log("\nITN -> 0.1 ZIL\n")
+    console.log(JSON.stringify(r3, null, 4))
+
     // swap zrc2 to exact zil
     const receipt5 = await zilswap.swapWithExactOutput('ITN', 'ZIL', '0.1')
     if (!receipt5.success) {
@@ -51,6 +66,11 @@ const test = async () => {
       throw new Error('txn failed')
     }
     console.log(JSON.stringify(zilswap.getAppState(), null, 4))
+
+    // get expected rates for exact output
+    const r4 = await zilswap.getRatesForOutput('ZIL', 'ITN', '0.1')
+    console.log("\nZIL -> 0.1 ITN\n")
+    console.log(JSON.stringify(r4, null, 4))
 
     // swap zil to exact zrc2
     const receipt6 = await zilswap.swapWithExactOutput('ZIL', 'ITN', '0.1')
