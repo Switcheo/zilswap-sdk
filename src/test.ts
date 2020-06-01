@@ -27,7 +27,7 @@ const test = async () => {
 
     // get expected rates for exact input
     const r1 = await zilswap.getRatesForInput('ITN', 'ZIL', '0.1')
-    console.log("\n0.1 ITN -> ZIL\n")
+    console.log('\n0.1 ITN -> ZIL\n')
     console.log(JSON.stringify(r1, null, 4))
 
     // swap exact zrc2 to zil
@@ -37,7 +37,7 @@ const test = async () => {
 
     // get expected rates for exact input
     const r2 = await zilswap.getRatesForInput('ZIL', 'ITN', '0.1')
-    console.log("\n0.1 ZIL -> ITN\n")
+    console.log('\n0.1 ZIL -> ITN\n')
     console.log(JSON.stringify(r2, null, 4))
 
     // swap exact zil to zrc
@@ -47,7 +47,7 @@ const test = async () => {
 
     // get expected rates for exact output
     const r3 = await zilswap.getRatesForOutput('ITN', 'ZIL', '0.1')
-    console.log("\nITN -> 0.1 ZIL\n")
+    console.log('\nITN -> 0.1 ZIL\n')
     console.log(JSON.stringify(r3, null, 4))
 
     // swap zrc2 to exact zil
@@ -57,7 +57,7 @@ const test = async () => {
 
     // get expected rates for exact output
     const r4 = await zilswap.getRatesForOutput('ZIL', 'ITN', '0.1')
-    console.log("\nZIL -> 0.1 ITN\n")
+    console.log('\nZIL -> 0.1 ITN\n')
     console.log(JSON.stringify(r4, null, 4))
 
     // swap zil to exact zrc2
@@ -82,7 +82,7 @@ const printResults = (tx: ObservedTx, status: TxStatus, receipt?: TxReceipt) => 
 }
 
 const waitForTx = async () => {
-  return new Promise<void>((resolve) => {
+  return new Promise<void>(resolve => {
     const check = () => {
       if (zilswap.getObservedTxs().length === 0) {
         resolve()

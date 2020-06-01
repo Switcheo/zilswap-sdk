@@ -206,7 +206,7 @@ export class Zilswap {
 
     return {
       expectedAmount: expectedOutput.shiftedBy(-tokenOut.decimals),
-      slippage: epsilonOutput.minus(expectedOutput).times(100).dividedBy(epsilonOutput).minus(0.3)
+      slippage: epsilonOutput.minus(expectedOutput).times(100).dividedBy(epsilonOutput).minus(0.3),
     }
   }
 
@@ -227,7 +227,7 @@ export class Zilswap {
 
     return {
       expectedAmount: expectedInput.shiftedBy(-tokenIn.decimals),
-      slippage: expectedInput.minus(epsilonInput).times(100).dividedBy(expectedInput).minus(0.3)
+      slippage: expectedInput.minus(epsilonInput).times(100).dividedBy(expectedInput).minus(0.3),
     }
   }
 
@@ -830,9 +830,11 @@ export class Zilswap {
     return observeTxn
   }
 
-  private getInputs(tokenIn: TokenDetails, tokenOut: TokenDetails, tokenOutAmount: BigNumber) :
-    { epsilonInput: BigNumber, expectedInput: BigNumber } {
-
+  private getInputs(
+    tokenIn: TokenDetails,
+    tokenOut: TokenDetails,
+    tokenOutAmount: BigNumber
+  ): { epsilonInput: BigNumber; expectedInput: BigNumber } {
     let expectedInput: BigNumber // the expected amount after slippage and fees
     let epsilonInput: BigNumber // the zero slippage input
 
@@ -860,9 +862,11 @@ export class Zilswap {
     return { epsilonInput, expectedInput }
   }
 
-  private getOutputs(tokenIn: TokenDetails, tokenOut: TokenDetails, tokenInAmount: BigNumber) :
-    { epsilonOutput: BigNumber, expectedOutput: BigNumber } {
-
+  private getOutputs(
+    tokenIn: TokenDetails,
+    tokenOut: TokenDetails,
+    tokenInAmount: BigNumber
+  ): { epsilonOutput: BigNumber; expectedOutput: BigNumber } {
     let epsilonOutput: BigNumber // the zero slippage output
     let expectedOutput: BigNumber // the expected amount after slippage and fees
 
@@ -915,7 +919,7 @@ export class Zilswap {
     if (!pool) {
       return {
         zilReserve: new BigNumber(0),
-        tokenReserve: new BigNumber(0)
+        tokenReserve: new BigNumber(0),
       }
     }
 
@@ -939,9 +943,7 @@ export class Zilswap {
 
     subscription.emitter.on(MessageType.NEW_BLOCK, event => {
       console.log('ws new block')
-      this.updateBlockHeight().then(() =>
-        this.updateObservedTxs()
-      )
+      this.updateBlockHeight().then(() => this.updateObservedTxs())
     })
 
     subscription.emitter.on(MessageType.EVENT_LOG, event => {
@@ -1020,7 +1022,7 @@ export class Zilswap {
     try {
       const removeTxs: string[] = []
       const promises = this.observedTxs.map(async (observedTx: ObservedTx) => {
-        const status = await this.zilliqa.blockchain.getPendingTxn(observedTx.hash);
+        const status = await this.zilliqa.blockchain.getPendingTxn(observedTx.hash)
         if (status.result && status.result.confirmed) {
           // either confirmed or rejected
           const confirmedTxn = await this.zilliqa.blockchain.getTransaction(observedTx.hash)
