@@ -1,12 +1,12 @@
 import { Zilliqa } from '@zilliqa-js/zilliqa'
 import { Provider } from '@zilliqa-js/core'
-import { TxReceipt } from '@zilliqa-js/account'
+import { TxReceipt as _TxReceipt } from '@zilliqa-js/account'
 import { Contract, Value, CallParams } from '@zilliqa-js/contract'
 import { fromBech32Address, toBech32Address } from '@zilliqa-js/crypto'
 import { StatusType, MessageType, NewEventSubscription } from '@zilliqa-js/subscriptions'
-
 import { BN, Long, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
+import { Mutex } from 'async-mutex'
 
 import { APIS, WSS, CONTRACTS, TOKENS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { toPositiveQa } from './utils'
@@ -17,13 +17,28 @@ export type Options = {
   gasLimit?: number
 }
 
-type TxParams = {
+export type OnUpdate = (tx: ObservedTx, status: TxStatus, receipt?: TxReceipt) => void
+
+export type ObservedTx = {
+  hash: string
+  deadline: number
+}
+
+// The tx status of an observed tx.
+// Confirmed = txn was found, confirmed and processed without reverting
+// Rejected = txn was found, confirmed, but had an error and reverted during smart contract execution
+// Expired = current block height has exceeded the txn's deadline block
+export type TxStatus = 'confirmed' | 'rejected' | 'expired'
+
+export type TxReceipt = _TxReceipt
+
+export type TxParams = {
   version: number
   gasPrice: BN
   gasLimit: Long
 }
 
-type TokenDetails = {
+export type TokenDetails = {
   contract: Contract // instance
   address: string
   hash: string
@@ -31,14 +46,14 @@ type TokenDetails = {
   decimals: number
 }
 
-type AppState = {
+export type AppState = {
   contractState: object
   currentUser: string | null
   tokens: { [key in string]: TokenDetails }
   pools: { [key in string]?: Pool }
 }
 
-type Pool = {
+export type Pool = {
   zilReserve: BigNumber
   tokenReserve: BigNumber
   exchangeRate: BigNumber // the zero slippage exchange rate
@@ -47,18 +62,22 @@ type Pool = {
   contributionPercentage: BigNumber
 }
 
-type Rates = {
+export type Rates = {
   expectedAmount: BigNumber // in human amounts (with decimals)
   slippage: BigNumber // in percentage points
 }
 
-class Zilswap {
+export class Zilswap {
   /* Internals */
   private readonly zilliqa: Zilliqa
   private readonly tokens: { [key in string]: string } // symbol => hash mappings
   private deadlineBuffer: number = 10
   private subscription: NewEventSubscription | null = null
+  private observer: OnUpdate | null = null
+  private observerMutex: Mutex
+  private observedTxs: ObservedTx[] = []
   private appState?: AppState
+  private currentBlock: number = -1
 
   /* Zilswap contract attributes */
   readonly contract: Contract
@@ -100,13 +119,21 @@ class Zilswap {
       if (options.gasPrice && options.gasPrice > 0) this.txParams.gasPrice = toPositiveQa(options.gasPrice, units.Units.Li)
       if (options.gasLimit && options.gasLimit > 0) this.txParams.gasLimit = Long.fromNumber(options.gasLimit)
     }
+
+    this.observerMutex = new Mutex()
   }
 
   /**
    * Intializes the SDK, fetching a cache of the Zilswap contract state and
-   * subscribing to subsequent state changes.
+   * subscribing to subsequent state changes. You may optionally pass an array
+   * of ObservedTx's to subscribe to status changes on any of those txs.
+   *
+   * @param observedTx is the array of txs to observe
    */
-  public async initialize() {
+  public async initialize(subscription?: OnUpdate, observeTxs: ObservedTx[] = []) {
+    this.observedTxs = observeTxs
+    if (subscription) this.observer = subscription
+    await this.updateBlockHeight()
     this.subscribeToAppChanges()
     await this.updateAppState()
   }
@@ -156,19 +183,10 @@ class Zilswap {
   }
 
   /**
-   * Sets the number of blocks to use as the allowable buffer duration before transactions
-   * are considered invalid.
-   *
-   * When a transaction is signed, the deadline block by adding the buffer blocks to
-   * the latest confirmed block height.
-   *
-   * @params bufferBlocks is the number of blocks to use as buffer for the deadline block.
+   * Gets the currently observed transactions.
    */
-  public setDeadlineBlocks(bufferBlocks: number) {
-    if (bufferBlocks <= 0) {
-      throw new Error('Buffer blocks must be greater than 0!')
-    }
-    this.deadlineBuffer = bufferBlocks
+  public getObservedTxs(): ObservedTx[] {
+    return [...this.observedTxs]
   }
 
   /**
@@ -214,6 +232,42 @@ class Zilswap {
   }
 
   /**
+   * Sets the number of blocks to use as the allowable buffer duration before transactions
+   * are considered invalid.
+   *
+   * When a transaction is signed, the deadline block by adding the buffer blocks to
+   * the latest confirmed block height.
+   *
+   * @params bufferBlocks is the number of blocks to use as buffer for the deadline block.
+   */
+  public setDeadlineBlocks(bufferBlocks: number) {
+    if (bufferBlocks <= 0) {
+      throw new Error('Buffer blocks must be greater than 0!')
+    }
+    this.deadlineBuffer = bufferBlocks
+  }
+
+  /**
+   * Observes the given transaction until the deadline block.
+   *
+   * Calls the `OnUpdate` callback given during `initialize` with the updated ObservedTx
+   * when a change has been observed.
+   *
+   * @params observedTx is the txn hash of the txn to observe with the deadline block number.
+   */
+  public async observeTx(observedTx: ObservedTx) {
+    if (!this.observer) {
+      throw new Error('Buffer blocks must be greater than 0!')
+    }
+    const release = await this.observerMutex.acquire()
+    try {
+      this.observedTxs.push(observedTx)
+    } finally {
+      release()
+    }
+  }
+
+  /**
    * Approves allowing the Zilswap contract to transfer ZRC-2 token with `tokenID`, if the current
    * approved allowance is less than `amount`. If the allowance is sufficient, this method is a no-op.
    *
@@ -224,15 +278,19 @@ class Zilswap {
    * Non-custodial control of the token is ensured by the Zilswap contract itself, which does not
    * allow for the transfer of tokens unless explicitly invoked by the sender.
    *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on
+   * a confirmation or rejection event. The transation will be assumed to be expired after the default
+   * deadline buffer, even though there is no deadline block for this transaction.
+   *
    * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...).
    * @param amount is the required allowance amount the Zilswap contract requires, below which the
    * `IncreaseAllowance` transition is invoked. Note that this amount is specified with a BN as a
    * unit-less integer, and not a human string.
    *
-   * @returns a transaction receipt if IncreaseAllowance was called, null if not.
+   * @returns an ObservedTx if IncreaseAllowance was called, null if not.
    */
-  public async approveTokenTransferIfRequired(tokenID: string, amount: BN): Promise<TxReceipt | null> {
+  public async approveTokenTransferIfRequired(tokenID: string, amount: BN): Promise<ObservedTx | null> {
     const token = await this.getTokenDetails(tokenID)
     const tokenState = await token.contract.getState()
     const userAllowanceMap = tokenState.allowances_map[this.appState!.currentUser!] || {}
@@ -240,7 +298,7 @@ class Zilswap {
 
     if (allowance.lt(amount)) {
       console.log('sending increase allowance txn..')
-      const approveTxn = await token.contract.call(
+      const approveTxn = await token.contract.callWithoutConfirm(
         'IncreaseAllowance',
         [
           {
@@ -258,14 +316,16 @@ class Zilswap {
           amount: new BN(0),
           ...this.txParams,
         },
-        undefined,
-        undefined,
         true
       )
-      const approveTxnReceipt = approveTxn.getReceipt()!
-      // console.log(JSON.stringify(approveTxnReceipt, null, 4))
 
-      return approveTxnReceipt
+      const observeTxn = {
+        hash: approveTxn.id!,
+        deadline: this.deadlineBlock(),
+      }
+      await this.observeTx(observeTxn)
+
+      return observeTxn
     }
 
     return null
@@ -285,6 +345,8 @@ class Zilswap {
    * If the pool has no liquidity yet, the token amount given will be the exact quantity of tokens that will be contributed,
    * and the `maxExchangeRateChange` is ignored.
    *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   *
    * Note that all amounts should be given with decimals in it's human represented form, rather than as a unitless integer.
    *
    * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
@@ -299,23 +361,20 @@ class Zilswap {
     zilsToAddHuman: string,
     tokensToAddHuman: string,
     maxExchangeRateChange: number = 200
-  ): Promise<TxReceipt> {
-    if (!this.appState) await this.updateAppState()
-
-    // Check user address
-    if (this.appState!.currentUser === null) {
-      throw new Error('No wallet connected!')
-    }
+  ): Promise<ObservedTx> {
+    // Check logged in
+    this.checkAppLoadedWithUser()
 
     // Format token amounts
     const token = await this.getTokenDetails(tokenID)
-    const tokensToAdd = new BN(toPositiveQa(tokensToAddHuman, token.decimals))
-    const zilsToAdd = new BN(toPositiveQa(zilsToAddHuman, units.Units.Zil))
+    const zil = await this.getTokenDetails(ZIL_HASH)
+    const tokensToAdd = new BigNumber(tokensToAddHuman).shiftedBy(token.decimals)
+    const zilsToAdd = new BigNumber(zilsToAddHuman).shiftedBy(zil.decimals)
 
     // Calculate allowances
     const pool = this.getPool(token.hash)
-    const zilReserve = pool ? new BN(pool.zilReserve.shiftedBy(12).toString()) : new BN(0)
-    const maxTokens = pool ? tokensToAdd.muln(BASIS + maxExchangeRateChange).divn(BASIS) : tokensToAdd
+    const { zilReserve } = this.getRawReserves(token)
+    const maxTokens = pool ? tokensToAdd.times(BASIS + maxExchangeRateChange).dividedToIntegerBy(BASIS) : tokensToAdd
     let minContribution = new BN(0)
     if (pool) {
       // sqrt(delta) * x = max allowed change in zil reserve
@@ -330,26 +389,13 @@ class Zilswap {
     // console.log(`maxTokens: ${maxTokens.toString()}, minContribution: ${minContribution.toString()}`)
 
     // Check balances
-    const tokenState = await token.contract.getState()
-    const tokenBalance = new BN(tokenState.balances_map[this.appState!.currentUser!] || 0)
-    if (tokenBalance.lt(tokensToAdd)) {
-      throw new Error('Insufficent tokens in wallet to add liquidity!')
-    }
-    const zilBalance = new BN((await this.zilliqa.blockchain.getBalance(this.appState!.currentUser)).result.balance)
-    if (zilBalance.lt(zilsToAdd)) {
-      throw new Error('Insufficent zilliqa in wallet to add liquidity!')
-    }
+    await this.checkAllowedBalance(token, tokensToAdd)
+    await this.checkAllowedBalance(zil, zilsToAdd)
 
-    // We need to pre-approve the transfer of tokens whenever tokens
-    // are moved from the user's address
-    const receiptOrNull = await this.approveTokenTransferIfRequired(tokenID, tokensToAdd)
-
-    if (receiptOrNull !== null && !receiptOrNull.success) {
-      throw new Error('Failed to approve token transfer!')
-    }
+    const deadline = this.deadlineBlock()
 
     console.log('sending add liquidity txn..')
-    const addLiquidityTxn = await this.contract.call(
+    const addLiquidityTxn = await this.contract.callWithoutConfirm(
       'AddLiquidity',
       [
         {
@@ -370,21 +416,23 @@ class Zilswap {
         {
           vname: 'deadline_block',
           type: 'BNum',
-          value: await this.deadlineBlock(),
+          value: deadline.toString(),
         },
       ],
       {
-        amount: zilsToAdd, // _amount
+        amount: new BN(zilsToAdd.toString()), // _amount
         ...this.txParams,
       },
-      undefined,
-      undefined,
       true
     )
-    const addLiquidityTxnReceipt = addLiquidityTxn.getReceipt()!
-    // console.log(JSON.stringify(addLiquidityTxnReceipt, null, 4))
 
-    return addLiquidityTxnReceipt
+    const observeTxn = {
+      hash: addLiquidityTxn.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
+
+    return observeTxn
   }
 
   /**
@@ -397,24 +445,22 @@ class Zilswap {
    * The maximum fluctuation in exchange rate from the given parameters can be controlled through `maxExchangeRateChange`,
    * to protect against changes in pool reserves between the txn submission and txn confirmation on the Zilliqa blockchain.
    *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   *
    * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...).
    * @param contributionAmount is the exact amount of zilliqas to contribute to the pool in ZILs as a string.
    * @param maxExchangeRateChange is the maximum allowed exchange rate flucuation
    * given in {@link https://www.investopedia.com/terms/b/basispoint.asp basis points}. Defaults to 200 = 2.00% if not provided.
    */
-  public async removeLiquidity(tokenID: string, contributionAmount: string, maxExchangeRateChange: number = 200): Promise<TxReceipt> {
-    if (!this.appState) await this.updateAppState()
-
-    // Check user address
-    if (this.appState!.currentUser === null) {
-      throw new Error('No wallet connected!')
-    }
+  public async removeLiquidity(tokenID: string, contributionAmount: string, maxExchangeRateChange: number = 200): Promise<ObservedTx> {
+    // Check logged in
+    this.checkAppLoadedWithUser()
 
     // Check parameters
     this.validateMaxExchangeRateChange(maxExchangeRateChange)
 
-    // Calculate allowances
+    // Calculate contribution
     const token = await this.getTokenDetails(tokenID)
     const pool = this.getPool(token.hash)
     if (!pool) {
@@ -437,8 +483,15 @@ class Zilswap {
     const minTokenAmount = expectedTokenAmount.times(BASIS).dividedToIntegerBy(BASIS + maxExchangeRateChange)
     // console.log(JSON.stringify({contributionPercentage, contributionAmount, userContribution, expectedZilAmount, expectedTokenAmount, minZilAmount, minTokenAmount}, null, 4))
 
+    // Check contribution
+    if (userContribution.lt(contributionAmount)) {
+      throw new Error('Trying to remove more contribution than available!')
+    }
+
+    const deadline = this.deadlineBlock()
+
     console.log('sending remove liquidity txn..')
-    const removeLiquidityTxn = await this.contract.call(
+    const removeLiquidityTxn = await this.contract.callWithoutConfirm(
       'RemoveLiquidity',
       [
         {
@@ -464,21 +517,23 @@ class Zilswap {
         {
           vname: 'deadline_block',
           type: 'BNum',
-          value: await this.deadlineBlock(),
+          value: deadline.toString(),
         },
       ],
       {
         amount: new BN(0),
         ...this.txParams,
       },
-      undefined,
-      undefined,
       true
     )
-    const removeLiquidityTxnReceipt = removeLiquidityTxn.getReceipt()!
-    // console.log(JSON.stringify(removeLiquidityTxn, null, 4))
 
-    return removeLiquidityTxnReceipt
+    const observeTxn = {
+      hash: removeLiquidityTxn.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
+
+    return observeTxn
   }
 
   /**
@@ -490,6 +545,8 @@ class Zilswap {
    * The maximum additional slippage incurred due to fluctuations in exchange rate from when the
    * transaction is signed and when it is processed by the Zilliqa blockchain can be bounded by the
    * `maxAdditionalSlippage` variable.
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
    *
    * @param tokenInID is the token ID to be sent to Zilswap (sold), which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
@@ -504,12 +561,18 @@ class Zilswap {
     tokenOutID: string,
     tokenInAmountHuman: string,
     maxAdditionalSlippage: number = 200
-  ): Promise<TxReceipt> {
+  ): Promise<ObservedTx> {
+    this.checkAppLoadedWithUser()
+
     const tokenIn = await this.getTokenDetails(tokenInID)
     const tokenOut = await this.getTokenDetails(tokenOutID)
     const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
     const { expectedOutput } = this.getOutputs(tokenIn, tokenOut, tokenInAmount)
     const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
+
+    await this.checkAllowedBalance(tokenIn, tokenInAmount)
+
+    const deadline = this.deadlineBlock()
 
     let txn: { transition: string; args: Value[]; params: CallParams }
 
@@ -531,7 +594,7 @@ class Zilswap {
           {
             vname: 'deadline_block',
             type: 'BNum',
-            value: await this.deadlineBlock(),
+            value: deadline.toString(),
           },
         ],
         params: {
@@ -541,11 +604,6 @@ class Zilswap {
       }
     } else if (tokenOut.hash === ZIL_HASH) {
       // zrc2 to zil
-      const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(tokenInAmount.toString()))
-      if (receiptOrNull !== null && !receiptOrNull.success) {
-        throw new Error('Failed to approve token transfer!')
-      }
-
       txn = {
         transition: 'SwapExactTokensForZIL',
         args: [
@@ -567,7 +625,7 @@ class Zilswap {
           {
             vname: 'deadline_block',
             type: 'BNum',
-            value: await this.deadlineBlock(),
+            value: deadline.toString(),
           },
         ],
         params: {
@@ -577,11 +635,6 @@ class Zilswap {
       }
     } else {
       // zrc2 to zrc2
-      const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(tokenInAmount.toString()))
-      if (receiptOrNull !== null && !receiptOrNull.success) {
-        throw new Error('Failed to approve token transfer!')
-      }
-
       txn = {
         transition: 'SwapExactTokensForTokens',
         args: [
@@ -608,7 +661,7 @@ class Zilswap {
           {
             vname: 'deadline_block',
             type: 'BNum',
-            value: await this.deadlineBlock(),
+            value: deadline.toString(),
           },
         ],
         params: {
@@ -619,12 +672,15 @@ class Zilswap {
     }
 
     console.log('sending swap txn..')
-    const swapTxn = await this.contract.call(txn.transition, txn.args, txn.params, undefined, undefined, true)
+    const swapTxn = await this.contract.callWithoutConfirm(txn.transition, txn.args, txn.params, true)
 
-    const swapTxnReceipt = swapTxn.getReceipt()!
-    // console.log(JSON.stringify(swapTxnReceipt, null, 4))
+    const observeTxn = {
+      hash: swapTxn.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
 
-    return swapTxnReceipt
+    return observeTxn
   }
 
   /**
@@ -636,6 +692,8 @@ class Zilswap {
    * The maximum additional slippage incurred due to fluctuations in exchange rate from when the
    * transaction is signed and when it is processed by the Zilliqa blockchain can be bounded by the
    * `maxAdditionalSlippage` variable.
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
    *
    * @param tokenInID is the token ID to be sent to Zilswap (sold), which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
@@ -650,12 +708,18 @@ class Zilswap {
     tokenOutID: string,
     tokenOutAmountHuman: string,
     maxAdditionalSlippage: number = 200
-  ): Promise<TxReceipt> {
+  ): Promise<ObservedTx> {
+    this.checkAppLoadedWithUser()
+
     const tokenIn = await this.getTokenDetails(tokenInID)
     const tokenOut = await this.getTokenDetails(tokenOutID)
     const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
     const { expectedInput } = this.getInputs(tokenIn, tokenOut, tokenOutAmount)
     const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
+
+    await this.checkAllowedBalance(tokenIn, maximumInput)
+
+    const deadline = this.deadlineBlock()
 
     let txn: { transition: string; args: Value[]; params: CallParams }
 
@@ -677,7 +741,7 @@ class Zilswap {
           {
             vname: 'deadline_block',
             type: 'BNum',
-            value: await this.deadlineBlock(),
+            value: deadline.toString(),
           },
         ],
         params: {
@@ -687,11 +751,6 @@ class Zilswap {
       }
     } else if (tokenOut.hash === ZIL_HASH) {
       // zrc2 to zil
-      const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(maximumInput.toString()))
-      if (receiptOrNull !== null && !receiptOrNull.success) {
-        throw new Error('Failed to approve token transfer!')
-      }
-
       txn = {
         transition: 'SwapTokensForExactZIL',
         args: [
@@ -713,7 +772,7 @@ class Zilswap {
           {
             vname: 'deadline_block',
             type: 'BNum',
-            value: await this.deadlineBlock(),
+            value: deadline.toString(),
           },
         ],
         params: {
@@ -723,11 +782,6 @@ class Zilswap {
       }
     } else {
       // zrc2 to zrc2
-      const receiptOrNull = await this.approveTokenTransferIfRequired(tokenInID, new BN(maximumInput.toString()))
-      if (receiptOrNull !== null && !receiptOrNull.success) {
-        throw new Error('Failed to approve token transfer!')
-      }
-
       txn = {
         transition: 'SwapTokensForExactTokens',
         args: [
@@ -754,7 +808,7 @@ class Zilswap {
           {
             vname: 'deadline_block',
             type: 'BNum',
-            value: await this.deadlineBlock(),
+            value: deadline.toString(),
           },
         ],
         params: {
@@ -765,12 +819,15 @@ class Zilswap {
     }
 
     console.log('sending swap txn..')
-    const swapTxn = await this.contract.call(txn.transition, txn.args, txn.params, undefined, undefined, true)
+    const swapTxn = await this.contract.callWithoutConfirm(txn.transition, txn.args, txn.params, true)
 
-    const swapTxnReceipt = swapTxn.getReceipt()!
-    // console.log(JSON.stringify(swapTxnReceipt, null, 4))
+    const observeTxn = {
+      hash: swapTxn.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
 
-    return swapTxnReceipt
+    return observeTxn
   }
 
   private getInputs(tokenIn: TokenDetails, tokenOut: TokenDetails, tokenOutAmount: BigNumber) :
@@ -854,7 +911,15 @@ class Zilswap {
 
   private getRawReserves(token: TokenDetails) {
     const pool = this.getPool(token.hash)
-    const { zilReserve, tokenReserve } = pool!
+
+    if (!pool) {
+      return {
+        zilReserve: new BigNumber(0),
+        tokenReserve: new BigNumber(0)
+      }
+    }
+
+    const { zilReserve, tokenReserve } = pool
     return {
       zilReserve: zilReserve.shiftedBy(12),
       tokenReserve: tokenReserve.shiftedBy(token.decimals),
@@ -866,8 +931,17 @@ class Zilswap {
       addresses: [this.contractHash],
     })
 
+    subscription.subscribe({ query: MessageType.NEW_BLOCK })
+
     subscription.emitter.on(StatusType.SUBSCRIBE_EVENT_LOG, event => {
       console.log('ws connected: ', event)
+    })
+
+    subscription.emitter.on(MessageType.NEW_BLOCK, event => {
+      console.log('ws new block')
+      this.updateBlockHeight().then(() =>
+        this.updateObservedTxs()
+      )
     })
 
     subscription.emitter.on(MessageType.EVENT_LOG, event => {
@@ -884,6 +958,12 @@ class Zilswap {
     subscription.start()
 
     this.subscription = subscription
+  }
+
+  private async updateBlockHeight(): Promise<void> {
+    const response = await this.zilliqa.blockchain.getNumTxBlocks()
+    const bNum = parseInt(response.result!, 10)
+    this.currentBlock = bNum
   }
 
   private async updateAppState(): Promise<void> {
@@ -935,6 +1015,37 @@ class Zilswap {
     this.appState = state
   }
 
+  private async updateObservedTxs() {
+    const release = await this.observerMutex.acquire()
+    try {
+      const removeTxs: string[] = []
+      const promises = this.observedTxs.map(async (observedTx: ObservedTx) => {
+        const status = await this.zilliqa.blockchain.getPendingTxn(observedTx.hash);
+        if (status.result && status.result.confirmed) {
+          // either confirmed or rejected
+          const confirmedTxn = await this.zilliqa.blockchain.getTransaction(observedTx.hash)
+          const txStatus = confirmedTxn.isRejected() ? 'rejected' : 'confirmed'
+          const receipt = confirmedTxn.getReceipt()
+          if (this.observer) this.observer(observedTx, txStatus, receipt)
+          removeTxs.push(observedTx.hash)
+          return
+        }
+        if (observedTx.deadline < this.currentBlock) {
+          // expired
+          console.log(`tx deadline, current: ${observedTx.deadline}, ${this.currentBlock}`)
+          if (this.observer) this.observer(observedTx, 'expired')
+          removeTxs.push(observedTx.hash)
+        }
+      })
+
+      await Promise.all(promises)
+
+      this.observedTxs = this.observedTxs.filter((tx: ObservedTx) => !removeTxs.includes(tx.hash))
+    } finally {
+      release()
+    }
+  }
+
   private getTokenAddresses(id: string): { hash: string; address: string } {
     let hash, address
 
@@ -972,10 +1083,46 @@ class Zilswap {
     return { contract, address, hash, symbol, decimals }
   }
 
-  private async deadlineBlock(): Promise<string> {
-    const response = await this.zilliqa.blockchain.getNumTxBlocks()
-    const bNum = parseInt(response.result!, 10)
-    return (bNum + this.deadlineBuffer!).toString()
+  private async checkAllowedBalance(token: TokenDetails, amount: BigNumber) {
+    // Check init
+    this.checkAppLoadedWithUser()
+    const user = this.appState!.currentUser!
+
+    if (token.hash === ZIL_HASH) {
+      // Check zil balance
+      const zilBalance = new BigNumber((await this.zilliqa.blockchain.getBalance(user)).result.balance)
+      if (zilBalance.lt(amount)) {
+        throw new Error(`Insufficent ZIL in wallet! Required: ${amount.toString()}, have: ${zilBalance.toString()}`)
+      }
+    } else {
+      // Check zrc-2 balance
+      const tokenState = await token.contract.getState()
+      const tokenBalance = new BigNumber(tokenState.balances_map[user] || 0)
+      if (tokenBalance.lt(amount)) {
+        throw new Error(`Insufficent tokens in wallet! Required: ${amount.toString()}, have: ${tokenBalance.toString()}`)
+      }
+      const userAllowanceMap = tokenState.allowances_map[user] || {}
+      const allowance = new BigNumber(userAllowanceMap[this.contractHash] || 0)
+      if (allowance.lt(amount)) {
+        throw new Error(`Tokens need to be approved first! Required: ${amount.toString()}, approved: ${allowance.toString()}`)
+      }
+    }
+  }
+
+  private checkAppLoadedWithUser() {
+    // Check init
+    if (!this.appState) {
+      throw new Error('App state not loaded, call #initialize first!')
+    }
+
+    // Check user address
+    if (this.appState!.currentUser === null) {
+      throw new Error('No wallet connected!')
+    }
+  }
+
+  private deadlineBlock(): number {
+    return this.currentBlock + this.deadlineBuffer!
   }
 
   private validateMaxExchangeRateChange(maxExchangeRateChange: number) {
@@ -984,5 +1131,3 @@ class Zilswap {
     }
   }
 }
-
-export { Zilswap }
