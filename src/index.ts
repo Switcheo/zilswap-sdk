@@ -88,7 +88,7 @@ export class Zilswap {
   readonly txParams: TxParams = {
     version: -1,
     gasPrice: toPositiveQa(1000, units.Units.Li),
-    gasLimit: Long.fromNumber(10000),
+    gasLimit: Long.fromNumber(30000),
   }
 
   /**
@@ -163,7 +163,7 @@ export class Zilswap {
    */
   public getAppState(): AppState {
     if (!this.appState) {
-      throw new Error('App state not loaded, call #initialize first!')
+      throw new Error('App state not loaded, call #initialize first.')
     }
     return this.appState
   }
@@ -177,7 +177,7 @@ export class Zilswap {
    */
   public getPool(tokenID: string): Pool | null {
     if (!this.appState) {
-      throw new Error('App state not loaded, call #initialize first!')
+      throw new Error('App state not loaded, call #initialize first.')
     }
     return this.appState.pools[this.getTokenAddresses(tokenID).hash] || null
   }
@@ -190,22 +190,52 @@ export class Zilswap {
   }
 
   /**
+   * Converts an amount to it's unitless representation (integer, no decimals) from it's
+   * human representation (with decimals based on token contract, or 12 decimals for ZIL).
+   * @param tokenID
+   * @param amountHuman
+   */
+  public async toUnitless(tokenID: string, amountHuman: string): Promise<string> {
+    const token = await this.getTokenDetails(tokenID)
+    const amountUnitless = new BigNumber(amountHuman).shiftedBy(token.decimals)
+    if (!amountUnitless.integerValue().isEqualTo(amountUnitless)) {
+      throw new Error(`Amount ${amountHuman} for ${token.symbol} has too many decimals, max is ${token.decimals}.`)
+    }
+    return amountUnitless.toString()
+  }
+
+  /**
+   * Converts an amount to it's human representation (with decimals based on token contract, or 12 decimals for ZIL)
+   * from it's unitless representation (integer, no decimals).
+   * @param tokenID
+   * @param amountStr
+   */
+  public async toUnit(tokenID: string, amountStr: string): Promise<string> {
+    const token = await this.getTokenDetails(tokenID)
+    const amountBN = new BigNumber(amountStr)
+    if (!amountBN.integerValue().isEqualTo(amountStr)) {
+      throw new Error(`Amount ${amountStr} for ${token.symbol} cannot have decimals.`)
+    }
+    return amountBN.shiftedBy(token.decimals).toString()
+  }
+
+  /**
    * Gets the expected output amount and slippage for a particular set of ZRC-2 or ZIL tokens at the given input amount.
    *
    * @param tokenInID is the token ID to be sent to Zilswap (sold), which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
    * @param tokenOutID is the token ID to be taken from Zilswap (bought), which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
-   * @param tokenInAmountHuman is the exact amount of tokens to be sent to Zilswap as human representable string (with decimals).
+   * @param tokenInAmountStr is the exact amount of tokens to be sent to Zilswap as a unitless representable string (without decimals).
    */
-  public async getRatesForInput(tokenInID: string, tokenOutID: string, tokenInAmountHuman: string): Promise<Rates> {
+  public async getRatesForInput(tokenInID: string, tokenOutID: string, tokenInAmountStr: string): Promise<Rates> {
     const tokenIn = await this.getTokenDetails(tokenInID)
     const tokenOut = await this.getTokenDetails(tokenOutID)
-    const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
+    const tokenInAmount = unitlessBigNumber(tokenInAmountStr)
     const { epsilonOutput, expectedOutput } = this.getOutputs(tokenIn, tokenOut, tokenInAmount)
 
     return {
-      expectedAmount: expectedOutput.shiftedBy(-tokenOut.decimals),
+      expectedAmount: expectedOutput,
       slippage: epsilonOutput.minus(expectedOutput).times(100).dividedBy(epsilonOutput).minus(0.3),
     }
   }
@@ -217,16 +247,16 @@ export class Zilswap {
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
    * @param tokenOutID is the token ID to be taken from Zilswap (bought), which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
-   * @param tokenOutAmountHuman is the exact amount of tokens to be received from Zilswap as human representable string (with decimals).
+   * @param tokenOutAmountStr is the exact amount of tokens to be received from Zilswap as a unitless representable string (without decimals).
    */
-  public async getRatesForOutput(tokenInID: string, tokenOutID: string, tokenOutAmountHuman: string): Promise<Rates> {
+  public async getRatesForOutput(tokenInID: string, tokenOutID: string, tokenOutAmountStr: string): Promise<Rates> {
     const tokenIn = await this.getTokenDetails(tokenInID)
     const tokenOut = await this.getTokenDetails(tokenOutID)
-    const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
+    const tokenOutAmount = unitlessBigNumber(tokenOutAmountStr)
     const { epsilonInput, expectedInput } = this.getInputs(tokenIn, tokenOut, tokenOutAmount)
 
     return {
-      expectedAmount: expectedInput.shiftedBy(-tokenIn.decimals),
+      expectedAmount: expectedInput,
       slippage: expectedInput.minus(epsilonInput).times(100).dividedBy(expectedInput).minus(0.3),
     }
   }
@@ -242,7 +272,7 @@ export class Zilswap {
    */
   public setDeadlineBlocks(bufferBlocks: number) {
     if (bufferBlocks <= 0) {
-      throw new Error('Buffer blocks must be greater than 0!')
+      throw new Error('Buffer blocks must be greater than 0.')
     }
     this.deadlineBuffer = bufferBlocks
   }
@@ -257,7 +287,7 @@ export class Zilswap {
    */
   public async observeTx(observedTx: ObservedTx) {
     if (!this.observer) {
-      throw new Error('Buffer blocks must be greater than 0!')
+      throw new Error('Buffer blocks must be greater than 0.')
     }
     const release = await this.observerMutex.acquire()
     try {
@@ -284,17 +314,17 @@ export class Zilswap {
    *
    * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...).
-   * @param amount is the required allowance amount the Zilswap contract requires, below which the
-   * `IncreaseAllowance` transition is invoked. Note that this amount is specified with a BN as a
-   * unit-less integer, and not a human string.
+   * @param amountStrOrBN is the required allowance amount the Zilswap contract requires, below which the
+   * `IncreaseAllowance` transition is invoked, as a unitless string or BigNumber.
    *
    * @returns an ObservedTx if IncreaseAllowance was called, null if not.
    */
-  public async approveTokenTransferIfRequired(tokenID: string, amount: BN): Promise<ObservedTx | null> {
+  public async approveTokenTransferIfRequired(tokenID: string, amountStrOrBN: BigNumber | string): Promise<ObservedTx | null> {
     const token = await this.getTokenDetails(tokenID)
     const tokenState = await token.contract.getState()
     const userAllowanceMap = tokenState.allowances_map[this.appState!.currentUser!] || {}
-    const allowance = new BN(userAllowanceMap[this.contractHash] || 0)
+    const allowance = new BigNumber(userAllowanceMap[this.contractHash] || 0)
+    const amount: BigNumber = (typeof amountStrOrBN === 'string') ? unitlessBigNumber(amountStrOrBN) : amountStrOrBN
 
     if (allowance.lt(amount)) {
       console.log('sending increase allowance txn..')
@@ -351,15 +381,15 @@ export class Zilswap {
    *
    * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...).
-   * @param zilsToAddHuman is the exact amount of zilliqas to contribute to the pool in ZILs as a string.
-   * @param tokensToAddHuman is the target amount of tokens to contribute to the pool with decimals as a string.
+   * @param zilsToAddStr is the exact amount of zilliqas to contribute to the pool in ZILs as a unitless string.
+   * @param tokensToAddStr is the target amount of tokens to contribute to the pool as a unitless string.
    * @param maxExchangeRateChange is the maximum allowed exchange rate flucuation
    * given in {@link https://www.investopedia.com/terms/b/basispoint.asp basis points}. Defaults to 200 = 2.00% if not provided.
    */
   public async addLiquidity(
     tokenID: string,
-    zilsToAddHuman: string,
-    tokensToAddHuman: string,
+    zilsToAddStr: string,
+    tokensToAddStr: string,
     maxExchangeRateChange: number = 200
   ): Promise<ObservedTx> {
     // Check logged in
@@ -368,25 +398,23 @@ export class Zilswap {
     // Format token amounts
     const token = await this.getTokenDetails(tokenID)
     const zil = await this.getTokenDetails(ZIL_HASH)
-    const tokensToAdd = new BigNumber(tokensToAddHuman).shiftedBy(token.decimals)
-    const zilsToAdd = new BigNumber(zilsToAddHuman).shiftedBy(zil.decimals)
+    const tokensToAdd = new BigNumber(tokensToAddStr)
+    const zilsToAdd = new BigNumber(zilsToAddStr)
 
     // Calculate allowances
     const pool = this.getPool(token.hash)
-    const { zilReserve } = this.getRawReserves(token)
     const maxTokens = pool ? tokensToAdd.times(BASIS + maxExchangeRateChange).dividedToIntegerBy(BASIS) : tokensToAdd
     let minContribution = new BN(0)
     if (pool) {
       // sqrt(delta) * x = max allowed change in zil reserve
       // min contribution = zil added / max zil reserve * current total contributions
+      const { zilReserve } = pool
       this.validateMaxExchangeRateChange(maxExchangeRateChange)
       const totalContribution = pool.totalContribution
       const numerator = totalContribution.times(zilsToAdd.toString())
       const denominator = new BigNumber(BASIS).plus(maxExchangeRateChange).sqrt().times(zilReserve.toString())
       minContribution = new BN(numerator.dividedToIntegerBy(denominator).toString())
     }
-    // console.log(`zilReserve: ${zilReserve.toString()}`)
-    // console.log(`maxTokens: ${maxTokens.toString()}, minContribution: ${minContribution.toString()}`)
 
     // Check balances
     await this.checkAllowedBalance(token, tokensToAdd)
@@ -464,28 +492,25 @@ export class Zilswap {
     const token = await this.getTokenDetails(tokenID)
     const pool = this.getPool(token.hash)
     if (!pool) {
-      throw new Error('Pool not found!')
+      throw new Error('Pool not found.')
     }
 
     const { zilReserve, tokenReserve, userContribution, contributionPercentage } = pool
     // expected = reserve * (contributionPercentage / 100) * (contributionAmount / userContribution)
     const expectedZilAmount = zilReserve
-      .shiftedBy(12)
       .times(contributionPercentage)
       .times(contributionAmount)
       .dividedBy(userContribution.times(100))
     const expectedTokenAmount = tokenReserve
-      .shiftedBy(token.decimals)
       .times(contributionPercentage)
       .times(contributionAmount)
       .dividedBy(userContribution.times(100))
     const minZilAmount = expectedZilAmount.times(BASIS).dividedToIntegerBy(BASIS + maxExchangeRateChange)
     const minTokenAmount = expectedTokenAmount.times(BASIS).dividedToIntegerBy(BASIS + maxExchangeRateChange)
-    // console.log(JSON.stringify({contributionPercentage, contributionAmount, userContribution, expectedZilAmount, expectedTokenAmount, minZilAmount, minTokenAmount}, null, 4))
 
     // Check contribution
     if (userContribution.lt(contributionAmount)) {
-      throw new Error('Trying to remove more contribution than available!')
+      throw new Error('Trying to remove more contribution than available.')
     }
 
     const deadline = this.deadlineBlock()
@@ -552,21 +577,21 @@ export class Zilswap {
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
    * @param tokenOutID is the token ID to be taken from Zilswap (bought), which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
-   * @param tokenInAmountHuman is the exact amount of tokens to be sent to Zilswap as human representable string (with decimals).
+   * @param tokenInAmountStr is the exact amount of tokens to be sent to Zilswap as a unitless string (without decimals).
    * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to constant product formula) that the
    * transition will allow before reverting.
    */
   public async swapWithExactInput(
     tokenInID: string,
     tokenOutID: string,
-    tokenInAmountHuman: string,
+    tokenInAmountStr: string,
     maxAdditionalSlippage: number = 200
   ): Promise<ObservedTx> {
     this.checkAppLoadedWithUser()
 
     const tokenIn = await this.getTokenDetails(tokenInID)
     const tokenOut = await this.getTokenDetails(tokenOutID)
-    const tokenInAmount = new BigNumber(tokenInAmountHuman).shiftedBy(tokenIn.decimals).integerValue()
+    const tokenInAmount = unitlessBigNumber(tokenInAmountStr)
     const { expectedOutput } = this.getOutputs(tokenIn, tokenOut, tokenInAmount)
     const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
 
@@ -699,21 +724,21 @@ export class Zilswap {
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
    * @param tokenOutID is the token ID to be taken from Zilswap (bought), which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
-   * @param tokenOutAmountHuman is the exact amount of tokens to be received from Zilswap as human representable string (with decimals).
+   * @param tokenOutAmountStr is the exact amount of tokens to be received from Zilswap as a unitless string (withoout decimals).
    * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to constant product formula) that the
    * transition will allow before reverting.
    */
   public async swapWithExactOutput(
     tokenInID: string,
     tokenOutID: string,
-    tokenOutAmountHuman: string,
+    tokenOutAmountStr: string,
     maxAdditionalSlippage: number = 200
   ): Promise<ObservedTx> {
     this.checkAppLoadedWithUser()
 
     const tokenIn = await this.getTokenDetails(tokenInID)
     const tokenOut = await this.getTokenDetails(tokenOutID)
-    const tokenOutAmount = new BigNumber(tokenOutAmountHuman).shiftedBy(tokenOut.decimals).integerValue()
+    const tokenOutAmount = unitlessBigNumber(tokenOutAmountStr)
     const { expectedInput } = this.getInputs(tokenIn, tokenOut, tokenOutAmount)
     const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
 
@@ -840,21 +865,21 @@ export class Zilswap {
 
     if (tokenIn.hash === ZIL_HASH) {
       // zil to zrc2
-      const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
+      const { zilReserve, tokenReserve } = this.getReserves(tokenOut)
       epsilonInput = tokenOutAmount.times(zilReserve).dividedToIntegerBy(tokenReserve)
       expectedInput = this.getInputFor(tokenOutAmount, zilReserve, tokenReserve)
     } else if (tokenOut.hash === ZIL_HASH) {
       // zrc2 to zil
-      const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
+      const { zilReserve, tokenReserve } = this.getReserves(tokenIn)
       epsilonInput = tokenOutAmount.times(tokenReserve).dividedToIntegerBy(zilReserve)
       expectedInput = this.getInputFor(tokenOutAmount, tokenReserve, zilReserve)
     } else {
       // zrc2 to zrc2
-      const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenOut)
+      const { zilReserve: zr1, tokenReserve: tr1 } = this.getReserves(tokenOut)
       const intermediateEpsilonInput = tokenOutAmount.times(zr1).dividedToIntegerBy(tr1)
       const intermediateInput = this.getInputFor(tokenOutAmount, zr1, tr1)
 
-      const { zilReserve: zr2, tokenReserve: tr2 } = this.getRawReserves(tokenIn)
+      const { zilReserve: zr2, tokenReserve: tr2 } = this.getReserves(tokenIn)
       epsilonInput = intermediateEpsilonInput.times(tr2).dividedToIntegerBy(zr2)
       expectedInput = this.getInputFor(intermediateInput, tr2, zr2)
     }
@@ -872,22 +897,22 @@ export class Zilswap {
 
     if (tokenIn.hash === ZIL_HASH) {
       // zil to zrc2
-      const { zilReserve, tokenReserve } = this.getRawReserves(tokenOut)
+      const { zilReserve, tokenReserve } = this.getReserves(tokenOut)
       epsilonOutput = tokenInAmount.times(tokenReserve).dividedToIntegerBy(zilReserve)
       expectedOutput = this.getOutputFor(tokenInAmount, zilReserve, tokenReserve)
     } else if (tokenOut.hash === ZIL_HASH) {
       // zrc2 to zil
-      const { zilReserve, tokenReserve } = this.getRawReserves(tokenIn)
+      const { zilReserve, tokenReserve } = this.getReserves(tokenIn)
       epsilonOutput = tokenInAmount.times(zilReserve).dividedToIntegerBy(tokenReserve)
       expectedOutput = this.getOutputFor(tokenInAmount, tokenReserve, zilReserve)
     } else {
       // zrc2 to zrc2
-      const { zilReserve: zr1, tokenReserve: tr1 } = this.getRawReserves(tokenIn)
+      const { zilReserve: zr1, tokenReserve: tr1 } = this.getReserves(tokenIn)
       const intermediateEpsilonOutput = tokenInAmount.times(zr1).dividedToIntegerBy(tr1)
       const intermediateOutput = this.getOutputFor(tokenInAmount, tr1, zr1)
 
-      const { zilReserve: zr2, tokenReserve: tr2 } = this.getRawReserves(tokenOut)
-      epsilonOutput = intermediateEpsilonOutput.times(tr2).dividedToIntegerBy(zr1)
+      const { zilReserve: zr2, tokenReserve: tr2 } = this.getReserves(tokenOut)
+      epsilonOutput = intermediateEpsilonOutput.times(tr2).dividedToIntegerBy(zr2)
       expectedOutput = this.getOutputFor(intermediateOutput, zr2, tr2)
     }
 
@@ -896,7 +921,7 @@ export class Zilswap {
 
   private getInputFor(outputAmount: BigNumber, inputReserve: BigNumber, outputReserve: BigNumber): BigNumber {
     if (inputReserve.isZero() || outputReserve.isZero()) {
-      throw new Error('Reserve has 0 tokens!')
+      throw new Error('Reserve has 0 tokens.')
     }
     const numerator = inputReserve.times(outputAmount).times(1000)
     const denominator = outputReserve.minus(outputAmount).times(997)
@@ -905,7 +930,7 @@ export class Zilswap {
 
   private getOutputFor(inputAmount: BigNumber, inputReserve: BigNumber, outputReserve: BigNumber): BigNumber {
     if (inputReserve.isZero() || outputReserve.isZero()) {
-      throw new Error('Reserve has 0 tokens!')
+      throw new Error('Reserve has 0 tokens.')
     }
     const inputAfterFee = inputAmount.times(997)
     const numerator = inputAfterFee.times(outputReserve)
@@ -913,7 +938,7 @@ export class Zilswap {
     return numerator.dividedToIntegerBy(denominator)
   }
 
-  private getRawReserves(token: TokenDetails) {
+  private getReserves(token: TokenDetails) {
     const pool = this.getPool(token.hash)
 
     if (!pool) {
@@ -924,10 +949,7 @@ export class Zilswap {
     }
 
     const { zilReserve, tokenReserve } = pool
-    return {
-      zilReserve: zilReserve.shiftedBy(12),
-      tokenReserve: tokenReserve.shiftedBy(token.decimals),
-    }
+    return { zilReserve, tokenReserve }
   }
 
   private subscribeToAppChanges() {
@@ -996,8 +1018,8 @@ export class Zilswap {
     // Get exchange rates
     tokenHashes.forEach(tokenHash => {
       const [x, y] = contractState.pools[tokenHash].arguments
-      const zilReserve = new BigNumber(x).shiftedBy(-12)
-      const tokenReserve = new BigNumber(y).shiftedBy(-state.tokens[tokenHash].decimals)
+      const zilReserve = new BigNumber(x)
+      const tokenReserve = new BigNumber(y)
       const exchangeRate = zilReserve.dividedBy(tokenReserve)
       const totalContribution = new BigNumber(contractState.total_contributions[tokenHash])
       const userContribution = new BigNumber(contractState.balances[tokenHash][state.currentUser || ''] || 0)
@@ -1094,19 +1116,19 @@ export class Zilswap {
       // Check zil balance
       const zilBalance = new BigNumber((await this.zilliqa.blockchain.getBalance(user)).result.balance)
       if (zilBalance.lt(amount)) {
-        throw new Error(`Insufficent ZIL in wallet! Required: ${amount.toString()}, have: ${zilBalance.toString()}`)
+        throw new Error(`Insufficent ZIL in wallet. Required: ${amount.toString()}, have: ${zilBalance.toString()}.`)
       }
     } else {
       // Check zrc-2 balance
       const tokenState = await token.contract.getState()
       const tokenBalance = new BigNumber(tokenState.balances_map[user] || 0)
       if (tokenBalance.lt(amount)) {
-        throw new Error(`Insufficent tokens in wallet! Required: ${amount.toString()}, have: ${tokenBalance.toString()}`)
+        throw new Error(`Insufficent tokens in wallet. Required: ${amount.toString()}, have: ${tokenBalance.toString()}.`)
       }
       const userAllowanceMap = tokenState.allowances_map[user] || {}
       const allowance = new BigNumber(userAllowanceMap[this.contractHash] || 0)
       if (allowance.lt(amount)) {
-        throw new Error(`Tokens need to be approved first! Required: ${amount.toString()}, approved: ${allowance.toString()}`)
+        throw new Error(`Tokens need to be approved first. Required: ${amount.toString()}, approved: ${allowance.toString()}.`)
       }
     }
   }
@@ -1114,12 +1136,12 @@ export class Zilswap {
   private checkAppLoadedWithUser() {
     // Check init
     if (!this.appState) {
-      throw new Error('App state not loaded, call #initialize first!')
+      throw new Error('App state not loaded, call #initialize first.')
     }
 
     // Check user address
     if (this.appState!.currentUser === null) {
-      throw new Error('No wallet connected!')
+      throw new Error('No wallet connected.')
     }
   }
 
@@ -1129,7 +1151,15 @@ export class Zilswap {
 
   private validateMaxExchangeRateChange(maxExchangeRateChange: number) {
     if (maxExchangeRateChange % 1 !== 0 || maxExchangeRateChange >= BASIS || maxExchangeRateChange < 0) {
-      throw new Error(`maxExchangeRateChange: ${maxExchangeRateChange} must be an integer between 0 and ${BASIS + 1}!`)
+      throw new Error(`MaxExchangeRateChange ${maxExchangeRateChange} must be an integer between 0 and ${BASIS + 1}.`)
     }
   }
+}
+
+const unitlessBigNumber = (str: string): BigNumber => {
+  const bn = new BigNumber(str)
+  if (!bn.integerValue().isEqualTo(bn)) {
+    throw new Error(`number ${bn} should be unitless (no decimals).`)
+  }
+  return bn
 }
