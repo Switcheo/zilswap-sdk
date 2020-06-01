@@ -1,6 +1,6 @@
 {
   "name": "zilswap-sdk",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Zilswap TypeScript SDK",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

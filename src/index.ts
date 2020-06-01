@@ -324,7 +324,7 @@ export class Zilswap {
     const tokenState = await token.contract.getState()
     const userAllowanceMap = tokenState.allowances_map[this.appState!.currentUser!] || {}
     const allowance = new BigNumber(userAllowanceMap[this.contractHash] || 0)
-    const amount: BigNumber = (typeof amountStrOrBN === 'string') ? unitlessBigNumber(amountStrOrBN) : amountStrOrBN
+    const amount: BigNumber = typeof amountStrOrBN === 'string' ? unitlessBigNumber(amountStrOrBN) : amountStrOrBN
 
     if (allowance.lt(amount)) {
       console.log('sending increase allowance txn..')
@@ -497,14 +497,8 @@ export class Zilswap {
 
     const { zilReserve, tokenReserve, userContribution, contributionPercentage } = pool
     // expected = reserve * (contributionPercentage / 100) * (contributionAmount / userContribution)
-    const expectedZilAmount = zilReserve
-      .times(contributionPercentage)
-      .times(contributionAmount)
-      .dividedBy(userContribution.times(100))
-    const expectedTokenAmount = tokenReserve
-      .times(contributionPercentage)
-      .times(contributionAmount)
-      .dividedBy(userContribution.times(100))
+    const expectedZilAmount = zilReserve.times(contributionPercentage).times(contributionAmount).dividedBy(userContribution.times(100))
+    const expectedTokenAmount = tokenReserve.times(contributionPercentage).times(contributionAmount).dividedBy(userContribution.times(100))
     const minZilAmount = expectedZilAmount.times(BASIS).dividedToIntegerBy(BASIS + maxExchangeRateChange)
     const minTokenAmount = expectedTokenAmount.times(BASIS).dividedToIntegerBy(BASIS + maxExchangeRateChange)
 
