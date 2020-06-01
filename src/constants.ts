@@ -28,6 +28,7 @@ export const TOKENS: { [key in Networks]: { [key2 in string]: string } } = {
   [Network.TestNet]: {
     ZIL: 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz',
     ITN: 'zil18zlr57uhrmnk4mfkuawgv0un295k970a9s3lnq', // IToken
+    XSGD: 'zil1mtz8603cmgauxrmsp4fpcn0chtpqwjhgnxfrd7', // Xfers SGD
   },
 }
 
