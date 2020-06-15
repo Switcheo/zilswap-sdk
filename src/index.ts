@@ -69,7 +69,7 @@ export type Rates = {
   slippage: BigNumber // in percentage points
 }
 
-type RPCBalanceResponse = { balance: string, nonce: string }
+type RPCBalanceResponse = { balance: string; nonce: string }
 
 export class Zilswap {
   /* Internals */
@@ -994,9 +994,7 @@ export class Zilswap {
 
     subscription.emitter.on(MessageType.NEW_BLOCK, event => {
       // console.log('ws new block: ', JSON.stringify(event, null, 2))
-      this.updateBlockHeight().then(() =>
-        this.updateObservedTxs()
-      )
+      this.updateBlockHeight().then(() => this.updateObservedTxs())
     })
 
     subscription.emitter.on(MessageType.EVENT_LOG, event => {
@@ -1089,7 +1087,7 @@ export class Zilswap {
           // either confirmed or rejected
           const confirmedTxn = await this.zilliqa.blockchain.getTransaction(observedTx.hash)
           const receipt = confirmedTxn.getReceipt()
-          const txStatus = confirmedTxn.isRejected() ? 'rejected' : (receipt?.success ? 'confirmed' : 'rejected')
+          const txStatus = confirmedTxn.isRejected() ? 'rejected' : receipt?.success ? 'confirmed' : 'rejected'
           if (this.observer) this.observer(observedTx, txStatus, receipt)
           removeTxs.push(observedTx.hash)
           return
