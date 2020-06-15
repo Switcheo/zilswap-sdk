@@ -103,8 +103,10 @@ export class Zilswap {
     if (typeof providerOrKey === 'string') {
       this.zilliqa = new Zilliqa(APIS[network])
       this.zilliqa.wallet.addByPrivateKey(providerOrKey)
-    } else {
+    } else if (providerOrKey) {
       this.zilliqa = new Zilliqa(APIS[network], providerOrKey)
+    } else {
+      this.zilliqa = new Zilliqa(APIS[network])
     }
 
     this.contractAddress = CONTRACTS[network]
@@ -320,6 +322,9 @@ export class Zilswap {
    * @returns an ObservedTx if IncreaseAllowance was called, null if not.
    */
   public async approveTokenTransferIfRequired(tokenID: string, amountStrOrBN: BigNumber | string): Promise<ObservedTx | null> {
+    // Check logged in
+    this.checkAppLoadedWithUser()
+
     const token = await this.getTokenDetails(tokenID)
     const tokenState = await token.contract.getState()
     const userAllowanceMap = tokenState.allowances_map[this.appState!.currentUser!] || {}
