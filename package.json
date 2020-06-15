@@ -23,7 +23,7 @@
     "lib/**/*"
   ],
   "dependencies": {
-    "@zilliqa-js/zilliqa": "^0.9.1",
+    "@zilliqa-js/zilliqa": "^0.10.1",
     "async-mutex": "^0.2.2",
     "bignumber.js": "^9.0.0",
     "bn.js": "^5.1.1",

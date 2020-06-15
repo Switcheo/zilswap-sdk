@@ -48,9 +48,11 @@ export type TokenDetails = {
 
 export type AppState = {
   contractState: object
-  currentUser: string | null
   tokens: { [key in string]: TokenDetails }
   pools: { [key in string]?: Pool }
+  currentUser: string | null
+  currentNonce: number | null
+  currentBalance: BigNumber | null
 }
 
 export type Pool = {
@@ -67,16 +69,22 @@ export type Rates = {
   slippage: BigNumber // in percentage points
 }
 
+type RPCBalanceResponse = { balance: string, nonce: string }
+
 export class Zilswap {
   /* Internals */
-  private readonly zilliqa: Zilliqa
+  private readonly zilliqa: Zilliqa // zilliqa sdk
   private readonly tokens: { [key in string]: string } // symbol => hash mappings
-  private deadlineBuffer: number = 10
+  private appState?: AppState // cached blockchain state for dApp and user
+
+  /* Txn observers */
   private subscription: NewEventSubscription | null = null
   private observer: OnUpdate | null = null
   private observerMutex: Mutex
   private observedTxs: ObservedTx[] = []
-  private appState?: AppState
+
+  /* Deadline tracking */
+  private deadlineBuffer: number = 10
   private currentBlock: number = -1
 
   /* Zilswap contract attributes */
@@ -85,7 +93,7 @@ export class Zilswap {
   readonly contractHash: string
 
   /* Transaction attributes */
-  readonly txParams: TxParams = {
+  readonly _txParams: TxParams = {
     version: -1,
     gasPrice: toPositiveQa(1000, units.Units.Li),
     gasLimit: Long.fromNumber(30000),
@@ -114,12 +122,12 @@ export class Zilswap {
     this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
 
     this.tokens = TOKENS[network]
-    this.txParams.version = CHAIN_VERSIONS[network]
+    this._txParams.version = CHAIN_VERSIONS[network]
 
     if (options) {
       if (options.deadlineBuffer && options.deadlineBuffer > 0) this.deadlineBuffer = options.deadlineBuffer
-      if (options.gasPrice && options.gasPrice > 0) this.txParams.gasPrice = toPositiveQa(options.gasPrice, units.Units.Li)
-      if (options.gasLimit && options.gasLimit > 0) this.txParams.gasLimit = Long.fromNumber(options.gasLimit)
+      if (options.gasPrice && options.gasPrice > 0) this._txParams.gasPrice = toPositiveQa(options.gasPrice, units.Units.Li)
+      if (options.gasLimit && options.gasLimit > 0) this._txParams.gasLimit = Long.fromNumber(options.gasLimit)
     }
 
     this.observerMutex = new Mutex()
@@ -135,9 +143,10 @@ export class Zilswap {
   public async initialize(subscription?: OnUpdate, observeTxs: ObservedTx[] = []) {
     this.observedTxs = observeTxs
     if (subscription) this.observer = subscription
-    await this.updateBlockHeight()
     this.subscribeToAppChanges()
+    await this.updateBlockHeight()
     await this.updateAppState()
+    await this.updateBalanceAndNonce()
   }
 
   /**
@@ -187,8 +196,13 @@ export class Zilswap {
   /**
    * Gets the currently observed transactions.
    */
-  public getObservedTxs(): ObservedTx[] {
-    return [...this.observedTxs]
+  public async getObservedTxs(): Promise<ObservedTx[]> {
+    const release = await this.observerMutex.acquire()
+    try {
+      return [...this.observedTxs]
+    } finally {
+      release()
+    }
   }
 
   /**
@@ -270,7 +284,7 @@ export class Zilswap {
    * When a transaction is signed, the deadline block by adding the buffer blocks to
    * the latest confirmed block height.
    *
-   * @params bufferBlocks is the number of blocks to use as buffer for the deadline block.
+   * @param bufferBlocks is the number of blocks to use as buffer for the deadline block.
    */
   public setDeadlineBlocks(bufferBlocks: number) {
     if (bufferBlocks <= 0) {
@@ -285,7 +299,7 @@ export class Zilswap {
    * Calls the `OnUpdate` callback given during `initialize` with the updated ObservedTx
    * when a change has been observed.
    *
-   * @params observedTx is the txn hash of the txn to observe with the deadline block number.
+   * @param observedTx is the txn hash of the txn to observe with the deadline block number.
    */
   public async observeTx(observedTx: ObservedTx) {
     if (!this.observer) {
@@ -349,7 +363,7 @@ export class Zilswap {
         ],
         {
           amount: new BN(0),
-          ...this.txParams,
+          ...this.txParams(),
         },
         true
       )
@@ -454,10 +468,14 @@ export class Zilswap {
       ],
       {
         amount: new BN(zilsToAdd.toString()), // _amount
-        ...this.txParams,
+        ...this.txParams(),
       },
       true
     )
+
+    if (addLiquidityTxn.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
+    }
 
     const observeTxn = {
       hash: addLiquidityTxn.id!,
@@ -546,10 +564,14 @@ export class Zilswap {
       ],
       {
         amount: new BN(0),
-        ...this.txParams,
+        ...this.txParams(),
       },
       true
     )
+
+    if (removeLiquidityTxn.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
+    }
 
     const observeTxn = {
       hash: removeLiquidityTxn.id!,
@@ -623,7 +645,7 @@ export class Zilswap {
         ],
         params: {
           amount: new BN(tokenInAmount.toString()),
-          ...this.txParams,
+          ...this.txParams(),
         },
       }
     } else if (tokenOut.hash === ZIL_HASH) {
@@ -654,7 +676,7 @@ export class Zilswap {
         ],
         params: {
           amount: new BN(0),
-          ...this.txParams,
+          ...this.txParams(),
         },
       }
     } else {
@@ -690,13 +712,17 @@ export class Zilswap {
         ],
         params: {
           amount: new BN(0),
-          ...this.txParams,
+          ...this.txParams(),
         },
       }
     }
 
     console.log('sending swap txn..')
     const swapTxn = await this.contract.callWithoutConfirm(txn.transition, txn.args, txn.params, true)
+
+    if (swapTxn.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
+    }
 
     const observeTxn = {
       hash: swapTxn.id!,
@@ -770,7 +796,7 @@ export class Zilswap {
         ],
         params: {
           amount: new BN(maximumInput.toString()),
-          ...this.txParams,
+          ...this.txParams(),
         },
       }
     } else if (tokenOut.hash === ZIL_HASH) {
@@ -801,7 +827,7 @@ export class Zilswap {
         ],
         params: {
           amount: new BN(0),
-          ...this.txParams,
+          ...this.txParams(),
         },
       }
     } else {
@@ -837,13 +863,17 @@ export class Zilswap {
         ],
         params: {
           amount: new BN(0),
-          ...this.txParams,
+          ...this.txParams(),
         },
       }
     }
 
     console.log('sending swap txn..')
     const swapTxn = await this.contract.callWithoutConfirm(txn.transition, txn.args, txn.params, true)
+
+    if (swapTxn.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
+    }
 
     const observeTxn = {
       hash: swapTxn.id!,
@@ -963,13 +993,15 @@ export class Zilswap {
     })
 
     subscription.emitter.on(MessageType.NEW_BLOCK, event => {
-      console.log('ws new block')
-      this.updateBlockHeight().then(() => this.updateObservedTxs())
+      // console.log('ws new block: ', JSON.stringify(event, null, 2))
+      this.updateBlockHeight().then(() =>
+        this.updateObservedTxs()
+      )
     })
 
     subscription.emitter.on(MessageType.EVENT_LOG, event => {
       if (!event.value) return
-      console.log('ws update: ', JSON.stringify(event))
+      // console.log('ws update: ', JSON.stringify(event, null, 2))
       this.updateAppState()
     })
 
@@ -993,38 +1025,32 @@ export class Zilswap {
     // Get the contract state
     const contractState = await this.contract.getState()
 
-    // New app state
-    const state: AppState = {
-      contractState,
-      currentUser: this.appState?.currentUser || null,
-      tokens: this.appState?.tokens || {},
-      pools: {},
-    }
+    // Get user address
+    const currentUser = this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Get id of tokens that have liquidity pools
     const tokenHashes = Object.keys(contractState.pools)
 
     // Get token details
+    const tokens: { [key in string]: TokenDetails } = {}
     const promises = tokenHashes.map(async hash => {
       const d = await this.getTokenDetails(hash)
-      state.tokens[hash] = d
+      tokens[hash] = d
     })
     await Promise.all(promises)
 
-    // Get user address
-    state.currentUser = this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
-
     // Get exchange rates
+    const pools: { [key in string]: Pool } = {}
     tokenHashes.forEach(tokenHash => {
       const [x, y] = contractState.pools[tokenHash].arguments
       const zilReserve = new BigNumber(x)
       const tokenReserve = new BigNumber(y)
       const exchangeRate = zilReserve.dividedBy(tokenReserve)
       const totalContribution = new BigNumber(contractState.total_contributions[tokenHash])
-      const userContribution = new BigNumber(contractState.balances[tokenHash][state.currentUser || ''] || 0)
+      const userContribution = new BigNumber(contractState.balances[tokenHash][currentUser || ''] || 0)
       const contributionPercentage = userContribution.dividedBy(totalContribution).times(100)
 
-      state.pools[tokenHash] = {
+      pools[tokenHash] = {
         zilReserve,
         tokenReserve,
         exchangeRate,
@@ -1035,7 +1061,22 @@ export class Zilswap {
     })
 
     // Set new state
-    this.appState = state
+    this.appState = {
+      contractState,
+      tokens,
+      pools,
+      currentUser,
+      currentNonce: this.appState?.currentNonce || null,
+      currentBalance: this.appState?.currentBalance || null,
+    }
+  }
+
+  private async updateBalanceAndNonce() {
+    if (this.appState?.currentUser) {
+      const res: RPCBalanceResponse = (await this.zilliqa.blockchain.getBalance(this.appState.currentUser)).result
+      this.appState.currentBalance = new BigNumber(res.balance)
+      this.appState.currentNonce = parseInt(res.nonce, 10)
+    }
   }
 
   private async updateObservedTxs() {
@@ -1047,8 +1088,8 @@ export class Zilswap {
         if (status.result && status.result.confirmed) {
           // either confirmed or rejected
           const confirmedTxn = await this.zilliqa.blockchain.getTransaction(observedTx.hash)
-          const txStatus = confirmedTxn.isRejected() ? 'rejected' : 'confirmed'
           const receipt = confirmedTxn.getReceipt()
+          const txStatus = confirmedTxn.isRejected() ? 'rejected' : (receipt?.success ? 'confirmed' : 'rejected')
           if (this.observer) this.observer(observedTx, txStatus, receipt)
           removeTxs.push(observedTx.hash)
           return
@@ -1064,6 +1105,8 @@ export class Zilswap {
       await Promise.all(promises)
 
       this.observedTxs = this.observedTxs.filter((tx: ObservedTx) => !removeTxs.includes(tx.hash))
+
+      await this.updateBalanceAndNonce()
     } finally {
       release()
     }
@@ -1113,7 +1156,7 @@ export class Zilswap {
 
     if (token.hash === ZIL_HASH) {
       // Check zil balance
-      const zilBalance = new BigNumber((await this.zilliqa.blockchain.getBalance(user)).result.balance)
+      const zilBalance = this.appState!.currentBalance!
       if (zilBalance.lt(amount)) {
         throw new Error(`Insufficent ZIL in wallet. Required: ${amount.toString()}, have: ${zilBalance.toString()}.`)
       }
@@ -1144,8 +1187,19 @@ export class Zilswap {
     }
   }
 
+  private txParams(): TxParams & { nonce: number } {
+    return {
+      nonce: this.nonce(),
+      ...this._txParams,
+    }
+  }
+
   private deadlineBlock(): number {
     return this.currentBlock + this.deadlineBuffer!
+  }
+
+  private nonce(): number {
+    return this.appState!.currentNonce! + this.observedTxs.length + 1
   }
 
   private validateMaxExchangeRateChange(maxExchangeRateChange: number) {
