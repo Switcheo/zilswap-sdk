@@ -69,7 +69,7 @@ export type Rates = {
 }
 
 export type WalletProvider = Omit<
-  Zilliqa & { wallet: Wallet & { net: string, defaultAccount: { base16: string, bech32: string } }  }, // ugly hack for zilpay non-standard API
+  Zilliqa & { wallet: Wallet & { net: string; defaultAccount: { base16: string; bech32: string } } }, // ugly hack for zilpay non-standard API
   'subscriptionBuilder'
 >
 
@@ -987,12 +987,18 @@ export class Zilswap {
     return { zilReserve, tokenReserve }
   }
 
-  private async callContract(contract: Contract, transition: string, args: Value[], params: CallParams, toDs?: boolean): Promise<Transaction> {
+  private async callContract(
+    contract: Contract,
+    transition: string,
+    args: Value[],
+    params: CallParams,
+    toDs?: boolean
+  ): Promise<Transaction> {
     if (this.walletProvider) {
       // ugly hack for zilpay provider
       const txn = await (contract as any).call(transition, args, params, toDs)
       txn.id = txn.ID
-      txn.isRejected = function(this: { errors: any[], exceptions: any[]}) {
+      txn.isRejected = function (this: { errors: any[]; exceptions: any[] }) {
         return this.errors.length > 0 || this.exceptions.length > 0
       }
       return txn
@@ -1044,11 +1050,10 @@ export class Zilswap {
     const contractState = await this.contract.getState()
 
     // Get user address
-    const currentUser = this.walletProvider ?
-      // ugly hack for zilpay provider
-      this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
-      :
-      this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
+    const currentUser = this.walletProvider
+      ? // ugly hack for zilpay provider
+        this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
+      : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Get id of tokens that have liquidity pools
     const tokenHashes = Object.keys(contractState.pools)
