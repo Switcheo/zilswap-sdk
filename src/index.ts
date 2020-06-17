@@ -1,6 +1,5 @@
 import { Zilliqa } from '@zilliqa-js/zilliqa'
-import { Provider } from '@zilliqa-js/core'
-import { TxReceipt as _TxReceipt } from '@zilliqa-js/account'
+import { Transaction, TxReceipt as _TxReceipt } from '@zilliqa-js/account'
 import { Contract, Value, CallParams } from '@zilliqa-js/contract'
 import { fromBech32Address, toBech32Address } from '@zilliqa-js/crypto'
 import { StatusType, MessageType, NewEventSubscription } from '@zilliqa-js/subscriptions'
@@ -69,11 +68,14 @@ export type Rates = {
   slippage: BigNumber // in percentage points
 }
 
+export type WalletProvider = Omit<Zilliqa, 'subscriptionBuilder'>
+
 type RPCBalanceResponse = { balance: string; nonce: string }
 
 export class Zilswap {
   /* Internals */
   private readonly zilliqa: Zilliqa // zilliqa sdk
+  private readonly walletProvider?: WalletProvider // zilpay
   private readonly tokens: { [key in string]: string } // symbol => hash mappings
   private appState?: AppState // cached blockchain state for dApp and user
 
@@ -104,21 +106,22 @@ export class Zilswap {
    * the object is created to begin watching the blockchain's state.
    *
    * @param network the Network to use, either `TestNet` or `MainNet`.
-   * @param providerOrKey a wallet Provider of private key string to be used for signing txns
+   * @param walletProviderOrKey a Provider with Wallet or private key string to be used for signing txns
    * @param options a set of Options that will be used for all txns
    */
-  constructor(readonly network: Network, providerOrKey?: Provider | string, options?: Options) {
-    if (typeof providerOrKey === 'string') {
+  constructor(readonly network: Network, walletProviderOrKey?: WalletProvider | string, options?: Options) {
+    if (typeof walletProviderOrKey === 'string') {
       this.zilliqa = new Zilliqa(APIS[network])
-      this.zilliqa.wallet.addByPrivateKey(providerOrKey)
-    } else if (providerOrKey) {
-      this.zilliqa = new Zilliqa(APIS[network], providerOrKey)
+      this.zilliqa.wallet.addByPrivateKey(walletProviderOrKey)
+    } else if (walletProviderOrKey) {
+      this.zilliqa = new Zilliqa(APIS[network], walletProviderOrKey.provider)
+      this.walletProvider = walletProviderOrKey
     } else {
       this.zilliqa = new Zilliqa(APIS[network])
     }
 
     this.contractAddress = CONTRACTS[network]
-    this.contract = this.zilliqa.contracts.at(this.contractAddress)
+    this.contract = (this.walletProvider || this.zilliqa).contracts.at(this.contractAddress)
     this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
 
     this.tokens = TOKENS[network]
@@ -302,9 +305,6 @@ export class Zilswap {
    * @param observedTx is the txn hash of the txn to observe with the deadline block number.
    */
   public async observeTx(observedTx: ObservedTx) {
-    if (!this.observer) {
-      throw new Error('Buffer blocks must be greater than 0.')
-    }
     const release = await this.observerMutex.acquire()
     try {
       this.observedTxs.push(observedTx)
@@ -347,7 +347,8 @@ export class Zilswap {
 
     if (allowance.lt(amount)) {
       console.log('sending increase allowance txn..')
-      const approveTxn = await token.contract.callWithoutConfirm(
+      const approveTxn = await this.callContract(
+        token.contract,
         'IncreaseAllowance',
         [
           {
@@ -442,7 +443,8 @@ export class Zilswap {
     const deadline = this.deadlineBlock()
 
     console.log('sending add liquidity txn..')
-    const addLiquidityTxn = await this.contract.callWithoutConfirm(
+    const addLiquidityTxn = await this.callContract(
+      this.contract,
       'AddLiquidity',
       [
         {
@@ -533,7 +535,8 @@ export class Zilswap {
     const deadline = this.deadlineBlock()
 
     console.log('sending remove liquidity txn..')
-    const removeLiquidityTxn = await this.contract.callWithoutConfirm(
+    const removeLiquidityTxn = await this.callContract(
+      this.contract,
       'RemoveLiquidity',
       [
         {
@@ -718,7 +721,7 @@ export class Zilswap {
     }
 
     console.log('sending swap txn..')
-    const swapTxn = await this.contract.callWithoutConfirm(txn.transition, txn.args, txn.params, true)
+    const swapTxn = await this.callContract(this.contract, txn.transition, txn.args, txn.params, true)
 
     if (swapTxn.isRejected()) {
       throw new Error('Submitted transaction was rejected.')
@@ -869,7 +872,7 @@ export class Zilswap {
     }
 
     console.log('sending swap txn..')
-    const swapTxn = await this.contract.callWithoutConfirm(txn.transition, txn.args, txn.params, true)
+    const swapTxn = await this.callContract(this.contract, txn.transition, txn.args, txn.params, true)
 
     if (swapTxn.isRejected()) {
       throw new Error('Submitted transaction was rejected.')
@@ -981,6 +984,20 @@ export class Zilswap {
     return { zilReserve, tokenReserve }
   }
 
+  private async callContract(contract: Contract, transition: string, args: Value[], params: CallParams, toDs?: boolean): Promise<Transaction> {
+    if (this.walletProvider) {
+      // ugly hack for zilpay provider
+      const txn = await (contract as any).call(transition, args, params, toDs)
+      txn.id = txn.ID
+      txn.isRejected = function(this: { errors: any[], exceptions: any[]}) {
+        return this.errors.length > 0 || this.exceptions.length > 0
+      }
+      return txn
+    } else {
+      return await contract.callWithoutConfirm(transition, args, params, toDs)
+    }
+  }
+
   private subscribeToAppChanges() {
     const subscription = this.zilliqa.subscriptionBuilder.buildEventLogSubscriptions(WSS[this.network], {
       addresses: [this.contractHash],
@@ -1024,7 +1041,11 @@ export class Zilswap {
     const contractState = await this.contract.getState()
 
     // Get user address
-    const currentUser = this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
+    const currentUser = this.walletProvider ?
+      // ugly hack for zilpay provider
+      (this.walletProvider.wallet.defaultAccount as any).base16.toLowerCase()
+      :
+      this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Get id of tokens that have liquidity pools
     const tokenHashes = Object.keys(contractState.pools)
@@ -1132,7 +1153,7 @@ export class Zilswap {
 
     if (!!this.appState?.tokens[hash]) return this.appState.tokens[hash]
 
-    const contract = this.zilliqa.contracts.at(address)
+    const contract = (this.walletProvider || this.zilliqa).contracts.at(address)
 
     if (hash === ZIL_HASH) {
       return { contract, address, hash, symbol: 'ZIL', decimals: 12 }
