@@ -1,5 +1,5 @@
 import { Zilliqa } from '@zilliqa-js/zilliqa'
-import { Transaction, TxReceipt as _TxReceipt } from '@zilliqa-js/account'
+import { Wallet, Transaction, TxReceipt as _TxReceipt } from '@zilliqa-js/account'
 import { Contract, Value, CallParams } from '@zilliqa-js/contract'
 import { fromBech32Address, toBech32Address } from '@zilliqa-js/crypto'
 import { StatusType, MessageType, NewEventSubscription } from '@zilliqa-js/subscriptions'
@@ -68,7 +68,10 @@ export type Rates = {
   slippage: BigNumber // in percentage points
 }
 
-export type WalletProvider = Omit<Zilliqa, 'subscriptionBuilder'>
+export type WalletProvider = Omit<
+  Zilliqa & { wallet: Wallet & { net: string, defaultAccount: { base16: string, bech32: string } }  }, // ugly hack for zilpay non-standard API
+  'subscriptionBuilder'
+>
 
 type RPCBalanceResponse = { balance: string; nonce: string }
 
@@ -1043,7 +1046,7 @@ export class Zilswap {
     // Get user address
     const currentUser = this.walletProvider ?
       // ugly hack for zilpay provider
-      (this.walletProvider.wallet.defaultAccount as any).base16.toLowerCase()
+      this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
       :
       this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
@@ -1203,6 +1206,16 @@ export class Zilswap {
     // Check user address
     if (this.appState!.currentUser === null) {
       throw new Error('No wallet connected.')
+    }
+
+    // Check wallet account
+    if (this.walletProvider && this.walletProvider.wallet.defaultAccount.base16.toLowerCase() !== this.appState!.currentUser) {
+      throw new Error('Wallet user has changed, please reconnect.')
+    }
+
+    // Check network is correct
+    if (this.walletProvider && this.walletProvider.wallet.net.toLowerCase() !== this.network.toLowerCase()) {
+      throw new Error('Wallet is connected to wrong network.')
     }
   }
 
