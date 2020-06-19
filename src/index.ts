@@ -217,8 +217,8 @@ export class Zilswap {
    * @param tokenID
    * @param amountHuman
    */
-  public async toUnitless(tokenID: string, amountHuman: string): Promise<string> {
-    const token = await this.getTokenDetails(tokenID)
+  public toUnitless(tokenID: string, amountHuman: string): string {
+    const token = this.getTokenDetails(tokenID)
     const amountUnitless = new BigNumber(amountHuman).shiftedBy(token.decimals)
     if (!amountUnitless.integerValue().isEqualTo(amountUnitless)) {
       throw new Error(`Amount ${amountHuman} for ${token.symbol} has too many decimals, max is ${token.decimals}.`)
@@ -232,8 +232,8 @@ export class Zilswap {
    * @param tokenID
    * @param amountStr
    */
-  public async toUnit(tokenID: string, amountStr: string): Promise<string> {
-    const token = await this.getTokenDetails(tokenID)
+  public toUnit(tokenID: string, amountStr: string): string {
+    const token = this.getTokenDetails(tokenID)
     const amountBN = new BigNumber(amountStr)
     if (!amountBN.integerValue().isEqualTo(amountStr)) {
       throw new Error(`Amount ${amountStr} for ${token.symbol} cannot have decimals.`)
@@ -250,9 +250,9 @@ export class Zilswap {
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
    * @param tokenInAmountStr is the exact amount of tokens to be sent to Zilswap as a unitless representable string (without decimals).
    */
-  public async getRatesForInput(tokenInID: string, tokenOutID: string, tokenInAmountStr: string): Promise<Rates> {
-    const tokenIn = await this.getTokenDetails(tokenInID)
-    const tokenOut = await this.getTokenDetails(tokenOutID)
+  public getRatesForInput(tokenInID: string, tokenOutID: string, tokenInAmountStr: string): Rates {
+    const tokenIn = this.getTokenDetails(tokenInID)
+    const tokenOut = this.getTokenDetails(tokenOutID)
     const tokenInAmount = unitlessBigNumber(tokenInAmountStr)
     const { epsilonOutput, expectedOutput } = this.getOutputs(tokenIn, tokenOut, tokenInAmount)
 
@@ -271,9 +271,9 @@ export class Zilswap {
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
    * @param tokenOutAmountStr is the exact amount of tokens to be received from Zilswap as a unitless representable string (without decimals).
    */
-  public async getRatesForOutput(tokenInID: string, tokenOutID: string, tokenOutAmountStr: string): Promise<Rates> {
-    const tokenIn = await this.getTokenDetails(tokenInID)
-    const tokenOut = await this.getTokenDetails(tokenOutID)
+  public getRatesForOutput(tokenInID: string, tokenOutID: string, tokenOutAmountStr: string): Rates {
+    const tokenIn = this.getTokenDetails(tokenInID)
+    const tokenOut = this.getTokenDetails(tokenOutID)
     const tokenOutAmount = unitlessBigNumber(tokenOutAmountStr)
     const { epsilonInput, expectedInput } = this.getInputs(tokenIn, tokenOut, tokenOutAmount)
 
@@ -342,7 +342,7 @@ export class Zilswap {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    const token = await this.getTokenDetails(tokenID)
+    const token = this.getTokenDetails(tokenID)
     const tokenState = await token.contract.getState()
     const userAllowanceMap = tokenState.allowances_map[this.appState!.currentUser!] || {}
     const allowance = new BigNumber(userAllowanceMap[this.contractHash] || 0)
@@ -419,8 +419,8 @@ export class Zilswap {
     this.checkAppLoadedWithUser()
 
     // Format token amounts
-    const token = await this.getTokenDetails(tokenID)
-    const zil = await this.getTokenDetails(ZIL_HASH)
+    const token = this.getTokenDetails(tokenID)
+    const zil = this.getTokenDetails(ZIL_HASH)
     const tokensToAdd = new BigNumber(tokensToAddStr)
     const zilsToAdd = new BigNumber(zilsToAddStr)
 
@@ -517,7 +517,7 @@ export class Zilswap {
     this.validateMaxExchangeRateChange(maxExchangeRateChange)
 
     // Calculate contribution
-    const token = await this.getTokenDetails(tokenID)
+    const token = this.getTokenDetails(tokenID)
     const pool = this.getPool(token.hash)
     if (!pool) {
       throw new Error('Pool not found.')
@@ -616,8 +616,8 @@ export class Zilswap {
   ): Promise<ObservedTx> {
     this.checkAppLoadedWithUser()
 
-    const tokenIn = await this.getTokenDetails(tokenInID)
-    const tokenOut = await this.getTokenDetails(tokenOutID)
+    const tokenIn = this.getTokenDetails(tokenInID)
+    const tokenOut = this.getTokenDetails(tokenOutID)
     const tokenInAmount = unitlessBigNumber(tokenInAmountStr)
     const { expectedOutput } = this.getOutputs(tokenIn, tokenOut, tokenInAmount)
     const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
@@ -767,8 +767,8 @@ export class Zilswap {
   ): Promise<ObservedTx> {
     this.checkAppLoadedWithUser()
 
-    const tokenIn = await this.getTokenDetails(tokenInID)
-    const tokenOut = await this.getTokenDetails(tokenOutID)
+    const tokenIn = this.getTokenDetails(tokenInID)
+    const tokenOut = this.getTokenDetails(tokenOutID)
     const tokenOutAmount = unitlessBigNumber(tokenOutAmountStr)
     const { expectedInput } = this.getInputs(tokenIn, tokenOut, tokenOutAmount)
     const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
@@ -1060,8 +1060,8 @@ export class Zilswap {
 
     // Get token details
     const tokens: { [key in string]: TokenDetails } = {}
-    const promises = tokenHashes.map(async hash => {
-      const d = await this.getTokenDetails(hash)
+    const promises = tokenHashes.concat([ZIL_HASH]).map(async hash => {
+      const d = await this.fetchTokenDetails(hash)
       tokens[hash] = d
     })
     await Promise.all(promises)
@@ -1156,7 +1156,18 @@ export class Zilswap {
     return { hash, address }
   }
 
-  private async getTokenDetails(id: string): Promise<TokenDetails> {
+  private getTokenDetails(id: string): TokenDetails {
+    const { hash } = this.getTokenAddresses(id)
+    if (!this.appState) {
+      throw new Error('App state not loaded, call #initialize first.')
+    }
+    if (!this.appState.tokens[hash]) {
+      throw new Error(`Could not find token details for ${id}`)
+    }
+    return this.appState.tokens[hash]
+  }
+
+  private async fetchTokenDetails(id: string): Promise<TokenDetails> {
     const { hash, address } = this.getTokenAddresses(id)
 
     if (!!this.appState?.tokens[hash]) return this.appState.tokens[hash]
