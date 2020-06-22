@@ -185,7 +185,7 @@ const waitForTx = async () => {
   console.log('test starting..')
   try {
     await test()
-    // await test2()
+    await test2()
     console.log('test done!')
   } catch (err) {
     console.error(err)

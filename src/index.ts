@@ -264,6 +264,7 @@ export class Zilswap {
 
   /**
    * Gets the expected input amount and slippage for a particular set of ZRC-2 or ZIL tokens at the given output amount.
+   * Returns NaN values if the given output amount is larger than the pool reserve.
    *
    * @param tokenInID is the token ID to be sent to Zilswap (sold), which can be given by either it's symbol (defined in constants.ts),
    * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
@@ -957,6 +958,9 @@ export class Zilswap {
   private getInputFor(outputAmount: BigNumber, inputReserve: BigNumber, outputReserve: BigNumber): BigNumber {
     if (inputReserve.isZero() || outputReserve.isZero()) {
       throw new Error('Reserve has 0 tokens.')
+    }
+    if (outputReserve.lte(outputAmount)) {
+      return new BigNumber('NaN')
     }
     const numerator = inputReserve.times(outputAmount).times(1000)
     const denominator = outputReserve.minus(outputAmount).times(997)
