@@ -318,6 +318,22 @@ export class Zilswap {
   }
 
   /**
+   * Adds a token which is not already loaded by the default tokens file to the SDK.
+   * @param tokenAddress is the token address in base16 (0x...) or bech32 (zil...) form.
+   *
+   * @returns true if the token could be found, or false otherwise.
+   */
+  public async addToken(tokenAddress: string): Promise<boolean> {
+    try {
+      await this.fetchTokenDetails(tokenAddress)
+      this.getTokenDetails(tokenAddress)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * Approves allowing the Zilswap contract to transfer ZRC-2 token with `tokenID`, if the current
    * approved allowance is less than `amount`. If the allowance is sufficient, this method is a no-op.
    *
@@ -345,7 +361,7 @@ export class Zilswap {
 
     const token = this.getTokenDetails(tokenID)
     const tokenState = await token.contract.getState()
-    const userAllowanceMap = tokenState.allowances_map[this.appState!.currentUser!] || {}
+    const userAllowanceMap = tokenState.allowances[this.appState!.currentUser!] || {}
     const allowance = new BigNumber(userAllowanceMap[this.contractHash] || 0)
     const amount: BigNumber = typeof amountStrOrBN === 'string' ? unitlessBigNumber(amountStrOrBN) : amountStrOrBN
 
@@ -1060,11 +1076,13 @@ export class Zilswap {
       : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Get id of tokens that have liquidity pools
-    const tokenHashes = Object.keys(contractState.pools)
+    const poolTokenHashes = Object.keys(contractState.pools)
+    const defaultTokenHashes = Object.values(this.tokens).map((bech32: string) => this.getTokenAddresses(bech32).hash)
+    const tokenHashes = poolTokenHashes.concat(defaultTokenHashes.filter((item: string) => poolTokenHashes.indexOf(item) < 0))
 
     // Get token details
     const tokens: { [key in string]: TokenDetails } = {}
-    const promises = tokenHashes.concat([ZIL_HASH]).map(async hash => {
+    const promises = tokenHashes.map(async hash => {
       const d = await this.fetchTokenDetails(hash)
       tokens[hash] = d
     })
@@ -1073,6 +1091,8 @@ export class Zilswap {
     // Get exchange rates
     const pools: { [key in string]: Pool } = {}
     tokenHashes.forEach(tokenHash => {
+      if (!contractState.pools[tokenHash]) return
+
       const [x, y] = contractState.pools[tokenHash].arguments
       const zilReserve = new BigNumber(x)
       const tokenReserve = new BigNumber(y)
@@ -1205,11 +1225,11 @@ export class Zilswap {
     } else {
       // Check zrc-2 balance
       const tokenState = await token.contract.getState()
-      const tokenBalance = new BigNumber(tokenState.balances_map[user] || 0)
+      const tokenBalance = new BigNumber(tokenState.balances[user] || 0)
       if (tokenBalance.lt(amount)) {
         throw new Error(`Insufficent tokens in wallet. Required: ${amount.toString()}, have: ${tokenBalance.toString()}.`)
       }
-      const userAllowanceMap = tokenState.allowances_map[user] || {}
+      const userAllowanceMap = tokenState.allowances[user] || {}
       const allowance = new BigNumber(userAllowanceMap[this.contractHash] || 0)
       if (allowance.lt(amount)) {
         throw new Error(`Tokens need to be approved first. Required: ${amount.toString()}, approved: ${allowance.toString()}.`)
