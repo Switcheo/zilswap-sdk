@@ -1098,7 +1098,8 @@ export class Zilswap {
       const tokenReserve = new BigNumber(y)
       const exchangeRate = zilReserve.dividedBy(tokenReserve)
       const totalContribution = new BigNumber(contractState.total_contributions[tokenHash])
-      const userContribution = new BigNumber(contractState.balances[tokenHash][currentUser || ''] || 0)
+      const poolBalances = contractState.balances[tokenHash]
+      const userContribution = new BigNumber(poolBalances && currentUser ? poolBalances[currentUser] || 0 : 0)
       const contributionPercentage = userContribution.dividedBy(totalContribution).times(100)
 
       pools[tokenHash] = {
