@@ -14,65 +14,65 @@ const test = async () => {
 
   try {
     // approve token
-    const tx0 = await zilswap.approveTokenTransferIfRequired('ITN', await zilswap.toUnitless('ITN', '100'))
+    const tx0 = await zilswap.approveTokenTransferIfRequired('SWTH', await zilswap.toUnitless('SWTH', '100'))
     if (tx0) {
       console.log(`\ntx hash: ${tx0.hash}\n`)
       await waitForTx()
     }
 
     // add liquidity
-    const tx1 = await zilswap.addLiquidity('ITN', await zilswap.toUnitless('ZIL', '4'), await zilswap.toUnitless('ITN', '4'))
+    const tx1 = await zilswap.addLiquidity('SWTH', await zilswap.toUnitless('ZIL', '4'), await zilswap.toUnitless('SWTH', '4'))
     console.log(`\ntx hash: ${tx1.hash}\n`)
     // await waitForTx()
 
     // remove liquidity
-    const pool = zilswap.getPool('ITN')
+    const pool = zilswap.getPool('SWTH')
     const remove25Percent = pool!.userContribution.dividedToIntegerBy(4).toString()
-    const tx2 = await zilswap.removeLiquidity('ITN', remove25Percent)
+    const tx2 = await zilswap.removeLiquidity('SWTH', remove25Percent)
     console.log(`\ntx hash: ${tx2.hash}\n`)
     // await waitForTx()
 
     // constants
-    const someITN = await zilswap.toUnitless('ITN', '0.1')
+    const someSWTH = await zilswap.toUnitless('SWTH', '0.1')
     const someZIL = await zilswap.toUnitless('ZIL', '0.1')
 
     // get expected rates for exact input
-    const r1 = await zilswap.getRatesForInput('ITN', 'ZIL', someITN)
-    console.log('\n0.1 ITN -> ZIL\n')
+    const r1 = await zilswap.getRatesForInput('SWTH', 'ZIL', someSWTH)
+    console.log('\n0.1 SWTH -> ZIL\n')
     console.log(JSON.stringify(r1, null, 2))
 
     // swap exact zrc2 to zil
-    const tx3 = await zilswap.swapWithExactInput('ITN', 'ZIL', someITN)
+    const tx3 = await zilswap.swapWithExactInput('SWTH', 'ZIL', someSWTH)
     console.log(`\ntx hash: ${tx3.hash}\n`)
     // await waitForTx()
 
     // get expected rates for exact input
-    const r2 = await zilswap.getRatesForInput('ZIL', 'ITN', someZIL)
-    console.log('\n0.1 ZIL -> ITN\n')
+    const r2 = await zilswap.getRatesForInput('ZIL', 'SWTH', someZIL)
+    console.log('\n0.1 ZIL -> SWTH\n')
     console.log(JSON.stringify(r2, null, 2))
 
     // swap exact zil to zrc2
-    const tx4 = await zilswap.swapWithExactInput('ZIL', 'ITN', someZIL)
+    const tx4 = await zilswap.swapWithExactInput('ZIL', 'SWTH', someZIL)
     console.log(`\ntx hash: ${tx4.hash}\n`)
     // await waitForTx()
 
     // get expected rates for exact output
-    const r3 = await zilswap.getRatesForOutput('ITN', 'ZIL', someZIL)
-    console.log('\nITN -> 0.1 ZIL\n')
+    const r3 = await zilswap.getRatesForOutput('SWTH', 'ZIL', someZIL)
+    console.log('\nSWTH -> 0.1 ZIL\n')
     console.log(JSON.stringify(r3, null, 2))
 
     // swap zrc2 to exact zil
-    const tx5 = await zilswap.swapWithExactOutput('ITN', 'ZIL', someZIL)
+    const tx5 = await zilswap.swapWithExactOutput('SWTH', 'ZIL', someZIL)
     console.log(`\ntx hash: ${tx5.hash}\n`)
     await waitForTx()
 
     // get expected rates for exact output
-    const r4 = await zilswap.getRatesForOutput('ZIL', 'ITN', someITN)
-    console.log('\nZIL -> 0.1 ITN\n')
+    const r4 = await zilswap.getRatesForOutput('ZIL', 'SWTH', someSWTH)
+    console.log('\nZIL -> 0.1 SWTH\n')
     console.log(JSON.stringify(r4, null, 2))
 
     // swap zil to exact zrc2
-    const tx6 = await zilswap.swapWithExactOutput('ZIL', 'ITN', someITN)
+    const tx6 = await zilswap.swapWithExactOutput('ZIL', 'SWTH', someSWTH)
     console.log(`\ntx hash: ${tx6.hash}\n`)
     await waitForTx()
   } finally {
@@ -109,46 +109,46 @@ const test2 = async () => {
     await waitForTx()
 
     // constants
-    const someITN = await zilswap.toUnitless('ITN', '0.1')
+    const someSWTH = await zilswap.toUnitless('SWTH', '0.1')
     const someXSGD = await zilswap.toUnitless('XSGD', '0.1')
 
     // get expected rates for exact input
-    const r1 = await zilswap.getRatesForInput('ITN', 'XSGD', someITN)
-    console.log('\n0.1 ITN -> XSGD\n')
+    const r1 = await zilswap.getRatesForInput('SWTH', 'XSGD', someSWTH)
+    console.log('\n0.1 SWTH -> XSGD\n')
     console.log(JSON.stringify(r1, null, 2))
 
     // swap exact zrc2 to zrc2
-    const tx3 = await zilswap.swapWithExactInput('ITN', 'XSGD', someITN)
+    const tx3 = await zilswap.swapWithExactInput('SWTH', 'XSGD', someSWTH)
     console.log(`\ntx hash: ${tx3.hash}\n`)
     await waitForTx()
 
     // get expected rates for exact input
-    const r2 = await zilswap.getRatesForInput('XSGD', 'ITN', someXSGD)
-    console.log('\n0.1 XSGD -> ITN\n')
+    const r2 = await zilswap.getRatesForInput('XSGD', 'SWTH', someXSGD)
+    console.log('\n0.1 XSGD -> SWTH\n')
     console.log(JSON.stringify(r2, null, 2))
 
     // swap exact zrc2 to zrc2
-    const tx4 = await zilswap.swapWithExactInput('XSGD', 'ITN', someXSGD)
+    const tx4 = await zilswap.swapWithExactInput('XSGD', 'SWTH', someXSGD)
     console.log(`\ntx hash: ${tx4.hash}\n`)
     await waitForTx()
 
     // get expected rates for exact output
-    const r3 = await zilswap.getRatesForOutput('ITN', 'XSGD', someXSGD)
-    console.log('\nITN -> 0.1 XSGD\n')
+    const r3 = await zilswap.getRatesForOutput('SWTH', 'XSGD', someXSGD)
+    console.log('\nSWTH -> 0.1 XSGD\n')
     console.log(JSON.stringify(r3, null, 2))
 
     // swap zrc2 to exact zrc2
-    const tx5 = await zilswap.swapWithExactOutput('ITN', 'XSGD', someXSGD)
+    const tx5 = await zilswap.swapWithExactOutput('SWTH', 'XSGD', someXSGD)
     console.log(`\ntx hash: ${tx5.hash}\n`)
     await waitForTx()
 
     // get expected rates for exact output
-    const r4 = await zilswap.getRatesForOutput('XSGD', 'ITN', someITN)
-    console.log('\nXSGD -> 0.1 ITN\n')
+    const r4 = await zilswap.getRatesForOutput('XSGD', 'SWTH', someSWTH)
+    console.log('\nXSGD -> 0.1 SWTH\n')
     console.log(JSON.stringify(r4, null, 2))
 
     // swap zrc2 to exact zrc2
-    const tx6 = await zilswap.swapWithExactOutput('XSGD', 'ITN', someITN)
+    const tx6 = await zilswap.swapWithExactOutput('XSGD', 'SWTH', someSWTH)
     console.log(`\ntx hash: ${tx6.hash}\n`)
     await waitForTx()
   } finally {
