@@ -90,14 +90,14 @@ const test2 = async () => {
 
   try {
     // approve token
-    const tx0 = await zilswap.approveTokenTransferIfRequired('XSGD', await zilswap.toUnitless('XSGD', '100'))
+    const tx0 = await zilswap.approveTokenTransferIfRequired('XSGD', await zilswap.toUnitless('XSGD', '100000'))
     if (tx0) {
       console.log(`\ntx hash: ${tx0.hash}\n`)
       await waitForTx()
     }
 
     // add liquidity
-    const tx1 = await zilswap.addLiquidity('XSGD', await zilswap.toUnitless('ZIL', '8'), await zilswap.toUnitless('XSGD', '1'))
+    const tx1 = await zilswap.addLiquidity('XSGD', await zilswap.toUnitless('ZIL', '100000'), await zilswap.toUnitless('XSGD', '10000'))
     console.log(`\ntx hash: ${tx1.hash}\n`)
     await waitForTx()
 
@@ -184,8 +184,8 @@ const waitForTx = async () => {
 ;(async () => {
   console.log('test starting..')
   try {
-    await test()
-    // await test2()
+    // await test()
+    await test2()
     console.log('test done!')
   } catch (err) {
     console.error(err)
