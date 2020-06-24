@@ -362,8 +362,9 @@ export class Zilswap {
 
     const token = this.getTokenDetails(tokenID)
     const tokenState = await token.contract.getState()
-    const userAllowanceMap = tokenState.allowances[this.appState!.currentUser!] || {}
-    const allowance = new BigNumber(userAllowanceMap[this.contractHash] || 0)
+    const allowances = tokenState.allowances || tokenState.allowances_map
+    const userAllowances = allowances[this.appState!.currentUser!] || {}
+    const allowance = new BigNumber(userAllowances[this.contractHash] || 0)
     const amount: BigNumber = typeof amountStrOrBN === 'string' ? unitlessBigNumber(amountStrOrBN) : amountStrOrBN
 
     if (allowance.lt(amount)) {
@@ -1228,12 +1229,14 @@ export class Zilswap {
     } else {
       // Check zrc-2 balance
       const tokenState = await token.contract.getState()
-      const tokenBalance = new BigNumber(tokenState.balances[user] || 0)
+      const balances = tokenState.balances || tokenState.balances_map
+      const tokenBalance = new BigNumber(balances[user] || 0)
       if (tokenBalance.lt(amount)) {
         throw new Error(`Insufficent tokens in wallet. Required: ${amount.toString()}, have: ${tokenBalance.toString()}.`)
       }
-      const userAllowanceMap = tokenState.allowances[user] || {}
-      const allowance = new BigNumber(userAllowanceMap[this.contractHash] || 0)
+      const allowances = tokenState.allowances || tokenState.allowances_map
+      const userAllowances = allowances[user!] || {}
+      const allowance = new BigNumber(userAllowances[this.contractHash] || 0)
       if (allowance.lt(amount)) {
         throw new Error(`Tokens need to be approved first. Required: ${amount.toString()}, approved: ${allowance.toString()}.`)
       }
