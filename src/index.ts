@@ -239,7 +239,7 @@ export class Zilswap {
     if (!amountBN.integerValue().isEqualTo(amountStr)) {
       throw new Error(`Amount ${amountStr} for ${token.symbol} cannot have decimals.`)
     }
-    return amountBN.shiftedBy(token.decimals).toString()
+    return amountBN.shiftedBy(-token.decimals).toString()
   }
 
   /**
@@ -368,36 +368,44 @@ export class Zilswap {
     const amount: BigNumber = typeof amountStrOrBN === 'string' ? unitlessBigNumber(amountStrOrBN) : amountStrOrBN
 
     if (allowance.lt(amount)) {
-      console.log('sending increase allowance txn..')
-      const approveTxn = await this.callContract(
-        token.contract,
-        'IncreaseAllowance',
-        [
+      try {
+        console.log('sending increase allowance txn..')
+        const approveTxn = await this.callContract(
+          token.contract,
+          'IncreaseAllowance',
+          [
+            {
+              vname: 'spender',
+              type: 'ByStr20',
+              value: this.contractHash,
+            },
+            {
+              vname: 'amount',
+              type: 'Uint128',
+              value: tokenState.total_supply.toString(),
+            },
+          ],
           {
-            vname: 'spender',
-            type: 'ByStr20',
-            value: this.contractHash,
+            amount: new BN(0),
+            ...this.txParams(),
           },
-          {
-            vname: 'amount',
-            type: 'Uint128',
-            value: tokenState.total_supply.toString(),
-          },
-        ],
-        {
-          amount: new BN(0),
-          ...this.txParams(),
-        },
-        true
-      )
+          true
+        )
 
-      const observeTxn = {
-        hash: approveTxn.id!,
-        deadline: this.deadlineBlock(),
+        const observeTxn = {
+          hash: approveTxn.id!,
+          deadline: this.deadlineBlock(),
+        }
+        await this.observeTx(observeTxn)
+
+        return observeTxn
+      } catch (err) {
+        if (err.message === 'Could not get balance') {
+          throw new Error('No ZIL to pay for transaction.')
+        } else {
+          throw err
+        }
       }
-      await this.observeTx(observeTxn)
-
-      return observeTxn
     }
 
     return null
@@ -1127,9 +1135,22 @@ export class Zilswap {
 
   private async updateBalanceAndNonce() {
     if (this.appState?.currentUser) {
-      const res: RPCBalanceResponse = (await this.zilliqa.blockchain.getBalance(this.appState.currentUser)).result
-      this.appState.currentBalance = new BigNumber(res.balance)
-      this.appState.currentNonce = parseInt(res.nonce, 10)
+      try {
+        const res: RPCBalanceResponse = (await this.zilliqa.blockchain.getBalance(this.appState.currentUser)).result
+        if (!res) {
+          this.appState.currentBalance = new BigNumber(0)
+          this.appState.currentNonce = 0
+          return
+        }
+        this.appState.currentBalance = new BigNumber(res.balance)
+        this.appState.currentNonce = parseInt(res.nonce, 10)
+      } catch (err) {
+        // ugly hack for zilpay non-standard API
+        if (err.message === 'Account is not created') {
+          this.appState.currentBalance = new BigNumber(0)
+          this.appState.currentNonce = 0
+        }
+      }
     }
   }
 
