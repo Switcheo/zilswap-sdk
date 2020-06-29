@@ -1224,7 +1224,9 @@ export class Zilswap {
       // Check zil balance
       const zilBalance = this.appState!.currentBalance!
       if (zilBalance.lt(amount)) {
-        throw new Error(`Insufficent ZIL in wallet. Required: ${amount.toString()}, have: ${zilBalance.toString()}.`)
+        throw new Error(`Insufficent ZIL in wallet.
+        Required: ${this.toUnit(token.hash, amount.toString()).toString()},
+        have: ${this.toUnit(token.hash, zilBalance.toString()).toString()}.`)
       }
     } else {
       // Check zrc-2 balance
@@ -1232,13 +1234,17 @@ export class Zilswap {
       const balances = tokenState.balances || tokenState.balances_map
       const tokenBalance = new BigNumber(balances[user] || 0)
       if (tokenBalance.lt(amount)) {
-        throw new Error(`Insufficent tokens in wallet. Required: ${amount.toString()}, have: ${tokenBalance.toString()}.`)
+        throw new Error(`Insufficent tokens in wallet.
+        Required: ${this.toUnit(token.hash, amount.toString()).toString()},
+        have: ${this.toUnit(token.hash, tokenBalance.toString()).toString()}.`)
       }
       const allowances = tokenState.allowances || tokenState.allowances_map
       const userAllowances = allowances[user!] || {}
       const allowance = new BigNumber(userAllowances[this.contractHash] || 0)
       if (allowance.lt(amount)) {
-        throw new Error(`Tokens need to be approved first. Required: ${amount.toString()}, approved: ${allowance.toString()}.`)
+        throw new Error(`Tokens need to be approved first.
+        Required: ${this.toUnit(token.hash, amount.toString()).toString()},
+        approved: ${this.toUnit(token.hash, allowance.toString()).toString()}.`)
       }
     }
   }
