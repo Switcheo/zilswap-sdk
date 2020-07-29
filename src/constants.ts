@@ -28,7 +28,7 @@ export const TOKENS: { [key in Networks]: { [key2 in string]: string } } = {
   [Network.TestNet]: {
     ZIL: 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz',
     SWTH: 'zil1d6yfgycu9ythxy037hkt3phc3jf7h6rfzuft0s', // Switcheo Test Token
-    XSGD: 'zil1lh888mfa6rctmf375umyv8g8wvld8e0vex99h9', // Xfers SGD Fake
+    XSGD: 'zil10a9z324aunx2qj64984vke93gjdnzlnl5exygv', // Xfers SGD
   },
 }
 
