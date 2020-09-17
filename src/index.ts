@@ -46,8 +46,18 @@ export type TokenDetails = {
   whitelisted: boolean // is in default token list
 }
 
+export type ContractState = {
+  _balance: string,
+  balances: { [key in string]?: { [key2 in string]?: string } },
+  output_after_fee: string,
+  owner: string,
+  pending_owner: string,
+  pools: { [key in string]?: { arguments: ReadonlyArray<string> } },
+  total_contributions: { [key in string]?: string },
+}
+
 export type AppState = {
-  contractState: object
+  contractState: ContractState
   tokens: { [key in string]: TokenDetails }
   pools: { [key in string]?: Pool }
   currentUser: string | null
@@ -110,8 +120,8 @@ export class Zilswap {
    * the object is created to begin watching the blockchain's state.
    *
    * @param network the Network to use, either `TestNet` or `MainNet`.
-   * @param walletProviderOrKey a Provider with Wallet or private key string to be used for signing txns
-   * @param options a set of Options that will be used for all txns
+   * @param walletProviderOrKey a Provider with Wallet or private key string to be used for signing txns.
+   * @param options a set of Options that will be used for all txns.
    */
   constructor(readonly network: Network, walletProviderOrKey?: WalletProvider | string, options?: Options) {
     if (typeof walletProviderOrKey === 'string') {
@@ -145,7 +155,8 @@ export class Zilswap {
    * subscribing to subsequent state changes. You may optionally pass an array
    * of ObservedTx's to subscribe to status changes on any of those txs.
    *
-   * @param observedTx is the array of txs to observe
+   * @param subscription is the callback function to call when a tx state changes.
+   * @param observedTx is the array of txs to observe.
    */
   public async initialize(subscription?: OnUpdate, observeTxs: ObservedTx[] = []) {
     this.observedTxs = observeTxs
@@ -215,8 +226,9 @@ export class Zilswap {
   /**
    * Converts an amount to it's unitless representation (integer, no decimals) from it's
    * human representation (with decimals based on token contract, or 12 decimals for ZIL).
-   * @param tokenID
-   * @param amountHuman
+   * @param tokenID is the token ID related to the conversion amount, which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param amountHuman is the amount as a human string (e.g. 4.2 for 4.2 ZILs) to be converted.
    */
   public toUnitless(tokenID: string, amountHuman: string): string {
     const token = this.getTokenDetails(tokenID)
@@ -230,8 +242,9 @@ export class Zilswap {
   /**
    * Converts an amount to it's human representation (with decimals based on token contract, or 12 decimals for ZIL)
    * from it's unitless representation (integer, no decimals).
-   * @param tokenID
-   * @param amountStr
+   * @param tokenID is the token ID related to the conversion amount, which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param amountStr is the unitless amount as a string (e.g. 42000000000000 for 42 ZILs) to be converted.
    */
   public toUnit(tokenID: string, amountStr: string): string {
     const token = this.getTokenDetails(tokenID)
@@ -634,12 +647,15 @@ export class Zilswap {
    * @param tokenInAmountStr is the exact amount of tokens to be sent to Zilswap as a unitless string (without decimals).
    * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to constant product formula) that the
    * transition will allow before reverting.
+   * @param recipientAddress is an optional recipient address for receiving the output of the swap in base16 (0x...) or bech32 (zil...).
+   * Defaults to the sender address if `null` or undefined.
    */
   public async swapWithExactInput(
     tokenInID: string,
     tokenOutID: string,
     tokenInAmountStr: string,
-    maxAdditionalSlippage: number = 200
+    maxAdditionalSlippage: number = 200,
+    recipientAddress: string | null = null,
   ): Promise<ObservedTx> {
     this.checkAppLoadedWithUser()
 
@@ -648,6 +664,7 @@ export class Zilswap {
     const tokenInAmount = unitlessBigNumber(tokenInAmountStr)
     const { expectedOutput } = this.getOutputs(tokenIn, tokenOut, tokenInAmount)
     const minimumOutput = expectedOutput.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
+    const parsedRecipientAddress = this.parseRecipientAddress(recipientAddress)
 
     await this.checkAllowedBalance(tokenIn, tokenInAmount)
 
@@ -674,6 +691,11 @@ export class Zilswap {
             vname: 'deadline_block',
             type: 'BNum',
             value: deadline.toString(),
+          },
+          {
+            vname: 'recipient_address',
+            type: 'ByStr20',
+            value: parsedRecipientAddress,
           },
         ],
         params: {
@@ -705,6 +727,11 @@ export class Zilswap {
             vname: 'deadline_block',
             type: 'BNum',
             value: deadline.toString(),
+          },
+          {
+            vname: 'recipient_address',
+            type: 'ByStr20',
+            value: parsedRecipientAddress,
           },
         ],
         params: {
@@ -741,6 +768,11 @@ export class Zilswap {
             vname: 'deadline_block',
             type: 'BNum',
             value: deadline.toString(),
+          },
+          {
+            vname: 'recipient_address',
+            type: 'ByStr20',
+            value: parsedRecipientAddress,
           },
         ],
         params: {
@@ -785,12 +817,15 @@ export class Zilswap {
    * @param tokenOutAmountStr is the exact amount of tokens to be received from Zilswap as a unitless string (withoout decimals).
    * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to constant product formula) that the
    * transition will allow before reverting.
+   * @param recipientAddress is an optional recipient address for receiving the output of the swap in base16 (0x...) or bech32 (zil...).
+   * Defaults to the sender address if `null` or undefined.
    */
   public async swapWithExactOutput(
     tokenInID: string,
     tokenOutID: string,
     tokenOutAmountStr: string,
-    maxAdditionalSlippage: number = 200
+    maxAdditionalSlippage: number = 200,
+    recipientAddress: string | null = null,
   ): Promise<ObservedTx> {
     this.checkAppLoadedWithUser()
 
@@ -799,6 +834,7 @@ export class Zilswap {
     const tokenOutAmount = unitlessBigNumber(tokenOutAmountStr)
     const { expectedInput } = this.getInputs(tokenIn, tokenOut, tokenOutAmount)
     const maximumInput = expectedInput.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
+    const parsedRecipientAddress = this.parseRecipientAddress(recipientAddress)
 
     await this.checkAllowedBalance(tokenIn, maximumInput)
 
@@ -825,6 +861,11 @@ export class Zilswap {
             vname: 'deadline_block',
             type: 'BNum',
             value: deadline.toString(),
+          },
+          {
+            vname: 'recipient_address',
+            type: 'ByStr20',
+            value: parsedRecipientAddress,
           },
         ],
         params: {
@@ -856,6 +897,11 @@ export class Zilswap {
             vname: 'deadline_block',
             type: 'BNum',
             value: deadline.toString(),
+          },
+          {
+            vname: 'recipient_address',
+            type: 'ByStr20',
+            value: parsedRecipientAddress,
           },
         ],
         params: {
@@ -892,6 +938,11 @@ export class Zilswap {
             vname: 'deadline_block',
             type: 'BNum',
             value: deadline.toString(),
+          },
+          {
+            vname: 'recipient_address',
+            type: 'ByStr20',
+            value: parsedRecipientAddress,
           },
         ],
         params: {
@@ -988,8 +1039,8 @@ export class Zilswap {
     if (outputReserve.lte(outputAmount)) {
       return new BigNumber('NaN')
     }
-    const numerator = inputReserve.times(outputAmount).times(1000)
-    const denominator = outputReserve.minus(outputAmount).times(997)
+    const numerator = inputReserve.times(outputAmount).times(10000)
+    const denominator = outputReserve.minus(outputAmount).times(this.getAfterFeeBps())
     return numerator.dividedToIntegerBy(denominator).plus(1)
   }
 
@@ -997,10 +1048,14 @@ export class Zilswap {
     if (inputReserve.isZero() || outputReserve.isZero()) {
       throw new Error('Reserve has 0 tokens.')
     }
-    const inputAfterFee = inputAmount.times(997)
+    const inputAfterFee = inputAmount.times(this.getAfterFeeBps())
     const numerator = inputAfterFee.times(outputReserve)
-    const denominator = inputReserve.times(1000).plus(inputAfterFee)
+    const denominator = inputReserve.times(10000).plus(inputAfterFee)
     return numerator.dividedToIntegerBy(denominator)
+  }
+
+  private getAfterFeeBps(): string {
+    return this.getAppState().contractState.output_after_fee
   }
 
   private getReserves(token: TokenDetails) {
@@ -1077,7 +1132,7 @@ export class Zilswap {
 
   private async updateAppState(): Promise<void> {
     // Get the contract state
-    const contractState = await this.contract.getState()
+    const contractState = (await this.contract.getState()) as ContractState
 
     // Get user address
     const currentUser = this.walletProvider
@@ -1103,11 +1158,11 @@ export class Zilswap {
     tokenHashes.forEach(tokenHash => {
       if (!contractState.pools[tokenHash]) return
 
-      const [x, y] = contractState.pools[tokenHash].arguments
+      const [x, y] = contractState.pools[tokenHash]!.arguments
       const zilReserve = new BigNumber(x)
       const tokenReserve = new BigNumber(y)
       const exchangeRate = zilReserve.dividedBy(tokenReserve)
-      const totalContribution = new BigNumber(contractState.total_contributions[tokenHash])
+      const totalContribution = new BigNumber(contractState.total_contributions[tokenHash]!)
       const poolBalances = contractState.balances[tokenHash]
       const userContribution = new BigNumber(poolBalances && currentUser ? poolBalances[currentUser] || 0 : 0)
       const contributionPercentage = userContribution.dividedBy(totalContribution).times(100)
@@ -1184,6 +1239,19 @@ export class Zilswap {
       await this.updateBalanceAndNonce()
     } finally {
       release()
+    }
+  }
+
+  private parseRecipientAddress(addr: string | null): string {
+    const address: string = addr === null ? this.getAppState().currentUser! : addr
+    if (address.substr(0, 2) === '0x') {
+      return address.toLowerCase()
+    } else if (address.length === 32) {
+      return `0x${address}`.toLowerCase()
+    } else if (address.substr(0, 3) === 'zil') {
+      return fromBech32Address(address).toLowerCase()
+    } else {
+      throw new Error('Invalid recipient address format!')
     }
   }
 

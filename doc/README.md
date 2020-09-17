@@ -1,3 +1,7 @@
+[zilswap-sdk](README.md) › [Globals](globals.md)
+
+# zilswap-sdk
+
 # Zilswap Typescript SDK
 
 ## Setup
@@ -23,7 +27,7 @@ Initialize the sdk based on the required network, then call the required methods
 
 ### Methods
 
-All methods can be found on the `Zilswap` sdk object itself. Full typescript definitions can be found here. The following is a list of methods to quickly get you started.
+[All methods](./doc/classes/_index_.zilswap.md) can be found on the `Zilswap` sdk object itself. Full typescript definitions can be found here. The following is a list of methods to quickly get you started.
 
 #### API Methods
 
