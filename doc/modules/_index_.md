@@ -16,7 +16,6 @@
 * [OnUpdate](_index_.md#onupdate)
 * [Options](_index_.md#options)
 * [Pool](_index_.md#pool)
-* [RPCBalanceResponse](_index_.md#rpcbalanceresponse)
 * [Rates](_index_.md#rates)
 * [TokenDetails](_index_.md#tokendetails)
 * [TxParams](_index_.md#txparams)
@@ -24,17 +23,13 @@
 * [TxStatus](_index_.md#txstatus)
 * [WalletProvider](_index_.md#walletprovider)
 
-### Functions
-
-* [unitlessBigNumber](_index_.md#const-unitlessbignumber)
-
 ## Type aliases
 
 ###  AppState
 
 Ƭ **AppState**: *object*
 
-*Defined in [index.ts:59](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L59)*
+*Defined in [index.ts:59](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L59)*
 
 #### Type declaration:
 
@@ -56,7 +51,7 @@ ___
 
 Ƭ **ContractState**: *object*
 
-*Defined in [index.ts:49](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L49)*
+*Defined in [index.ts:49](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L49)*
 
 #### Type declaration:
 
@@ -80,7 +75,7 @@ ___
 
 Ƭ **ObservedTx**: *object*
 
-*Defined in [index.ts:21](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L21)*
+*Defined in [index.ts:21](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L21)*
 
 #### Type declaration:
 
@@ -94,7 +89,7 @@ ___
 
 Ƭ **OnUpdate**: *function*
 
-*Defined in [index.ts:19](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L19)*
+*Defined in [index.ts:19](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L19)*
 
 #### Type declaration:
 
@@ -114,7 +109,7 @@ ___
 
 Ƭ **Options**: *object*
 
-*Defined in [index.ts:13](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L13)*
+*Defined in [index.ts:13](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L13)*
 
 #### Type declaration:
 
@@ -130,7 +125,7 @@ ___
 
 Ƭ **Pool**: *object*
 
-*Defined in [index.ts:68](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L68)*
+*Defined in [index.ts:68](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L68)*
 
 #### Type declaration:
 
@@ -148,25 +143,11 @@ ___
 
 ___
 
-###  RPCBalanceResponse
-
-Ƭ **RPCBalanceResponse**: *object*
-
-*Defined in [index.ts:87](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L87)*
-
-#### Type declaration:
-
-* **balance**: *string*
-
-* **nonce**: *string*
-
-___
-
 ###  Rates
 
 Ƭ **Rates**: *object*
 
-*Defined in [index.ts:77](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L77)*
+*Defined in [index.ts:77](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L77)*
 
 #### Type declaration:
 
@@ -180,7 +161,7 @@ ___
 
 Ƭ **TokenDetails**: *object*
 
-*Defined in [index.ts:40](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L40)*
+*Defined in [index.ts:40](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L40)*
 
 #### Type declaration:
 
@@ -202,7 +183,7 @@ ___
 
 Ƭ **TxParams**: *object*
 
-*Defined in [index.ts:34](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L34)*
+*Defined in [index.ts:34](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L34)*
 
 #### Type declaration:
 
@@ -218,7 +199,7 @@ ___
 
 Ƭ **TxReceipt**: *_TxReceipt*
 
-*Defined in [index.ts:32](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L32)*
+*Defined in [index.ts:32](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L32)*
 
 ___
 
@@ -226,7 +207,7 @@ ___
 
 Ƭ **TxStatus**: *"confirmed" | "rejected" | "expired"*
 
-*Defined in [index.ts:30](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L30)*
+*Defined in [index.ts:30](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L30)*
 
 ___
 
@@ -234,20 +215,4 @@ ___
 
 Ƭ **WalletProvider**: *Omit‹Zilliqa & object, "subscriptionBuilder"›*
 
-*Defined in [index.ts:82](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L82)*
-
-## Functions
-
-### `Const` unitlessBigNumber
-
-▸ **unitlessBigNumber**(`str`: string): *BigNumber*
-
-*Defined in [index.ts:1385](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L1385)*
-
-**Parameters:**
-
-Name | Type |
------- | ------ |
-`str` | string |
-
-**Returns:** *BigNumber*
+*Defined in [index.ts:82](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L82)*

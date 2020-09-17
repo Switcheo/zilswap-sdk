@@ -27,9 +27,11 @@ Initialize the sdk based on the required network, then call the required methods
 
 ### Methods
 
-[All methods](./doc/classes/_index_.zilswap.md) can be found on the `Zilswap` sdk object itself. Full typescript definitions can be found here. The following is a list of methods to quickly get you started.
+All public methods can be found on the [`Zilswap` SDK object](./doc/classes/_index_.zilswap.md). Full typescript definitions can also be found in the [doc folder](./doc/README.md).
 
-#### API Methods
+The following is a list of methods to quickly get you started:
+
+#### Swap & Liquidity
 
 - `approveTokenTransferIfRequired` - approves transfers to zilswap for the given token contract, if the current approval amount is insufficient.
 - `addLiquidity` - adds liquidity to the pool
@@ -37,19 +39,19 @@ Initialize the sdk based on the required network, then call the required methods
 - `swapWithExactInput` - swaps a token for another token, specifying the exact amount that should be given.
 - `swapWithExactOutput` - swaps a token for another token, specifying the exact amount that should be received.
 
-#### Getter Methods
+#### Getters
 
 - `getAppState` - gets the current dApp state
 - `getPool` - gets the reserve values for a pool
 - `getObservedTxs` - gets the txs that the SDK is observing
 
-#### Configuration Methods
+#### Configuration
 
 - `addToken` - adds a token that is not in the pre-built list
 - `observeTx` - observe a zilliqa blockchain tx
 - `setDeadlineBlocks` - set the number of blocks before a transition sent by the SDK to expires
 
-#### Helper Methods
+#### Helpers
 
 - `toUnitless` - converts a human amount into a unitless integer that is used by Scilla.
 - `toUnit` - converts a unitless integer used by scilla into a human readable amount.

@@ -15,7 +15,7 @@
 
 • **MainNet**: = "MainNet"
 
-*Defined in [constants.ts:4](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/constants.ts#L4)*
+*Defined in [constants.ts:4](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/constants.ts#L4)*
 
 ___
 
@@ -23,4 +23,4 @@ ___
 
 • **TestNet**: = "TestNet"
 
-*Defined in [constants.ts:5](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/constants.ts#L5)*
+*Defined in [constants.ts:5](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/constants.ts#L5)*

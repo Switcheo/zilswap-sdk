@@ -49,7 +49,7 @@
 
 \+ **new Zilswap**(`network`: [Network](../enums/_constants_.network.md), `walletProviderOrKey?`: [WalletProvider](../modules/_index_.md#walletprovider) | string, `options?`: [Options](../modules/_index_.md#options)): *[Zilswap](_index_.zilswap.md)*
 
-*Defined in [index.ts:116](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L116)*
+*Defined in [index.ts:116](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L116)*
 
 Creates the Zilswap SDK object. {@linkcode initalize} needs to be called after
 the object is created to begin watching the blockchain's state.
@@ -70,7 +70,7 @@ Name | Type | Description |
 
 • **contract**: *Contract*
 
-*Defined in [index.ts:107](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L107)*
+*Defined in [index.ts:107](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L107)*
 
 ___
 
@@ -78,7 +78,7 @@ ___
 
 • **contractAddress**: *string*
 
-*Defined in [index.ts:108](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L108)*
+*Defined in [index.ts:108](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L108)*
 
 ___
 
@@ -86,7 +86,7 @@ ___
 
 • **contractHash**: *string*
 
-*Defined in [index.ts:109](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L109)*
+*Defined in [index.ts:109](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L109)*
 
 ___
 
@@ -94,7 +94,7 @@ ___
 
 • **network**: *[Network](../enums/_constants_.network.md)*
 
-*Defined in [index.ts:126](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L126)*
+*Defined in [index.ts:126](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L126)*
 
 the Network to use, either `TestNet` or `MainNet`.
 
@@ -104,7 +104,7 @@ the Network to use, either `TestNet` or `MainNet`.
 
 ▸ **addLiquidity**(`tokenID`: string, `zilsToAddStr`: string, `tokensToAddStr`: string, `maxExchangeRateChange`: number): *Promise‹[ObservedTx](../modules/_index_.md#observedtx)›*
 
-*Defined in [index.ts:452](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L452)*
+*Defined in [index.ts:452](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L452)*
 
 Adds liquidity to the pool with the given `tokenID`. The given `zilsToAddHuman` represents the exact quantity of ZIL
 that will be contributed, while the given `tokensToAddHuman` represents the target quantity of ZRC-2 tokens to be
@@ -140,7 +140,7 @@ ___
 
 ▸ **addToken**(`tokenAddress`: string): *Promise‹boolean›*
 
-*Defined in [index.ts:340](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L340)*
+*Defined in [index.ts:340](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L340)*
 
 Adds a token which is not already loaded by the default tokens file to the SDK.
 
@@ -160,7 +160,7 @@ ___
 
 ▸ **approveTokenTransferIfRequired**(`tokenID`: string, `amountStrOrBN`: BigNumber | string): *Promise‹[ObservedTx](../modules/_index_.md#observedtx) | null›*
 
-*Defined in [index.ts:372](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L372)*
+*Defined in [index.ts:372](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L372)*
 
 Approves allowing the Zilswap contract to transfer ZRC-2 token with `tokenID`, if the current
 approved allowance is less than `amount`. If the allowance is sufficient, this method is a no-op.
@@ -193,7 +193,7 @@ ___
 
 ▸ **getAppState**(): *[AppState](../modules/_index_.md#appstate)*
 
-*Defined in [index.ts:193](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L193)*
+*Defined in [index.ts:193](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L193)*
 
 Gets the latest Zilswap app state.
 
@@ -205,7 +205,7 @@ ___
 
 ▸ **getObservedTxs**(): *Promise‹[ObservedTx](../modules/_index_.md#observedtx)[]›*
 
-*Defined in [index.ts:217](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L217)*
+*Defined in [index.ts:217](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L217)*
 
 Gets the currently observed transactions.
 
@@ -217,7 +217,7 @@ ___
 
 ▸ **getPool**(`tokenID`: string): *[Pool](../modules/_index_.md#pool) | null*
 
-*Defined in [index.ts:207](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L207)*
+*Defined in [index.ts:207](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L207)*
 
 Gets the pool details for the given `tokenID`.
 
@@ -237,7 +237,7 @@ ___
 
 ▸ **getRatesForInput**(`tokenInID`: string, `tokenOutID`: string, `tokenInAmountStr`: string): *[Rates](../modules/_index_.md#rates)*
 
-*Defined in [index.ts:267](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L267)*
+*Defined in [index.ts:267](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L267)*
 
 Gets the expected output amount and slippage for a particular set of ZRC-2 or ZIL tokens at the given input amount.
 
@@ -257,7 +257,7 @@ ___
 
 ▸ **getRatesForOutput**(`tokenInID`: string, `tokenOutID`: string, `tokenOutAmountStr`: string): *[Rates](../modules/_index_.md#rates)*
 
-*Defined in [index.ts:289](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L289)*
+*Defined in [index.ts:289](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L289)*
 
 Gets the expected input amount and slippage for a particular set of ZRC-2 or ZIL tokens at the given output amount.
 Returns NaN values if the given output amount is larger than the pool reserve.
@@ -278,7 +278,7 @@ ___
 
 ▸ **initialize**(`subscription?`: [OnUpdate](../modules/_index_.md#onupdate), `observeTxs`: [ObservedTx](../modules/_index_.md#observedtx)[]): *Promise‹void›*
 
-*Defined in [index.ts:161](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L161)*
+*Defined in [index.ts:161](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L161)*
 
 Intializes the SDK, fetching a cache of the Zilswap contract state and
 subscribing to subsequent state changes. You may optionally pass an array
@@ -299,7 +299,7 @@ ___
 
 ▸ **observeTx**(`observedTx`: [ObservedTx](../modules/_index_.md#observedtx)): *Promise‹void›*
 
-*Defined in [index.ts:325](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L325)*
+*Defined in [index.ts:325](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L325)*
 
 Observes the given transaction until the deadline block.
 
@@ -320,7 +320,7 @@ ___
 
 ▸ **removeLiquidity**(`tokenID`: string, `contributionAmount`: string, `maxExchangeRateChange`: number): *Promise‹[ObservedTx](../modules/_index_.md#observedtx)›*
 
-*Defined in [index.ts:552](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L552)*
+*Defined in [index.ts:552](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L552)*
 
 Removes `contributionAmount` worth of liquidity from the pool with the given `tokenID`.
 
@@ -349,7 +349,7 @@ ___
 
 ▸ **setDeadlineBlocks**(`bufferBlocks`: number): *void*
 
-*Defined in [index.ts:310](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L310)*
+*Defined in [index.ts:310](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L310)*
 
 Sets the number of blocks to use as the allowable buffer duration before transactions
 are considered invalid.
@@ -371,7 +371,7 @@ ___
 
 ▸ **swapWithExactInput**(`tokenInID`: string, `tokenOutID`: string, `tokenInAmountStr`: string, `maxAdditionalSlippage`: number, `recipientAddress`: string | null): *Promise‹[ObservedTx](../modules/_index_.md#observedtx)›*
 
-*Defined in [index.ts:653](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L653)*
+*Defined in [index.ts:653](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L653)*
 
 Swaps ZIL or a ZRC-2 token with `tokenInID` for a corresponding ZIL or ZRC-2 token with `tokenOutID`.
 
@@ -402,7 +402,7 @@ ___
 
 ▸ **swapWithExactOutput**(`tokenInID`: string, `tokenOutID`: string, `tokenOutAmountStr`: string, `maxAdditionalSlippage`: number, `recipientAddress`: string | null): *Promise‹[ObservedTx](../modules/_index_.md#observedtx)›*
 
-*Defined in [index.ts:823](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L823)*
+*Defined in [index.ts:823](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L823)*
 
 Swaps ZIL or a ZRC-2 token with `tokenInID` for a corresponding ZIL or ZRC-2 token with `tokenOutID`.
 
@@ -433,7 +433,7 @@ ___
 
 ▸ **teardown**(): *Promise‹void›*
 
-*Defined in [index.ts:173](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L173)*
+*Defined in [index.ts:173](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L173)*
 
 Stops watching the Zilswap contract state.
 
@@ -445,7 +445,7 @@ ___
 
 ▸ **toUnit**(`tokenID`: string, `amountStr`: string): *string*
 
-*Defined in [index.ts:249](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L249)*
+*Defined in [index.ts:249](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L249)*
 
 Converts an amount to it's human representation (with decimals based on token contract, or 12 decimals for ZIL)
 from it's unitless representation (integer, no decimals).
@@ -465,7 +465,7 @@ ___
 
 ▸ **toUnitless**(`tokenID`: string, `amountHuman`: string): *string*
 
-*Defined in [index.ts:233](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L233)*
+*Defined in [index.ts:233](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L233)*
 
 Converts an amount to it's unitless representation (integer, no decimals) from it's
 human representation (with decimals based on token contract, or 12 decimals for ZIL).
@@ -485,22 +485,22 @@ Name | Type | Description |
 
 ### ▪ **_txParams**: *object*
 
-*Defined in [index.ts:112](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L112)*
+*Defined in [index.ts:112](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L112)*
 
 ###  gasLimit
 
 • **gasLimit**: *Long* = Long.fromNumber(30000)
 
-*Defined in [index.ts:115](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L115)*
+*Defined in [index.ts:115](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L115)*
 
 ###  gasPrice
 
 • **gasPrice**: *BN‹›* = toPositiveQa(1000, units.Units.Li)
 
-*Defined in [index.ts:114](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L114)*
+*Defined in [index.ts:114](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L114)*
 
 ###  version
 
 • **version**: *number* = -1
 
-*Defined in [index.ts:113](https://github.com/Switcheo/zilswap-sdk/blob/257cf79/src/index.ts#L113)*
+*Defined in [index.ts:113](https://github.com/Switcheo/zilswap-sdk/blob/680cdbe/src/index.ts#L113)*
