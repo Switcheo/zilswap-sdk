@@ -47,13 +47,13 @@ export type TokenDetails = {
 }
 
 export type ContractState = {
-  _balance: string,
-  balances: { [key in string]?: { [key2 in string]?: string } },
-  output_after_fee: string,
-  owner: string,
-  pending_owner: string,
-  pools: { [key in string]?: { arguments: ReadonlyArray<string> } },
-  total_contributions: { [key in string]?: string },
+  _balance: string
+  balances: { [key in string]?: { [key2 in string]?: string } }
+  output_after_fee: string
+  owner: string
+  pending_owner: string
+  pools: { [key in string]?: { arguments: ReadonlyArray<string> } }
+  total_contributions: { [key in string]?: string }
 }
 
 export type AppState = {
@@ -655,7 +655,7 @@ export class Zilswap {
     tokenOutID: string,
     tokenInAmountStr: string,
     maxAdditionalSlippage: number = 200,
-    recipientAddress: string | null = null,
+    recipientAddress: string | null = null
   ): Promise<ObservedTx> {
     this.checkAppLoadedWithUser()
 
@@ -825,7 +825,7 @@ export class Zilswap {
     tokenOutID: string,
     tokenOutAmountStr: string,
     maxAdditionalSlippage: number = 200,
-    recipientAddress: string | null = null,
+    recipientAddress: string | null = null
   ): Promise<ObservedTx> {
     this.checkAppLoadedWithUser()
 
