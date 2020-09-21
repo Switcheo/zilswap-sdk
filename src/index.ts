@@ -1214,8 +1214,8 @@ export class Zilswap {
     try {
       const removeTxs: string[] = []
       const promises = this.observedTxs.map(async (observedTx: ObservedTx) => {
-        const status = await this.zilliqa.blockchain.getPendingTxn(observedTx.hash)
-        if (status.result && status.result.confirmed) {
+        const result = await this.zilliqa.blockchain.getPendingTxn(observedTx.hash)
+        if (result && result.confirmed) {
           // either confirmed or rejected
           const confirmedTxn = await this.zilliqa.blockchain.getTransaction(observedTx.hash)
           const receipt = confirmedTxn.getReceipt()
