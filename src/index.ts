@@ -338,9 +338,12 @@ export class Zilswap {
    * @returns true if the token could be found, or false otherwise.
    */
   public async addToken(tokenAddress: string): Promise<boolean> {
+    if (!this.appState) {
+      throw new Error('App state not loaded, call #initialize first.')
+    }
     try {
-      await this.fetchTokenDetails(tokenAddress)
-      this.getTokenDetails(tokenAddress)
+      const details = await this.fetchTokenDetails(tokenAddress)
+      this.appState!.tokens[details.hash] = details
       return true
     } catch {
       return false
