@@ -12,7 +12,7 @@ export const APIS: { [key in Networks]: string } = {
 }
 
 export const WSS: { [key in Networks]: string } = {
-  [Network.MainNet]: 'wss://ws.zilliqa.com',
+  [Network.MainNet]: 'wss://api-ws.zilliqa.com',
   [Network.TestNet]: 'wss://dev-ws.zilliqa.com',
 }
 
@@ -24,7 +24,7 @@ export const CONTRACTS: { [key in Networks]: string } = {
 export const TOKENS: { [key in Networks]: { [key2 in string]: string } } = {
   [Network.MainNet]: {
     ZIL: 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz',
-    XSGD: 'zil1p7qk0gxtl7u2k8ger833lq7uymyx858eay0w7t', // Xfers SGD
+    XSGD: 'zil1zu72vac254htqpg3mtywdcfm84l3dfd9qzww8t', // Xfers SGD
   },
   [Network.TestNet]: {
     ZIL: 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz',
