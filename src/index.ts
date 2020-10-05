@@ -10,6 +10,8 @@ import { Mutex } from 'async-mutex'
 import { APIS, WSS, CONTRACTS, TOKENS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { toPositiveQa } from './utils'
 
+BigNumber.config({ EXPONENTIAL_AT: 1e+9 }) // never!
+
 export type Options = {
   deadlineBuffer?: number
   gasPrice?: number
