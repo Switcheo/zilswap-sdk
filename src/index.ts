@@ -1133,7 +1133,7 @@ export class Zilswap {
   private async loadTokenList() {
     const res = await fetch('https://raw.githubusercontent.com/Switcheo/zilswap-token-list/master/tokens.json')
     const tokens = await res.json()
-    Object.keys(tokens[this.network]).forEach(key => this.tokens[key] = tokens[this.network][key])
+    Object.keys(tokens[this.network]).forEach(key => (this.tokens[key] = tokens[this.network][key]))
   }
 
   private async updateBlockHeight(): Promise<void> {
