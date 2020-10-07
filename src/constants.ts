@@ -21,19 +21,6 @@ export const CONTRACTS: { [key in Networks]: string } = {
   [Network.TestNet]: 'zil1rf3dm8yykryffr94rlrxfws58earfxzu5lw792',
 }
 
-export const TOKENS: { [key in Networks]: { [key2 in string]: string } } = {
-  [Network.MainNet]: {
-    ZIL: 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz',
-    XSGD: 'zil1zu72vac254htqpg3mtywdcfm84l3dfd9qzww8t', // Xfers SGD
-  },
-  [Network.TestNet]: {
-    ZIL: 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz',
-    SWTH: 'zil1d6yfgycu9ythxy037hkt3phc3jf7h6rfzuft0s', // Switcheo Test Token
-    gZIL: 'zil10w2fwf5kdwqvjd2zyv6nr7da2d2z63g5dvtvsy', // ZIL Governance
-    XSGD: 'zil10a9z324aunx2qj64984vke93gjdnzlnl5exygv', // Xfers SGD
-  },
-}
-
 export const CHAIN_VERSIONS: { [key in Networks]: number } = {
   [Network.MainNet]: bytes.pack(1, 1),
   [Network.TestNet]: bytes.pack(333, 1),

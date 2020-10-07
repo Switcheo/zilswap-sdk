@@ -1,3 +1,4 @@
+import 'isomorphic-fetch'
 import { Zilliqa } from '@zilliqa-js/zilliqa'
 import { Wallet, Transaction, TxReceipt as _TxReceipt } from '@zilliqa-js/account'
 import { Contract, Value, CallParams } from '@zilliqa-js/contract'
@@ -7,7 +8,7 @@ import { BN, Long, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
 import { Mutex } from 'async-mutex'
 
-import { APIS, WSS, CONTRACTS, TOKENS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
+import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { toPositiveQa } from './utils'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
@@ -139,8 +140,7 @@ export class Zilswap {
     this.contractAddress = CONTRACTS[network]
     this.contract = (this.walletProvider || this.zilliqa).contracts.at(this.contractAddress)
     this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
-
-    this.tokens = TOKENS[network]
+    this.tokens = {}
     this._txParams.version = CHAIN_VERSIONS[network]
 
     if (options) {
@@ -164,6 +164,7 @@ export class Zilswap {
     this.observedTxs = observeTxs
     if (subscription) this.observer = subscription
     this.subscribeToAppChanges()
+    await this.loadTokenList()
     await this.updateBlockHeight()
     await this.updateAppState()
     await this.updateBalanceAndNonce()
@@ -1127,6 +1128,12 @@ export class Zilswap {
     subscription.start()
 
     this.subscription = subscription
+  }
+
+  private async loadTokenList() {
+    const res = await fetch('https://raw.githubusercontent.com/Switcheo/zilswap-token-list/master/tokens.json')
+    const tokens = await res.json()
+    Object.keys(tokens[this.network]).forEach(key => this.tokens[key] = tokens[this.network][key])
   }
 
   private async updateBlockHeight(): Promise<void> {
