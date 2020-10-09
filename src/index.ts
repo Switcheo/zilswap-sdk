@@ -114,7 +114,7 @@ export class Zilswap {
   /* Transaction attributes */
   readonly _txParams: TxParams = {
     version: -1,
-    gasPrice: toPositiveQa(1000, units.Units.Li),
+    gasPrice: new BN(0),
     gasLimit: Long.fromNumber(30000),
   }
 
@@ -163,6 +163,11 @@ export class Zilswap {
   public async initialize(subscription?: OnUpdate, observeTxs: ObservedTx[] = []) {
     this.observedTxs = observeTxs
     if (subscription) this.observer = subscription
+    if (this._txParams.gasPrice.isZero()) {
+      const minGasPrice = await this.zilliqa.blockchain.getMinimumGasPrice()
+      if (!minGasPrice.result) throw new Error('Failed to get min gas price.')
+      this._txParams.gasPrice = new BN(minGasPrice.result)
+    }
     this.subscribeToAppChanges()
     await this.loadTokenList()
     await this.updateBlockHeight()
@@ -401,7 +406,7 @@ export class Zilswap {
             {
               vname: 'amount',
               type: 'Uint128',
-              value: tokenState.total_supply.toString(),
+              value: new BigNumber(2).pow(128).minus(1).toString(),
             },
           ],
           {
