@@ -68,3 +68,7 @@ Generate documentation with typedoc. Install with:
 then run:
 
 `typedoc --out ./doc ./src --excludePrivate --excludeNotExported --plugin typedoc-plugin-markdown`
+
+## Contributing
+
+Please review the [contribution guidelines](./CONTRIBUTING.md) before contributing or opening pull requests.
