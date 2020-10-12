@@ -406,7 +406,7 @@ export class Zilswap {
             {
               vname: 'amount',
               type: 'Uint128',
-              value: new BigNumber(2).pow(128).minus(1).toString(),
+              value: new BigNumber(2).pow(128).minus(1).minus(allowance).toString(),
             },
           ],
           {
