@@ -1282,7 +1282,7 @@ export class Zilswap {
       address = id
       hash = fromBech32Address(address).toLowerCase()
     } else {
-      address = this.tokens[id.toUpperCase()]
+      address = this.tokens[id]
       hash = fromBech32Address(address).toLowerCase()
     }
 
