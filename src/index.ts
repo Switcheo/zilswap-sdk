@@ -115,7 +115,7 @@ export class Zilswap {
   readonly _txParams: TxParams = {
     version: -1,
     gasPrice: new BN(0),
-    gasLimit: Long.fromNumber(30000),
+    gasLimit: Long.fromNumber(5000),
   }
 
   /**
