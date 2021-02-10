@@ -1300,6 +1300,21 @@ export class Zilswap {
     return this.appState.tokens[hash]
   }
 
+  private async fetchContractInit(contract: Contract): Promise<any> {
+    // motivation: workaround api.zilliqa.com intermittent connection issues.
+    try {
+      return await contract.getInit()
+    } catch (error) {
+      if (error?.message === 'Network request failed') {
+        // make another fetch attempt after 800ms
+        await new Promise((resolve) => setTimeout(resolve, 800))
+        return await contract.getInit()
+      } else {
+        throw error
+      }
+    }
+  }
+
   private async fetchTokenDetails(id: string): Promise<TokenDetails> {
     const { hash, address } = this.getTokenAddresses(id)
 
@@ -1311,7 +1326,7 @@ export class Zilswap {
       return { contract, address, hash, symbol: 'ZIL', decimals: 12, whitelisted: true }
     }
 
-    const init = await contract.getInit()
+    const init = await this.fetchContractInit(contract)
 
     const decimalStr = init.find((e: Value) => e.vname === 'decimals').value as string
     const decimals = parseInt(decimalStr, 10)
