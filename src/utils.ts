@@ -95,12 +95,12 @@ export const isLocalStorageAvailable = () => {
   _lsAvailable = false
   if (typeof localStorage !== 'undefined') {
     try {
-      localStorage.setItem('ls_feature_test', 'yes');
+      localStorage.setItem('ls_feature_test', 'yes')
       if (localStorage.getItem('ls_feature_test') === 'yes') {
         localStorage.removeItem('ls_feature_test')
         _lsAvailable = true
       }
-    } catch(e) {
+    } catch (e) {
       // fall-through as `false`
     }
   }
