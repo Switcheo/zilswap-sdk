@@ -1348,7 +1348,7 @@ export class Zilswap {
     const decimals = parseInt(decimalStr, 10)
     const symbol = init.find((e: Value) => e.vname === 'symbol').value as string
     const registered = this.tokens[symbol] === address
-    const whitelisted = registered && (symbol === 'ZWAP' || symbol === 'XSGD') // TODO: make an actual whitelist
+    const whitelisted = registered && (symbol === 'ZWAP' || symbol === 'XSGD' || symbol === 'gZIL') // TODO: make an actual whitelist
 
     return { contract, address, hash, symbol, decimals, whitelisted, registered }
   }
