@@ -84,3 +84,25 @@ export const toPositiveQa = (input: string | number | BN, unitOrDecimals: units.
 
   return new BN(qa.toString(10), 10)
 }
+
+let _lsAvailable: boolean | null = null
+export const isLocalStorageAvailable = () => {
+  if (_lsAvailable !== null) {
+    // only check for ls once
+    return _lsAvailable
+  }
+
+  _lsAvailable = false
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem('ls_feature_test', 'yes');
+      if (localStorage.getItem('ls_feature_test') === 'yes') {
+        localStorage.removeItem('ls_feature_test')
+        _lsAvailable = true
+      }
+    } catch(e) {
+      // fall-through as `false`
+    }
+  }
+  return _lsAvailable
+}

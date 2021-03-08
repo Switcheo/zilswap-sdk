@@ -9,7 +9,7 @@ import { BigNumber } from 'bignumber.js'
 import { Mutex } from 'async-mutex'
 
 import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
-import { toPositiveQa } from './utils'
+import { toPositiveQa, isLocalStorageAvailable } from './utils'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
@@ -1302,14 +1302,29 @@ export class Zilswap {
   }
 
   private async fetchContractInit(contract: Contract): Promise<any> {
+    // try to use cache first
+    const lsCacheKey = `contractInit:${contract.address!}`
+    if (isLocalStorageAvailable()) {
+      const result = localStorage.getItem(lsCacheKey)
+      if (result && result !== '') {
+        try {
+          return JSON.parse(result)
+        } catch (e) {
+          console.error(e)
+        }
+      }
+    }
     // motivation: workaround api.zilliqa.com intermittent connection issues.
     try {
-      return await contract.getInit()
+      const init = await contract.getInit()
+      if (isLocalStorageAvailable()) {
+        localStorage.setItem(lsCacheKey, JSON.stringify(init))
+      }
+      return init
     } catch (error) {
       if (error?.message === 'Network request failed') {
         // make another fetch attempt after 800ms
-        await new Promise((resolve) => setTimeout(resolve, 800))
-        return await contract.getInit()
+        return this.fetchContractInit(contract)
       } else {
         throw error
       }
