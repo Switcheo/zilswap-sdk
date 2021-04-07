@@ -17,6 +17,7 @@ export type Options = {
   deadlineBuffer?: number
   gasPrice?: number
   gasLimit?: number
+  rpcEndpoint?: string
 }
 
 export type OnUpdate = (tx: ObservedTx, status: TxStatus, receipt?: TxReceipt) => void
@@ -128,14 +129,15 @@ export class Zilswap {
    * @param options a set of Options that will be used for all txns.
    */
   constructor(readonly network: Network, walletProviderOrKey?: WalletProvider | string, options?: Options) {
+    const api = options?.rpcEndpoint || APIS[network]
     if (typeof walletProviderOrKey === 'string') {
-      this.zilliqa = new Zilliqa(APIS[network])
+      this.zilliqa = new Zilliqa(api)
       this.zilliqa.wallet.addByPrivateKey(walletProviderOrKey)
     } else if (walletProviderOrKey) {
-      this.zilliqa = new Zilliqa(APIS[network], walletProviderOrKey.provider)
+      this.zilliqa = new Zilliqa(api, walletProviderOrKey.provider)
       this.walletProvider = walletProviderOrKey
     } else {
-      this.zilliqa = new Zilliqa(APIS[network])
+      this.zilliqa = new Zilliqa(api)
     }
 
     this.contractAddress = CONTRACTS[network]
