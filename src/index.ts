@@ -1165,8 +1165,13 @@ export class Zilswap {
 
     if (currentUser) {
       const requests2: BatchRequest[] = []
-      Object.keys(contractState.pools).forEach((token) => {
-        requests2.push({ id: token, method: 'GetSmartContractSubState', params: [address, 'balances', [token, currentUser]], jsonrpc: '2.0' })
+      Object.keys(contractState.pools).forEach(token => {
+        requests2.push({
+          id: token,
+          method: 'GetSmartContractSubState',
+          params: [address, 'balances', [token, currentUser]],
+          jsonrpc: '2.0',
+        })
       })
       const result2 = await sendBatchRequest(this.rpcEndpoint, requests2)
       Object.entries(result2).forEach(([token, mapOrNull]) => {
@@ -1387,7 +1392,12 @@ export class Zilswap {
       const requests: BatchRequest[] = []
       const address = token.contract.address!.replace('0x', '')
       requests.push({ id: 'balances', method: 'GetSmartContractSubState', params: [address, 'balances', [user!]], jsonrpc: '2.0' })
-      requests.push({ id: 'allowances', method: 'GetSmartContractSubState', params: [address, 'allowances', [user!, this.contractHash]], jsonrpc: '2.0' })
+      requests.push({
+        id: 'allowances',
+        method: 'GetSmartContractSubState',
+        params: [address, 'allowances', [user!, this.contractHash]],
+        jsonrpc: '2.0',
+      })
       const result = await sendBatchRequest(this.rpcEndpoint, requests)
       const balance = new BigNumber(result.balances?.balances[user] || 0)
       if (balance.lt(amount)) {

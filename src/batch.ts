@@ -22,15 +22,18 @@ export const sendBatchRequest = async (rpcEndpoint: string, requests: BatchReque
     mode: 'cors',
     cache: 'no-cache',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
     redirect: 'follow',
     referrerPolicy: 'no-referrer',
-    body: JSON.stringify(requests)
+    body: JSON.stringify(requests),
   })
 
   const results: BatchResponse[] = await response.json()
-  const errors = results.map(r => r.error ? `[${r.id}] ${r.error.message}` : null).filter(e => !!e).join('. ')
+  const errors = results
+    .map(r => (r.error ? `[${r.id}] ${r.error.message}` : null))
+    .filter(e => !!e)
+    .join('. ')
   if (errors && errors.length > 0) {
     throw new Error('Failed to send batch request: ' + errors)
   }
