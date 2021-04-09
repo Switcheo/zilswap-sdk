@@ -1,4 +1,7 @@
 import { BN, units } from '@zilliqa-js/util'
+import { BigNumber } from 'bignumber.js'
+
+BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
 // The following code is based on: @zilliqa-js/util/src/unit.ts.
 // toPositiveQa is modified from toQa to accept arbitrary number units,
@@ -23,6 +26,14 @@ const numToStr = (input: string | number | BN) => {
   }
 
   throw new Error(`while converting number to string, invalid number value '${input}' type ${typeof input}.`)
+}
+
+export const unitlessBigNumber = (str: string): BigNumber => {
+  const bn = new BigNumber(str)
+  if (!bn.integerValue().isEqualTo(bn)) {
+    throw new Error(`number ${bn} should be unitless (no decimals).`)
+  }
+  return bn
 }
 
 export const toPositiveQa = (input: string | number | BN, unitOrDecimals: units.Units | number) => {
@@ -70,7 +81,6 @@ export const toPositiveQa = (input: string | number | BN, unitOrDecimals: units.
     fraction = '0'
   }
   if (fraction.length > baseNumDecimals) {
-    console.log(fraction.length, baseNumDecimals)
     throw new Error(`Cannot convert ${inputStr} to Qa.`)
   }
 
