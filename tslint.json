@@ -2,6 +2,7 @@
   "extends": ["tslint:recommended", "tslint-config-prettier"],
   "rules": {
     "one-variable-per-declaration": false,
-    "no-console": false
+    "no-console": false,
+    "no-string-literal": false 
   }
 }
