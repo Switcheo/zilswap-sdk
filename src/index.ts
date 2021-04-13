@@ -11,6 +11,7 @@ import { Mutex } from 'async-mutex'
 import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
 import { sendBatchRequest, BatchRequest, BatchResponse } from './batch'
+import { Stream } from 'stream'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
@@ -1136,9 +1137,26 @@ export class Zilswap {
   }
 
   private async loadTokenList() {
-    const res = await fetch('https://raw.githubusercontent.com/Switcheo/zilswap-token-list/master/tokens.json')
+    if (this.network == Network.TestNet) {
+      this.tokens['ZIL'] = 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz'
+      this.tokens['gZIL'] = 'zil1fytuayks6njpze00ukasq3m4y4s44k79hvz8q5'
+      this.tokens['SWTH'] = 'zil1d6yfgycu9ythxy037hkt3phc3jf7h6rfzuft0s'
+      this.tokens['XSGD'] = 'zil10a9z324aunx2qj64984vke93gjdnzlnl5exygv'
+      this.tokens['ZLP'] = 'zil1du93l0dpn8wy40769raza23fjkvm868j9rjehn'
+      this.tokens['PORT'] = 'zil10v5nstu2ff9jsm7074wer6s6xtklh9xga7n8xc'
+      this.tokens['REDC'] = 'zil14jmjrkvfcz2uvj3y69kl6gas34ecuf2j5ggmye'
+      return
+    }
+
+    const res = await fetch('https://api.zilstream.com/tokens')
     const tokens = await res.json()
-    Object.keys(tokens[this.network]).forEach(key => (this.tokens[key] = tokens[this.network][key]))
+
+    interface ZilStreamToken {
+      symbol: string
+      address_bech32: string
+    }
+
+    tokens.forEach((token: ZilStreamToken) => this.tokens[token.symbol] = token.address_bech32)
   }
 
   private async updateBlockHeight(): Promise<void> {
@@ -1151,7 +1169,7 @@ export class Zilswap {
     // Get user address
     const currentUser = this.walletProvider
       ? // ugly hack for zilpay provider
-        this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
+      this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
       : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Get the contract state
