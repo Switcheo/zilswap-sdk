@@ -11,7 +11,6 @@ import { Mutex } from 'async-mutex'
 import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
 import { sendBatchRequest, BatchRequest, BatchResponse } from './batch'
-import { Stream } from 'stream'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
