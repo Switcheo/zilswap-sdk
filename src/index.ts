@@ -11,6 +11,7 @@ import { Mutex } from 'async-mutex'
 import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
 import { sendBatchRequest, BatchRequest, BatchResponse } from './batch'
+import { Zilo } from './zilo'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
@@ -112,6 +113,9 @@ export class Zilswap {
   readonly contractAddress: string
   readonly contractHash: string
 
+  /* ILO Object handling ILO contract state and txns */
+  private readonly zilo: Zilo
+
   /* Transaction attributes */
   readonly _txParams: TxParams = {
     version: -1,
@@ -151,6 +155,8 @@ export class Zilswap {
       if (options.gasLimit && options.gasLimit > 0) this._txParams.gasLimit = Long.fromNumber(options.gasLimit)
     }
 
+    this.zilo = new Zilo(network, this.walletProvider || null, this.zilliqa, options)
+
     this.observerMutex = new Mutex()
   }
 
@@ -175,12 +181,14 @@ export class Zilswap {
     await this.updateBlockHeight()
     await this.updateAppState()
     await this.updateBalanceAndNonce()
+    await this.zilo.initialize()
   }
 
   /**
    * Stops watching the Zilswap contract state.
    */
   public async teardown() {
+    await this.zilo.teardown()
     if (this.subscription) {
       this.subscription.stop()
     }
@@ -1136,7 +1144,6 @@ export class Zilswap {
   }
 
   private async loadTokenList() {
-
     if (this.network === Network.TestNet) {
       this.tokens['ZIL'] = 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz'
       this.tokens['gZIL'] = 'zil1fytuayks6njpze00ukasq3m4y4s44k79hvz8q5'
@@ -1156,7 +1163,7 @@ export class Zilswap {
       address_bech32: string
     }
 
-    tokens.forEach((token: ZilStreamToken) => this.tokens[token.symbol] = token.address_bech32)
+    tokens.forEach((token: ZilStreamToken) => (this.tokens[token.symbol] = token.address_bech32))
   }
 
   private async updateBlockHeight(): Promise<void> {
@@ -1169,7 +1176,7 @@ export class Zilswap {
     // Get user address
     const currentUser = this.walletProvider
       ? // ugly hack for zilpay provider
-      this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
+        this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
       : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Get the contract state

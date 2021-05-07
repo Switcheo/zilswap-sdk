@@ -21,6 +21,19 @@ export const CONTRACTS: { [key in Networks]: string } = {
   [Network.TestNet]: 'zil1rf3dm8yykryffr94rlrxfws58earfxzu5lw792',
 }
 
+export const ILO_CONTRACTS: { [key in Networks]: string } = {
+  [Network.MainNet]: '',
+  [Network.TestNet]: 'zil1pr0m0em5r0x9rtwrvwkw4rmn2mvn67vkmv6lyc',
+}
+
+export enum ILO_STATE {
+  Uninitialized = "Uninitialized",
+  Pending = "Pending",
+  Active = "Active",
+  Failed = "Failed",
+  Completed = "Completed",
+}
+
 export const CHAIN_VERSIONS: { [key in Networks]: number } = {
   [Network.MainNet]: bytes.pack(1, 1),
   [Network.TestNet]: bytes.pack(333, 1),
