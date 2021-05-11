@@ -1273,7 +1273,7 @@ export class Zilswap {
       const promises = this.observedTxs.map(async (observedTx: ObservedTx) => {
         const result = await this.zilliqa.blockchain.getTransactionStatus(observedTx.hash)
         
-        if (result && result.modificationState == 2) {
+        if (result && result.modificationState === 2) {
           // either confirmed or rejected
           const confirmedTxn = await this.zilliqa.blockchain.getTransaction(observedTx.hash)
           const receipt = confirmedTxn.getReceipt()
