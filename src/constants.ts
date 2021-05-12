@@ -23,7 +23,7 @@ export const CONTRACTS: { [key in Networks]: string } = {
 
 export const ILO_CONTRACTS: { [key in Networks]: string } = {
   [Network.MainNet]: '',
-  [Network.TestNet]: 'zil1pr0m0em5r0x9rtwrvwkw4rmn2mvn67vkmv6lyc',
+  [Network.TestNet]: 'zil1atl49x6uxl9n3ysvhqsyvnvwtq8h4yn8qs26pf',
 }
 
 export enum ILO_STATE {

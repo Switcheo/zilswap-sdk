@@ -35,6 +35,23 @@ export type TxParams = {
   gasLimit: Long
 }
 
+export type ContractInit = {
+  _scilla_version: string
+  zwap_address: string
+  token_address: string
+  token_amount: string
+  target_zil_amount: string
+  target_zwap_amount: string
+  minimum_zil_amount: string
+  liquidity_zil_amount: string
+  receiver_address: string
+  liquidity_address: string
+  start_block: string
+  end_block: string
+  _creation_block: string
+  _this_address: string
+}
+
 interface ADTValue {
   constructor: string
   argtypes: string[]
@@ -44,7 +61,7 @@ interface ADTValue {
 export type ZiloContractState = {
   initialized: ADTValue
   contributions: { [key in string]?: any }
-  total_contributions: BigNumber
+  total_contributions: string
 }
 
 export type ZiloAppState = {
@@ -54,7 +71,7 @@ export type ZiloAppState = {
   contributed: boolean
   currentNonce: number | null
   currentUser: string | null
-  userContribution: BigNumber
+  userContribution: string
 }
 
 type RPCBalanceResponse = { balance: string; nonce: string }
@@ -76,10 +93,10 @@ export class Zilo {
   private currentBlock: number = -1
 
   /* Zilo contract attributes */
+  private contractInit?: ContractInit | null
   readonly contract: Contract
   readonly contractAddress: string
   readonly contractHash: string
-
   /* Transaction attributes */
   readonly _txParams: TxParams = {
     version: -1,
@@ -115,6 +132,7 @@ export class Zilo {
     await this.updateBlockHeight()
     await this.updateAppState()
     await this.updateNonce()
+    await this.updateInit()
   }
 
   public async teardown() {
@@ -139,6 +157,33 @@ export class Zilo {
     this.currentBlock = bNum
   }
 
+  private async updateInit(): Promise<void> {
+    const init = await this.fetchContractInit()
+    const newInit: ContractInit = {
+      _scilla_version: init.find((e: Value) => e.vname === '_scilla_version').value,
+      zwap_address: init.find((e: Value) => e.vname === 'zwap_address').value,
+      token_address: init.find((e: Value) => e.vname === 'token_address').value,
+      token_amount: init.find((e: Value) => e.vname === 'token_amount').value,
+      target_zil_amount: init.find((e: Value) => e.vname === 'target_zil_amount').value,
+      target_zwap_amount: init.find((e: Value) => e.vname === 'target_zwap_amount').value,
+      minimum_zil_amount: init.find((e: Value) => e.vname === 'minimum_zil_amount').value,
+      liquidity_zil_amount: init.find((e: Value) => e.vname === 'liquidity_zil_amount').value,
+      receiver_address: init.find((e: Value) => e.vname === 'receiver_address').value,
+      liquidity_address: init.find((e: Value) => e.vname === 'liquidity_address').value,
+      start_block: init.find((e: Value) => e.vname === 'start_block').value,
+      end_block: init.find((e: Value) => e.vname === 'end_block').value,
+      _creation_block: init.find((e: Value) => e.vname === '_creation_block').value,
+      _this_address: init.find((e: Value) => e.vname === '_this_address').value,
+    }
+    this.contractInit = newInit
+  }
+
+  public getContractInit(): ContractInit | undefined {
+    if (this.contractInit) {
+      return this.contractInit
+    }
+  }
+
   private async updateAppState(): Promise<void> {
     const currentUser = this.walletProvider
       ? // ugly hack for zilpay provider
@@ -148,7 +193,7 @@ export class Zilo {
     const contractState = (await this.contract.getState()) as ZiloContractState
     const cont_state = await this.CheckStatus(contractState)
     const userContribution = contractState.contributions[currentUser || '']
-    const claimable = cont_state === ILO_STATE.Completed && userContribution > 0
+    const claimable = cont_state === ILO_STATE.Completed && new BigNumber(userContribution).isPositive()
     const contributed = userContribution > 0
 
     // Set new state
@@ -165,9 +210,10 @@ export class Zilo {
 
   private async CheckStatus(contractState: ZiloContractState): Promise<ILO_STATE> {
     const init = await this.fetchContractInit()
+
     const endBlock = init.find((e: Value) => e.vname === 'end_block').value as number
     const startBlock = init.find((e: Value) => e.vname === 'start_block').value as number
-    const minAmount = init.find((e: Value) => e.vname === 'minimum_zil_amount').value as BigNumber
+    const targetAmount = init.find((e: Value) => e.vname === 'target_zil_amount').value as string
 
     if (contractState.initialized.constructor !== 'True') {
       return ILO_STATE.Uninitialized
@@ -181,7 +227,7 @@ export class Zilo {
       return ILO_STATE.Active
     }
 
-    if (minAmount > contractState.total_contributions) {
+    if (new BigNumber(targetAmount).isGreaterThan(new BigNumber(contractState.total_contributions))) {
       return ILO_STATE.Failed
     } else {
       return ILO_STATE.Completed
@@ -388,17 +434,19 @@ export class Zilo {
     subscription.subscribe({ query: MessageType.NEW_BLOCK })
 
     subscription.emitter.on(StatusType.SUBSCRIBE_EVENT_LOG, event => {
-      console.log('ilo ws connected: ', event)
+      console.log('zilo ws connected: ', event)
     })
 
     subscription.emitter.on(MessageType.NEW_BLOCK, event => {
-      // console.log('ws new block: ', JSON.stringify(event, null, 2))
-      this.updateBlockHeight().then(() => this.updateObservedTxs())
+      // console.log('zilo ws new block: ', JSON.stringify(event, null, 2))
+      this.updateBlockHeight()
+        .then(() => this.updateObservedTxs())
+        .then(() => this.updateAppState())
     })
 
     subscription.emitter.on(MessageType.EVENT_LOG, event => {
       if (!event.value) return
-      // console.log('ws update: ', JSON.stringify(event, null, 2))
+      // console.log('zilo ws update: ', JSON.stringify(event, null, 2))
       this.updateAppState()
     })
 
