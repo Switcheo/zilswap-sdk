@@ -27,11 +27,11 @@ export const ILO_CONTRACTS: { [key in Networks]: string } = {
 }
 
 export enum ILO_STATE {
-  Uninitialized = "Uninitialized",
-  Pending = "Pending",
-  Active = "Active",
-  Failed = "Failed",
-  Completed = "Completed",
+  Uninitialized = 'Uninitialized',
+  Pending = 'Pending',
+  Active = 'Active',
+  Failed = 'Failed',
+  Completed = 'Completed',
 }
 
 export const CHAIN_VERSIONS: { [key in Networks]: number } = {

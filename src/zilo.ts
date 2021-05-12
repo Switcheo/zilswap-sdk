@@ -7,7 +7,7 @@ import { StatusType, MessageType, NewEventSubscription } from '@zilliqa-js/subsc
 import { BN, Long, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
 import { Mutex } from 'async-mutex'
-import { isLocalStorageAvailable, toPositiveQa } from './utils'
+import { isLocalStorageAvailable, toPositiveQa, unitlessBigNumber } from './utils'
 
 import { WSS, ILO_STATE, ILO_CONTRACTS, CHAIN_VERSIONS, Network } from './constants'
 import { Options, WalletProvider, Zilswap } from '.'
@@ -35,8 +35,14 @@ export type TxParams = {
   gasLimit: Long
 }
 
+interface ADTValue {
+  constructor: string
+  argtypes: string[]
+  arguments: Value[]
+}
+
 export type ZiloContractState = {
-  initialized: { [key in string]?: any }
+  initialized: ADTValue
   contributions: { [key in string]?: any }
   total_contributions: BigNumber
 }
@@ -163,7 +169,7 @@ export class Zilo {
     const startBlock = init.find((e: Value) => e.vname === 'start_block').value as number
     const minAmount = init.find((e: Value) => e.vname === 'minimum_zil_amount').value as BigNumber
 
-    if (contractState.initialized['constructor'] === 'False' || !contractState.initialized) {
+    if (contractState.initialized.constructor !== 'True') {
       return ILO_STATE.Uninitialized
     }
 
@@ -246,13 +252,11 @@ export class Zilo {
   }
 
   /**
-
-
    * @param amountToContributeStr is the exact amount of tokens to be received from Zilswap as a unitless string (withoout decimals).
    */
   public async contribute(amountToContributeStr: string): Promise<ObservedTx | null> {
     // Check init
-    const amountToContribute = new BigNumber(amountToContributeStr)
+    const amountToContribute = unitlessBigNumber(amountToContributeStr)
     this.checkAppLoadedWithUser()
 
     const contributeTxn = await this.callContract(
@@ -299,8 +303,8 @@ export class Zilo {
     try {
       const removeTxs: string[] = []
       const promises = this.observedTxs.map(async (observedTx: ObservedTx) => {
-        const result = await this.zilliqa.blockchain.getPendingTxn(observedTx.hash)
-        if (result && result.confirmed) {
+        const result = await this.zilliqa.blockchain.getTransactionStatus(observedTx.hash)
+        if (result && result.modificationState == 2) {
           // either confirmed or rejected
           const confirmedTxn = await this.zilliqa.blockchain.getTransaction(observedTx.hash)
           const receipt = confirmedTxn.getReceipt()
@@ -311,7 +315,6 @@ export class Zilo {
         }
         if (observedTx.deadline < this.currentBlock) {
           // expired
-          console.log(`tx deadline, current: ${observedTx.deadline}, ${this.currentBlock}`)
           if (this.observer) this.observer(observedTx, 'expired')
           removeTxs.push(observedTx.hash)
         }
@@ -400,7 +403,7 @@ export class Zilo {
     })
 
     subscription.emitter.on(MessageType.UNSUBSCRIBE, event => {
-      console.log('ws disconnected: ', event)
+      console.log('zilo ws disconnected: ', event)
       this.subscription = null
     })
 

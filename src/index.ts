@@ -215,6 +215,10 @@ export class Zilswap {
     return this.appState
   }
 
+  public getZilo(): Zilo {
+    return this.zilo
+  }
+
   /**
    * Gets the pool details for the given `tokenID`.
    *
