@@ -9,31 +9,14 @@ import { BigNumber } from 'bignumber.js'
 import { Mutex } from 'async-mutex'
 import { isLocalStorageAvailable, toPositiveQa, unitlessBigNumber } from './utils'
 
-import { WSS, ILO_STATE, ILO_CONTRACTS, CHAIN_VERSIONS, Network } from './constants'
-import { Options, WalletProvider, Zilswap } from '.'
+import { WSS, ILO_STATE, CHAIN_VERSIONS, Network } from './constants'
+import { Options, WalletProvider, TxParams, ObservedTx, OnUpdate } from '.'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
-export type OnUpdate = (tx: ObservedTx, status: TxStatus, receipt?: TxReceipt) => void
-
-export type ObservedTx = {
-  hash: string
-  deadline: number
-}
-
-// The tx status of an observed tx.
-// Confirmed = txn was found, confirmed and processed without reverting
-// Rejected = txn was found, confirmed, but had an error and reverted during smart contract execution
-// Expired = current block height has exceeded the txn's deadline block
-export type TxStatus = 'confirmed' | 'rejected' | 'expired'
-
 export type TxReceipt = _TxReceipt
 
-export type TxParams = {
-  version: number
-  gasPrice: BN
-  gasLimit: Long
-}
+export type OnStateUpdate = (appState: ZiloAppState) => void
 
 export type ContractInit = {
   _scilla_version: string
@@ -72,6 +55,7 @@ export type ZiloAppState = {
   currentNonce: number | null
   currentUser: string | null
   userContribution: string
+  contractInit: ContractInit | null
 }
 
 type RPCBalanceResponse = { balance: string; nonce: string }
@@ -88,15 +72,18 @@ export class Zilo {
   private observerMutex: Mutex
   private observedTxs: ObservedTx[] = []
 
+  /* State observer */
+  private stateObserver: OnStateUpdate | null = null
+
   /* Deadline tracking */
   private deadlineBuffer: number = 10
   private currentBlock: number = -1
 
   /* Zilo contract attributes */
-  private contractInit?: ContractInit | null
   readonly contract: Contract
   readonly contractAddress: string
   readonly contractHash: string
+
   /* Transaction attributes */
   readonly _txParams: TxParams = {
     version: -1,
@@ -104,8 +91,8 @@ export class Zilo {
     gasLimit: Long.fromNumber(5000),
   }
 
-  constructor(readonly network: Network, walletProvider: WalletProvider | null, zilliqa: Zilliqa, options?: Options) {
-    this.contractAddress = ILO_CONTRACTS[network]
+  constructor(readonly network: Network, walletProvider: WalletProvider | null, zilliqa: Zilliqa, contractAddr: string, options?: Options) {
+    this.contractAddress = contractAddr
     this.contract = (walletProvider || zilliqa).contracts.at(this.contractAddress)
     if (walletProvider) this.walletProvider = walletProvider
     this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
@@ -120,9 +107,10 @@ export class Zilo {
     }
   }
 
-  public async initialize(subscription?: OnUpdate, observeTxs: ObservedTx[] = []) {
+  public async initialize(subscription?: OnUpdate, observeTxs: ObservedTx[] = [], stateObserver?: OnStateUpdate) {
     this.observedTxs = observeTxs
     if (subscription) this.observer = subscription
+    if (stateObserver) this.stateObserver = stateObserver
     if (this._txParams.gasPrice.isZero()) {
       const minGasPrice = await this.zilliqa.blockchain.getMinimumGasPrice()
       if (!minGasPrice.result) throw new Error('Failed to get min gas price.')
@@ -132,7 +120,6 @@ export class Zilo {
     await this.updateBlockHeight()
     await this.updateAppState()
     await this.updateNonce()
-    await this.updateInit()
   }
 
   public async teardown() {
@@ -157,33 +144,6 @@ export class Zilo {
     this.currentBlock = bNum
   }
 
-  private async updateInit(): Promise<void> {
-    const init = await this.fetchContractInit()
-    const newInit: ContractInit = {
-      _scilla_version: init.find((e: Value) => e.vname === '_scilla_version').value,
-      zwap_address: init.find((e: Value) => e.vname === 'zwap_address').value,
-      token_address: init.find((e: Value) => e.vname === 'token_address').value,
-      token_amount: init.find((e: Value) => e.vname === 'token_amount').value,
-      target_zil_amount: init.find((e: Value) => e.vname === 'target_zil_amount').value,
-      target_zwap_amount: init.find((e: Value) => e.vname === 'target_zwap_amount').value,
-      minimum_zil_amount: init.find((e: Value) => e.vname === 'minimum_zil_amount').value,
-      liquidity_zil_amount: init.find((e: Value) => e.vname === 'liquidity_zil_amount').value,
-      receiver_address: init.find((e: Value) => e.vname === 'receiver_address').value,
-      liquidity_address: init.find((e: Value) => e.vname === 'liquidity_address').value,
-      start_block: init.find((e: Value) => e.vname === 'start_block').value,
-      end_block: init.find((e: Value) => e.vname === 'end_block').value,
-      _creation_block: init.find((e: Value) => e.vname === '_creation_block').value,
-      _this_address: init.find((e: Value) => e.vname === '_this_address').value,
-    }
-    this.contractInit = newInit
-  }
-
-  public getContractInit(): ContractInit | undefined {
-    if (this.contractInit) {
-      return this.contractInit
-    }
-  }
-
   private async updateAppState(): Promise<void> {
     const currentUser = this.walletProvider
       ? // ugly hack for zilpay provider
@@ -195,9 +155,30 @@ export class Zilo {
     const userContribution = contractState.contributions[currentUser || '']
     const claimable = cont_state === ILO_STATE.Completed && new BigNumber(userContribution).isPositive()
     const contributed = userContribution > 0
+    let contractInit = this.appState?.contractInit || null
 
-    // Set new state
-    this.appState = {
+    if (!contractInit) {
+      const init = await this.fetchContractInit()
+
+      contractInit = {
+        _scilla_version: init.find((e: Value) => e.vname === '_scilla_version').value,
+        zwap_address: init.find((e: Value) => e.vname === 'zwap_address').value,
+        token_address: init.find((e: Value) => e.vname === 'token_address').value,
+        token_amount: init.find((e: Value) => e.vname === 'token_amount').value,
+        target_zil_amount: init.find((e: Value) => e.vname === 'target_zil_amount').value,
+        target_zwap_amount: init.find((e: Value) => e.vname === 'target_zwap_amount').value,
+        minimum_zil_amount: init.find((e: Value) => e.vname === 'minimum_zil_amount').value,
+        liquidity_zil_amount: init.find((e: Value) => e.vname === 'liquidity_zil_amount').value,
+        receiver_address: init.find((e: Value) => e.vname === 'receiver_address').value,
+        liquidity_address: init.find((e: Value) => e.vname === 'liquidity_address').value,
+        start_block: init.find((e: Value) => e.vname === 'start_block').value,
+        end_block: init.find((e: Value) => e.vname === 'end_block').value,
+        _creation_block: init.find((e: Value) => e.vname === '_creation_block').value,
+        _this_address: init.find((e: Value) => e.vname === '_this_address').value,
+      }
+    }
+
+    let newState = {
       contractState,
       claimable,
       contributed,
@@ -205,6 +186,12 @@ export class Zilo {
       currentUser,
       state: cont_state,
       userContribution,
+      contractInit,
+    }
+    // Set new state
+    this.appState = newState
+    if (this.stateObserver) {
+      this.stateObserver(newState)
     }
   }
 

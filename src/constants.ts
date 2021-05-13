@@ -21,9 +21,11 @@ export const CONTRACTS: { [key in Networks]: string } = {
   [Network.TestNet]: 'zil1rf3dm8yykryffr94rlrxfws58earfxzu5lw792',
 }
 
-export const ILO_CONTRACTS: { [key in Networks]: string } = {
-  [Network.MainNet]: '',
-  [Network.TestNet]: 'zil1atl49x6uxl9n3ysvhqsyvnvwtq8h4yn8qs26pf',
+export const ILO_CONTRACTS: { [key in Networks]: { [key in string]: string } } = {
+  [Network.MainNet]: {},
+  [Network.TestNet]: {
+    zilo: 'zil1atl49x6uxl9n3ysvhqsyvnvwtq8h4yn8qs26pf',
+  },
 }
 
 export enum ILO_STATE {

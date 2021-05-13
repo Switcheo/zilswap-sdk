@@ -8,12 +8,14 @@ import { BN, Long, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
 import { Mutex } from 'async-mutex'
 
-import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
+import { APIS, WSS, CONTRACTS, ILO_CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
 import { sendBatchRequest, BatchRequest, BatchResponse } from './batch'
 import { Zilo } from './zilo'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
+
+export * from './zilo'
 
 export type Options = {
   deadlineBuffer?: number
@@ -114,7 +116,7 @@ export class Zilswap {
   readonly contractHash: string
 
   /* ILO Object handling ILO contract state and txns */
-  private readonly zilo: Zilo
+  private readonly zilos: { [key in string]: Zilo } = {}
 
   /* Transaction attributes */
   readonly _txParams: TxParams = {
@@ -155,7 +157,9 @@ export class Zilswap {
       if (options.gasLimit && options.gasLimit > 0) this._txParams.gasLimit = Long.fromNumber(options.gasLimit)
     }
 
-    this.zilo = new Zilo(network, this.walletProvider || null, this.zilliqa, options)
+    for (const [key, value] of Object.entries(ILO_CONTRACTS[network])) {
+      this.zilos[key] = new Zilo(network, this.walletProvider || null, this.zilliqa, value, options)
+    }
 
     this.observerMutex = new Mutex()
   }
@@ -181,14 +185,19 @@ export class Zilswap {
     await this.updateBlockHeight()
     await this.updateAppState()
     await this.updateBalanceAndNonce()
-    await this.zilo.initialize()
+    await Object.values(this.zilos).forEach(async zilo => {
+      await zilo.initialize()
+    })
   }
 
   /**
    * Stops watching the Zilswap contract state.
    */
   public async teardown() {
-    await this.zilo.teardown()
+    await Object.values(this.zilos).forEach(async zilo => {
+      await zilo.teardown()
+    })
+
     if (this.subscription) {
       this.subscription.stop()
     }
@@ -215,8 +224,8 @@ export class Zilswap {
     return this.appState
   }
 
-  public getZilo(): Zilo {
-    return this.zilo
+  public getZilo(): { [key in string]: Zilo } {
+    return this.zilos
   }
 
   /**
@@ -1283,7 +1292,7 @@ export class Zilswap {
       const removeTxs: string[] = []
       const promises = this.observedTxs.map(async (observedTx: ObservedTx) => {
         const result = await this.zilliqa.blockchain.getTransactionStatus(observedTx.hash)
-        
+
         if (result && result.modificationState === 2) {
           // either confirmed or rejected
           const confirmedTxn = await this.zilliqa.blockchain.getTransaction(observedTx.hash)
