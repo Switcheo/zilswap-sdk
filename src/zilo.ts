@@ -195,6 +195,10 @@ export class Zilo {
     }
   }
 
+  public setStateObserver = (observer: OnStateUpdate) => {
+    this.stateObserver = observer
+  }
+
   private async CheckStatus(contractState: ZiloContractState): Promise<ILO_STATE> {
     const init = await this.fetchContractInit()
 
