@@ -91,6 +91,16 @@ export class Zilo {
     gasLimit: Long.fromNumber(5000),
   }
 
+  /**
+   * Creates the ILO object. {@linkcode initialize} needs to be called after
+   * the object is created to begin watching the blockchain's state.
+   *
+   * @param network the Network to use, either `TestNet` or `MainNet`.
+   * @param walletProvider a Provider with Wallet or private key string to be used for signing txns.
+   * @param zilliqa the zilliqa object used during zilswap initialization
+   * @param contractAddr the ilo contract address
+   * @param options a set of Options that will be used for all txns.
+   */
   constructor(readonly network: Network, walletProvider: WalletProvider | null, zilliqa: Zilliqa, contractAddr: string, options?: Options) {
     this.contractAddress = contractAddr
     this.contract = (walletProvider || zilliqa).contracts.at(this.contractAddress)
@@ -107,6 +117,16 @@ export class Zilo {
     }
   }
 
+  /**
+   * Intializes the ILO, fetching a cache of the ILO contract state and
+   * subscribing to subsequent state changes. You may optionally pass an array
+   * of ObservedTx's to subscribe to status changes on any of those txs. Pass in
+   * OnStateUpate callback function to keep track of the ZiloAppState updates.
+   *
+   * @param subscription is the callback function to call when a tx state changes.
+   * @param observeTxs array if txs to observe
+   * @param stateObserver is the callback function when the contract state updates.
+   */
   public async initialize(subscription?: OnUpdate, observeTxs: ObservedTx[] = [], stateObserver?: OnStateUpdate) {
     await this.teardown()
     this.observedTxs = observeTxs
@@ -123,6 +143,9 @@ export class Zilo {
     await this.updateNonce()
   }
 
+  /**
+   * Stops watching the Zilo contract state.
+   */
   public async teardown() {
     if (this.subscription) {
       this.subscription.stop()
@@ -145,6 +168,9 @@ export class Zilo {
     this.currentBlock = bNum
   }
 
+  /**
+   * Update the latest ZiloAppState, execute stateObserver if callback exist
+   */
   private async updateAppState(): Promise<void> {
     const currentUser = this.walletProvider
       ? // ugly hack for zilpay provider
@@ -196,10 +222,26 @@ export class Zilo {
     }
   }
 
+  /**
+   * Set the callback function for when ZiloAppState updates.
+   *
+   * @param observer callback function to when ZiloAppState updates.
+   */
   public setStateObserver = (observer: OnStateUpdate) => {
     this.stateObserver = observer
   }
 
+  /**
+   * Checks the state of the current contract
+   * ILO_STATE.Uninitialized = Contract deployed but not initialized
+   * ILO_STATE.Pending = Contract initialized not stated (current block < start block)
+   * ILO_STATE.Active = Contract started
+   * ILO_STATE.Failed = Contract ended but target amount not reached
+   * ILO_STATE.Completed = Contract ended and target amount fufilled
+   *
+   * @param contractState
+   * @returns returns the current ILO_STATE
+   */
   private async CheckStatus(contractState: ZiloContractState): Promise<ILO_STATE> {
     const init = await this.fetchContractInit()
 
@@ -244,12 +286,21 @@ export class Zilo {
     }
   }
 
+  /**
+   * Execute claim function if user contributed
+   */
   public async claim(): Promise<ObservedTx | null> {
     // Check init
     this.checkAppLoadedWithUser()
 
+    // check if current state is claimable
     if (this.appState?.state !== ILO_STATE.Completed && this.appState?.state !== ILO_STATE.Failed) {
       throw new Error('Not yet claimable/refundable')
+    }
+
+    // no contributio
+    if (!this.appState.contributed) {
+      throw new Error('User did not contribute')
     }
 
     const claimTxn = await this.callContract(this.contract, 'Claim', [], { amount: new BN(0), ...this.txParams() }, true)
@@ -290,6 +341,8 @@ export class Zilo {
   }
 
   /**
+   * Contribute to the ilo, may need to increase token allowance before proceeding
+   *
    * @param amountToContributeStr is the exact amount of tokens to be received from Zilswap as a unitless string (withoout decimals).
    */
   public async contribute(amountToContributeStr: string): Promise<ObservedTx | null> {
