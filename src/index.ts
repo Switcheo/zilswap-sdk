@@ -8,7 +8,7 @@ import { BN, Long, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
 import { Mutex } from 'async-mutex'
 
-import { APIS, WSS, CONTRACTS, ILO_CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
+import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
 import { sendBatchRequest, BatchRequest, BatchResponse } from './batch'
 import { Zilo } from './zilo'
@@ -157,10 +157,6 @@ export class Zilswap {
       if (options.gasLimit && options.gasLimit > 0) this._txParams.gasLimit = Long.fromNumber(options.gasLimit)
     }
 
-    for (const [key, value] of Object.entries(ILO_CONTRACTS[network])) {
-      this.zilos[key] = new Zilo(network, this.walletProvider || null, this.zilliqa, value, options)
-    }
-
     this.observerMutex = new Mutex()
   }
 
@@ -185,9 +181,10 @@ export class Zilswap {
     await this.updateBlockHeight()
     await this.updateAppState()
     await this.updateBalanceAndNonce()
-    await Object.values(this.zilos).forEach(async zilo => {
-      await zilo.initialize()
-    })
+  }
+
+  public initZilo(contractAddr: string, options?: Options): Zilo {
+    return new Zilo(this.network, this.walletProvider || null, this.zilliqa, contractAddr, options)
   }
 
   /**

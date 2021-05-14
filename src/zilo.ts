@@ -108,6 +108,7 @@ export class Zilo {
   }
 
   public async initialize(subscription?: OnUpdate, observeTxs: ObservedTx[] = [], stateObserver?: OnStateUpdate) {
+    await this.teardown()
     this.observedTxs = observeTxs
     if (subscription) this.observer = subscription
     if (stateObserver) this.stateObserver = stateObserver
