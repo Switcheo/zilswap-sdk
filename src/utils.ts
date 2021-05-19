@@ -1,3 +1,4 @@
+import { Value } from '@zilliqa-js/contract'
 import { BN, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
 
@@ -116,3 +117,40 @@ export const isLocalStorageAvailable = () => {
   }
   return _lsAvailable
 }
+
+/**
+ * Converts `Value[]` array to map of string values.
+ * `Value.type` is ignored, all values are returned as string.
+ *
+ *
+ * sample input:
+ * ```javascript
+ *  [{
+ *    name: 'address',
+ *    type: 'ByStr20',
+ *    value: '0xbadbeef',
+ *  }, {
+ *    name: 'balance',
+ *    type: 'UInt28',
+ *    value: '100000000',
+ *  }]
+ * ```
+ *
+ * output:
+ * ```javascript
+ *  {
+ *    address: '0xbadbeef',
+ *    balance: '100000000',
+ *  }
+ * ```
+ *
+ * @param params parameters in `Value[]` array representation
+ * @returns mapped object representation - refer to sample output
+ */
+export const contractInitToMap = (params: Value[]): { [index: string]: any } => {
+  const output: { [index: string]: any } = {}
+  for (const set of params) {
+    output[set.vname] = set.value
+  }
+  return output
+};

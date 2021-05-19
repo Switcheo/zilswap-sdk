@@ -10,9 +10,8 @@ import { Mutex } from 'async-mutex'
 
 import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
-import { sendBatchRequest, BatchRequest, BatchResponse } from './batch'
+import { sendBatchRequest, BatchRequest } from './batch'
 import { Zilo } from "./zilo"
-export * from './zilo'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
@@ -92,9 +91,11 @@ export type WalletProvider = Omit<
 type RPCBalanceResponse = { balance: string; nonce: string }
 
 export class Zilswap {
+  /* Zilliqa SDK */
+  readonly zilliqa: Zilliqa
+
   /* Internals */
   private readonly rpcEndpoint: string
-  private readonly zilliqa: Zilliqa // zilliqa sdk
   private readonly walletProvider?: WalletProvider // zilpay
   private readonly tokens: { [key in string]: string } // symbol => hash mappings
   private appState?: AppState // cached blockchain state for dApp and user
@@ -121,9 +122,6 @@ export class Zilswap {
     gasPrice: new BN(0),
     gasLimit: Long.fromNumber(5000),
   }
-
-  /* Zilo object */
-  readonly zilos: { [key in string]: Zilo } = {}
 
   /**
    * Creates the Zilswap SDK object. {@linkcode initalize} needs to be called after
@@ -184,9 +182,8 @@ export class Zilswap {
     await this.updateBalanceAndNonce()
   }
 
-  public initContract(addr: string, ziloName: string): Zilo {
-    this.zilos[ziloName] = new Zilo(this, (this.walletProvider || this.zilliqa).contracts.at(addr));
-    return this.zilos[ziloName]
+  public initZilo(address: string): Zilo {
+    return new Zilo(this, address)
   }
   /**
    * Stops watching the Zilswap contract state.
@@ -1126,17 +1123,14 @@ export class Zilswap {
     })
 
     subscription.emitter.on(MessageType.NEW_BLOCK, event => {
-      // console.log('ws new block: ', JSON.stringify(event, null, 2))
+      console.log('ws new block: ', JSON.stringify(event, null, 2))
       this.updateBlockHeight().then(() => this.updateObservedTxs())
     })
 
     subscription.emitter.on(MessageType.EVENT_LOG, event => {
       if (!event.value) return
-      // console.log('ws update: ', JSON.stringify(event, null, 2))
+      console.log('ws update: ', JSON.stringify(event, null, 2))
       this.updateAppState()
-      Object.values(this.zilos).forEach(zilo => {
-        zilo.updateZiloState()
-      })
     })
 
     subscription.emitter.on(MessageType.UNSUBSCRIBE, event => {

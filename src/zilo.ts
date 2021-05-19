@@ -1,11 +1,9 @@
-import { Zilswap, ObservedTx } from "."
 import { Contract, Value } from '@zilliqa-js/contract'
-import { TxReceipt as _TxReceipt } from '@zilliqa-js/account'
 import { BN } from '@zilliqa-js/util'
-import { unitlessBigNumber } from './utils'
-import { ILO_STATE } from './constants'
 import { BigNumber } from 'bignumber.js'
-
+import { ObservedTx, Zilswap } from "./index"
+import { ILOState } from './constants'
+import { contractInitToMap, unitlessBigNumber } from './utils'
 
 export type OnStateUpdate = (appState: ZiloAppState) => void
 
@@ -21,19 +19,7 @@ export type ZiloContractState = {
   total_contributions: string
 }
 
-export type ZiloAppState = {
-  contractState: ZiloContractState
-  state: ILO_STATE
-  claimable: boolean
-  contributed: boolean
-  currentNonce: number | null
-  currentUser: string | null
-  userContribution: string
-  contractInit: ContractInit | null
-}
-
-export type ContractInit = {
-  _scilla_version: string
+export type ZiloContractInit = {
   zwap_address: string
   token_address: string
   token_amount: string
@@ -45,63 +31,55 @@ export type ContractInit = {
   liquidity_address: string
   start_block: string
   end_block: string
+  _scilla_version: string
   _creation_block: string
   _this_address: string
 }
 
+export type ZiloAppState = {
+  contractState: ZiloContractState
+  state: ILOState
+  claimable: boolean
+  contributed: boolean
+  currentNonce: number | null
+  currentUser: string | null
+  userContribution: string
+  contractInit: ZiloContractInit | null
+}
 
 export class Zilo {
 
   private zilswap: Zilswap
   private contract: Contract
-  private contractHash: string
   private appState?: ZiloAppState
 
   private stateObserver: OnStateUpdate | null = null
 
-  constructor(zilswap: Zilswap, contract: Contract) {
+  constructor(zilswap: Zilswap, address: string) {
     this.zilswap = zilswap
-    this.contract = contract
-    this.contractHash = contract.address!
+    this.contract = zilswap.zilliqa.contracts.at(address);
   }
 
   public async initialize(subscription?: OnStateUpdate) {
     if (subscription) this.stateObserver = subscription
-    await this.zilswap.addToSubscription(this.contractHash);
+    await this.zilswap.addToSubscription(this.contract.address!);
     await this.updateZiloState()
   }
 
   public async updateZiloState() {
     const contractState = (await this.contract.getState()) as ZiloContractState
-    console.log({ contractState })
     const stateOfContract = await this.checkStatus(contractState)
 
     const currentUser = this.zilswap.getAppState().currentUser;
 
-    const userContribution = contractState.contributions[currentUser || '']
-    const claimable = stateOfContract === ILO_STATE.Completed && new BigNumber(userContribution).isPositive()
+    const userContribution = contractState.contributions[currentUser || ''] ?? 0
+    const claimable = stateOfContract === ILOState.Completed && new BigNumber(userContribution).isPositive()
     const contributed = userContribution > 0
     let contractInit = this.appState?.contractInit || null
 
     if (!contractInit) {
-      const init = await this.zilswap.fetchContractInit(this.contract)
-
-      contractInit = {
-        _scilla_version: init.find((e: Value) => e.vname === '_scilla_version').value,
-        zwap_address: init.find((e: Value) => e.vname === 'zwap_address').value,
-        token_address: init.find((e: Value) => e.vname === 'token_address').value,
-        token_amount: init.find((e: Value) => e.vname === 'token_amount').value,
-        target_zil_amount: init.find((e: Value) => e.vname === 'target_zil_amount').value,
-        target_zwap_amount: init.find((e: Value) => e.vname === 'target_zwap_amount').value,
-        minimum_zil_amount: init.find((e: Value) => e.vname === 'minimum_zil_amount').value,
-        liquidity_zil_amount: init.find((e: Value) => e.vname === 'liquidity_zil_amount').value,
-        receiver_address: init.find((e: Value) => e.vname === 'receiver_address').value,
-        liquidity_address: init.find((e: Value) => e.vname === 'liquidity_address').value,
-        start_block: init.find((e: Value) => e.vname === 'start_block').value,
-        end_block: init.find((e: Value) => e.vname === 'end_block').value,
-        _creation_block: init.find((e: Value) => e.vname === '_creation_block').value,
-        _this_address: init.find((e: Value) => e.vname === '_this_address').value,
-      }
+      const result = await this.zilswap.fetchContractInit(this.contract)
+      contractInit = contractInitToMap(result) as ZiloContractInit
     }
 
     let newState = {
@@ -114,7 +92,7 @@ export class Zilo {
       userContribution,
       contractInit,
     }
-    // Set new state
+
     this.appState = newState
     if (this.stateObserver) {
       this.stateObserver(newState)
@@ -130,56 +108,54 @@ export class Zilo {
 
   /**
    * Checks the state of the current contract
-   * ILO_STATE.Uninitialized = Contract deployed but not initialized
-   * ILO_STATE.Pending = Contract initialized not stated (current block < start block)
-   * ILO_STATE.Active = Contract started
-   * ILO_STATE.Failed = Contract ended but target amount not reached
-   * ILO_STATE.Completed = Contract ended and target amount fufilled
+   * ILOState.Uninitialized = Contract deployed but not initialized
+   * ILOState.Pending = Contract initialized not stated (current block < start block)
+   * ILOState.Active = Contract started
+   * ILOState.Failed = Contract ended but target amount not reached
+   * ILOState.Completed = Contract ended and target amount fufilled
    *
    * @param contractState
-   * @returns returns the current ILO_STATE
+   * @returns returns the current ILOState
    */
-  private async checkStatus(contractState: ZiloContractState): Promise<ILO_STATE> {
-    const init = await this.zilswap.fetchContractInit(this.contract)
+  private async checkStatus(contractState: ZiloContractState): Promise<ILOState> {
+    const result = await this.zilswap.fetchContractInit(this.contract)
+    const contractInit = contractInitToMap(result) as ZiloContractInit
 
-    if (!init || contractState.initialized.constructor !== 'True') {
-      return ILO_STATE.Uninitialized
+    if (!result || contractState.initialized.constructor !== 'True') {
+      return ILOState.Uninitialized
     }
+
     const currentBlock = this.zilswap.getCurrentBlock();
-    const endBlock = init.find((e: Value) => e.vname === 'end_block').value as number
-    const startBlock = init.find((e: Value) => e.vname === 'start_block').value as number
-    const targetAmount = init.find((e: Value) => e.vname === 'target_zil_amount').value as string
 
-    if (currentBlock < startBlock) {
-      return ILO_STATE.Pending
+    if (currentBlock < parseInt(contractInit.start_block)) {
+      return ILOState.Pending
     }
 
-    if (currentBlock < endBlock) {
-      return ILO_STATE.Active
+    if (currentBlock < parseInt(contractInit.end_block)) {
+      return ILOState.Active
     }
 
-    if (new BigNumber(targetAmount).isGreaterThan(new BigNumber(contractState.total_contributions))) {
-      return ILO_STATE.Failed
+    if (new BigNumber(contractInit.target_zil_amount).gt(new BigNumber(contractState.total_contributions))) {
+      return ILOState.Failed
     } else {
-      return ILO_STATE.Completed
+      return ILOState.Completed
     }
   }
 
-
   /**
- * Execute claim function if user contributed
- */
+   * Execute claim function if user contributed
+   */
   public async claim(): Promise<ObservedTx | null> {
     // Check init
     this.zilswap.checkAppLoadedWithUser()
 
     // check if current state is claimable
-    if (this.appState?.state !== ILO_STATE.Completed && this.appState?.state !== ILO_STATE.Failed) {
+    if (this.appState?.state !== ILOState.Completed && this.appState?.state !== ILOState.Failed) {
       throw new Error('Not yet claimable/refundable')
     }
 
-    // no contributio
-    if (!this.appState.contributed) {
+    // no contribution
+    if (!this.appState?.contributed) {
       throw new Error('User did not contribute')
     }
 

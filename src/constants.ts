@@ -21,7 +21,7 @@ export const CONTRACTS: { [key in Networks]: string } = {
   [Network.TestNet]: 'zil1rf3dm8yykryffr94rlrxfws58earfxzu5lw792',
 }
 
-export enum ILO_STATE {
+export enum ILOState {
   Uninitialized = 'Uninitialized',
   Pending = 'Pending',
   Active = 'Active',
