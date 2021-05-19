@@ -197,14 +197,15 @@ export class Zilo {
   }
 
   /**
- * Contribute to the ilo, may need to increase token allowance before proceeding
- *
- * @param amountToContributeStr is the exact amount of tokens to be received from Zilswap as a unitless string (withoout decimals).
- */
+   * Contribute to the ilo, may need to increase token allowance before proceeding
+   *
+   * @param amountToContributeStr is the exact amount of tokens to be received from Zilswap as a unitless string (withoout decimals).
+   */
   public async contribute(amountToContributeStr: string): Promise<ObservedTx | null> {
+    this.zilswap.checkAppLoadedWithUser()
+
     // Check init
     const amountToContribute = unitlessBigNumber(amountToContributeStr)
-    this.zilswap.checkAppLoadedWithUser()
 
     const contributeTxn = await this.zilswap.callContract(
       this.contract,

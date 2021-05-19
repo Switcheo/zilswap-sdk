@@ -12,6 +12,7 @@ import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from '
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
 import { sendBatchRequest, BatchRequest } from './batch'
 import { Zilo } from "./zilo"
+export * from "./zilo";
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
@@ -185,6 +186,7 @@ export class Zilswap {
   public initZilo(address: string): Zilo {
     return new Zilo(this, address)
   }
+
   /**
    * Stops watching the Zilswap contract state.
    */
@@ -390,13 +392,18 @@ export class Zilswap {
    *
    * @returns an ObservedTx if IncreaseAllowance was called, null if not.
    */
-  public async approveTokenTransferIfRequired(tokenID: string, amountStrOrBN: BigNumber | string): Promise<ObservedTx | null> {
+  public async approveTokenTransferIfRequired(
+    tokenID: string,
+    amountStrOrBN: BigNumber | string,
+    spenderHash: string = this.contractHash,
+  ): Promise<ObservedTx | null> {
     // Check logged in
     this.checkAppLoadedWithUser()
 
+    const _spenderHash = spenderHash.toLowerCase()
     const token = this.getTokenDetails(tokenID)
-    const tokenState = await token.contract.getSubState('allowances', [this.appState!.currentUser!, this.contractHash])
-    const allowance = new BigNumber(tokenState?.allowances[this.appState!.currentUser!]?.[this.contractHash] || 0)
+    const tokenState = await token.contract.getSubState('allowances', [this.appState!.currentUser!, _spenderHash])
+    const allowance = new BigNumber(tokenState?.allowances[this.appState!.currentUser!]?.[_spenderHash] || 0)
     const amount: BigNumber = typeof amountStrOrBN === 'string' ? unitlessBigNumber(amountStrOrBN) : amountStrOrBN
 
     if (allowance.lt(amount)) {
@@ -409,7 +416,7 @@ export class Zilswap {
             {
               vname: 'spender',
               type: 'ByStr20',
-              value: this.contractHash,
+              value: _spenderHash,
             },
             {
               vname: 'amount',
@@ -1168,11 +1175,11 @@ export class Zilswap {
   }
 
   /**
- * Create a new subscription with the addr removed, 
- * stop old subscription
- * 
- * @param addr new contract hash to remove from subscription
- */
+   * Create a new subscription with the addr removed, 
+   * stop old subscription
+   * 
+   * @param addr new contract hash to remove from subscription
+   */
   public async removeFromSubscription(addr: string) {
     if (this.subscriptionAddr.includes(addr)) {
       this.subscriptionAddr.splice(this.subscriptionAddr.indexOf(addr), 1)
