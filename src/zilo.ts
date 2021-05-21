@@ -45,6 +45,27 @@ export type ZiloAppState = {
   contractInit: ZiloContractInit | null
 }
 
+/**
+ * Zilo class to represent an instance of a ZilSwap Initial Launch Offering.
+ * 
+ * Usage:
+ * ```
+ * const zilswap = new Zilswap(Network.TestNet)
+ * await zilswap.initialize()
+ * const zilo = await zilswap.registerZilo(ZILO_ADDRESS, ziloStateObserver)
+ * 
+ * const ziloState = zilo.getZiloState()
+ * 
+ * if (ziloState.state === ILOState.Active) {
+ *    const amount = new BigNumber(1).shiftedBy(ZIL_DECIMALS).toString(10)
+ *    const tx = await zilo.contribute(amount)
+ * 
+ *    console.log("distribute TX sent", tx.hash)
+ * } else {
+ *    console.log("ZILO not yet active")
+ * }
+ * ```
+ */
 export class Zilo {
 
   private zilswap: Zilswap
@@ -250,9 +271,9 @@ export class Zilo {
   }
 
   /**
-   * Contribute to the ilo, may need to increase token allowance before proceeding
+   * Contribute to the ILO, may need to increase token allowance before proceeding
    *
-   * @param amountToContributeStr is the exact amount of tokens to be received from Zilswap as a unitless string (withoout decimals).
+   * @param amountToContributeStr is the exact amount of ZIL to be contribute as a unitless string (without decimals).
    */
   public async contribute(amountToContributeStr: string): Promise<ObservedTx | null> {
     this.zilswap.checkAppLoadedWithUser()
