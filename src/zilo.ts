@@ -5,7 +5,6 @@ import { ObservedTx, Zilswap } from "./index"
 import { ILOState } from './constants'
 import { contractInitToMap, unitlessBigNumber } from './utils'
 
-export type OnStateUpdate = (appState: ZiloAppState) => void
 
 interface ADTValue {
   constructor: string
@@ -29,8 +28,8 @@ export type ZiloContractInit = {
   liquidity_zil_amount: string
   receiver_address: string
   liquidity_address: string
-  start_block: string
-  end_block: string
+  start_block: number
+  end_block: number
   _scilla_version: string
   _creation_block: string
   _this_address: string
@@ -53,17 +52,33 @@ export class Zilo {
   private contract: Contract
   private appState?: ZiloAppState
 
-  private stateObserver: OnStateUpdate | null = null
+  private stateObserver?: Zilo.OnStateUpdate
 
   constructor(zilswap: Zilswap, address: string) {
     this.zilswap = zilswap
     this.contract = zilswap.zilliqa.contracts.at(address);
   }
 
-  public async initialize(subscription?: OnStateUpdate) {
-    if (subscription) this.stateObserver = subscription
-    await this.zilswap.addToSubscription(this.contract.address!);
+  public async initialize(observer?: Zilo.OnStateUpdate) {
+    this.updateObserver(observer)
     await this.updateZiloState()
+  }
+
+  public updateObserver(observer?: Zilo.OnStateUpdate) {
+    this.stateObserver = observer
+  }
+
+  private async fetchContractInit(): Promise<ZiloContractInit | undefined> {
+    const result = await this.zilswap.fetchContractInit(this.contract)
+    if (!result) return
+
+    const rawInit = contractInitToMap(result)
+
+    return {
+      ...rawInit,
+      start_block: parseInt(rawInit.start_block),
+      end_block: parseInt(rawInit.end_block),
+    } as ZiloContractInit
   }
 
   public async updateZiloState() {
@@ -75,11 +90,14 @@ export class Zilo {
     const userContribution = contractState.contributions[currentUser || ''] ?? 0
     const claimable = stateOfContract === ILOState.Completed && new BigNumber(userContribution).isPositive()
     const contributed = userContribution > 0
-    let contractInit = this.appState?.contractInit || null
+    let contractInit = this.appState?.contractInit
 
     if (!contractInit) {
-      const result = await this.zilswap.fetchContractInit(this.contract)
-      contractInit = contractInitToMap(result) as ZiloContractInit
+      contractInit = await this.fetchContractInit()
+      if (!contractInit) {
+        console.error(`Could not fetch contract init for Zilo ${this.contract.address}`)
+        return
+      }
     }
 
     let newState = {
@@ -94,8 +112,24 @@ export class Zilo {
     }
 
     this.appState = newState
-    if (this.stateObserver) {
-      this.stateObserver(newState)
+    this.stateObserver?.(newState)
+  }
+
+  public async updateBlockHeight(height?: number) {
+    if (!this.appState?.contractInit) {
+      // not initialized, ignore update.
+      return
+    }
+
+    if (typeof height === "undefined") {
+      const response = await this.zilswap.zilliqa.blockchain.getNumTxBlocks()
+      height = parseInt(response.result!, 10)
+    }
+
+    const contractInit = this.appState.contractInit
+    if (height === contractInit.start_block || height === contractInit.end_block) {
+      // trigger update if start/end block is current height
+      await this.updateZiloState()
     }
   }
 
@@ -118,20 +152,19 @@ export class Zilo {
    * @returns returns the current ILOState
    */
   private async checkStatus(contractState: ZiloContractState): Promise<ILOState> {
-    const result = await this.zilswap.fetchContractInit(this.contract)
-    const contractInit = contractInitToMap(result) as ZiloContractInit
+    const contractInit = await this.fetchContractInit()
 
-    if (!result || contractState.initialized.constructor !== 'True') {
+    if (!contractInit || contractState.initialized.constructor !== 'True') {
       return ILOState.Uninitialized
     }
 
     const currentBlock = this.zilswap.getCurrentBlock();
 
-    if (currentBlock < parseInt(contractInit.start_block)) {
+    if (currentBlock < contractInit.start_block) {
       return ILOState.Pending
     }
 
-    if (currentBlock < parseInt(contractInit.end_block)) {
+    if (currentBlock < contractInit.end_block) {
       return ILOState.Active
     }
 
@@ -229,4 +262,10 @@ export class Zilo {
 
     return observeTxn
   }
+}
+
+export namespace Zilo {
+  export interface OnStateUpdate {
+    (appState: ZiloAppState): void;
+  };
 }

@@ -117,6 +117,9 @@ export class Zilswap {
   readonly contractAddress: string
   readonly contractHash: string
 
+  /* Zilswap initial launch offerings */
+  readonly zilos: { [address: string]: Zilo }
+
   /* Transaction attributes */
   readonly _txParams: TxParams = {
     version: -1,
@@ -148,6 +151,7 @@ export class Zilswap {
     this.contract = (this.walletProvider || this.zilliqa).contracts.at(this.contractAddress)
     this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
     this.tokens = {}
+    this.zilos = {}
     this._txParams.version = CHAIN_VERSIONS[network]
     this.subscriptionAddr = [this.contractHash]
 
@@ -183,17 +187,41 @@ export class Zilswap {
     await this.updateBalanceAndNonce()
   }
 
-  public initZilo(address: string): Zilo {
-    return new Zilo(this, address)
+  public async registerZilo(address: string, onStateUpdate?: Zilo.OnStateUpdate): Promise<Zilo> {
+    const byStr20Address = this.parseRecipientAddress(address)
+
+    if (this.zilos[byStr20Address]) {
+      this.zilos[byStr20Address].updateObserver(onStateUpdate)
+      return this.zilos[byStr20Address]
+    }
+
+    const zilo = new Zilo(this, byStr20Address)
+    await zilo.initialize(onStateUpdate);
+    this.zilos[byStr20Address] = zilo;
+
+    this.subscribeToAppChanges()
+
+    return zilo;
+  }
+
+  public deregisterZilo(address: string) {
+    const byStr20Address = this.parseRecipientAddress(address)
+
+    if (!this.zilos[byStr20Address]) {
+      return
+    }
+
+    delete this.zilos[address]
+
+    this.subscribeToAppChanges()
   }
 
   /**
    * Stops watching the Zilswap contract state.
    */
   public async teardown() {
-    if (this.subscription) {
-      this.subscription.stop()
-    }
+    this.subscription?.stop()
+
     const stopped = new Promise<void>(resolve => {
       const checkSubscription = () => {
         if (this.subscription) {
@@ -1119,8 +1147,15 @@ export class Zilswap {
   }
 
   private subscribeToAppChanges() {
+    // clear existing subscription, if any
+    this.subscription?.stop()
+
+    const ziloContractHashes = Object.keys(this.zilos)
     const subscription = this.zilliqa.subscriptionBuilder.buildEventLogSubscriptions(WSS[this.network], {
-      addresses: this.subscriptionAddr,
+      addresses: [
+        this.contractHash,
+        ...ziloContractHashes,
+      ],
     })
 
     subscription.subscribe({ query: MessageType.NEW_BLOCK })
@@ -1138,6 +1173,23 @@ export class Zilswap {
       if (!event.value) return
       console.log('ws update: ', JSON.stringify(event, null, 2))
       this.updateAppState()
+
+      // update zilo states
+
+      const ziloAddresses = Object.keys(this.zilos)
+      if (!ziloAddresses.length) return
+
+      // loop through events to find updates in registered zilos
+      for (const item of event.value) {
+        const byStr20Address = `0x${item.address}`
+        const index = ziloAddresses.indexOf(byStr20Address)
+        if (index >= 0) {
+          this.zilos[byStr20Address].updateZiloState()
+
+          // remove updated zilo contract from list
+          ziloAddresses.splice(index, 1)
+        }
+      }
     })
 
     subscription.emitter.on(MessageType.UNSUBSCRIBE, event => {
@@ -1226,6 +1278,13 @@ export class Zilswap {
     const response = await this.zilliqa.blockchain.getNumTxBlocks()
     const bNum = parseInt(response.result!, 10)
     this.currentBlock = bNum
+
+    for (const ziloAddress in this.zilos) {
+      // updateBlockHeight should only trigger update if 
+      // contract state will be changed, i.e. only when
+      // currentBlock === zilo init.start_block or init.end_block.
+      await this.zilos[ziloAddress].updateBlockHeight(bNum)
+    }
   }
 
   private async updateAppState(): Promise<void> {
