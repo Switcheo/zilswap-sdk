@@ -5,7 +5,6 @@ import { ObservedTx, Zilswap } from "./index"
 import { ILOState } from './constants'
 import { contractInitToMap, unitlessBigNumber } from './utils'
 
-
 interface ADTValue {
   constructor: string
   argtypes: string[]
@@ -14,18 +13,18 @@ interface ADTValue {
 
 export type ZiloContractState = {
   initialized: ADTValue
-  contributions: { [key in string]?: any }
+  contributions: { [byStr20Address: string]: BigNumber }
   total_contributions: string
 }
 
 export type ZiloContractInit = {
   zwap_address: string
   token_address: string
-  token_amount: string
-  target_zil_amount: string
-  target_zwap_amount: string
-  minimum_zil_amount: string
-  liquidity_zil_amount: string
+  token_amount: BigNumber
+  target_zil_amount: BigNumber
+  target_zwap_amount: BigNumber
+  minimum_zil_amount: BigNumber
+  liquidity_zil_amount: BigNumber
   receiver_address: string
   liquidity_address: string
   start_block: number
@@ -42,7 +41,7 @@ export type ZiloAppState = {
   contributed: boolean
   currentNonce: number | null
   currentUser: string | null
-  userContribution: string
+  userContribution: BigNumber
   contractInit: ZiloContractInit | null
 }
 
@@ -76,20 +75,41 @@ export class Zilo {
 
     return {
       ...rawInit,
+
+      token_amount: new BigNumber(rawInit.token_amount),
+      target_zil_amount: new BigNumber(rawInit.target_zil_amount),
+      target_zwap_amount: new BigNumber(rawInit.target_zwap_amount),
+      minimum_zil_amount: new BigNumber(rawInit.minimum_zil_amount),
+      liquidity_zil_amount: new BigNumber(rawInit.liquidity_zil_amount),
+
       start_block: parseInt(rawInit.start_block),
       end_block: parseInt(rawInit.end_block),
     } as ZiloContractInit
   }
 
+  private async fetchContractState(): Promise<ZiloContractState> {
+    const result = await this.contract.getState()
+
+    const contributions: { [index: string]: BigNumber } = {}
+    for (const byStr20Address in result.contributions) {
+      contributions[byStr20Address] = new BigNumber(result.contributions[byStr20Address])
+    }
+
+    return {
+      ...result,
+      contributions,
+    } as ZiloContractState
+  }
+
   public async updateZiloState() {
-    const contractState = (await this.contract.getState()) as ZiloContractState
+    const contractState = await this.fetchContractState()
     const stateOfContract = await this.checkStatus(contractState)
 
     const currentUser = this.zilswap.getAppState().currentUser;
 
-    const userContribution = contractState.contributions[currentUser || ''] ?? 0
+    const userContribution = contractState.contributions[currentUser || ''] ?? new BigNumber(0)
     const claimable = stateOfContract === ILOState.Completed && new BigNumber(userContribution).isPositive()
-    const contributed = userContribution > 0
+    const contributed = userContribution.gt(0)
     let contractInit = this.appState?.contractInit
 
     if (!contractInit) {

@@ -106,7 +106,6 @@ export class Zilswap {
   private observer: OnUpdate | null = null
   private observerMutex: Mutex
   private observedTxs: ObservedTx[] = []
-  private subscriptionAddr: string[] = []
 
   /* Deadline tracking */
   private deadlineBuffer: number = 10
@@ -153,7 +152,6 @@ export class Zilswap {
     this.tokens = {}
     this.zilos = {}
     this._txParams.version = CHAIN_VERSIONS[network]
-    this.subscriptionAddr = [this.contractHash]
 
     if (options) {
       if (options.deadlineBuffer && options.deadlineBuffer > 0) this.deadlineBuffer = options.deadlineBuffer
@@ -1165,13 +1163,13 @@ export class Zilswap {
     })
 
     subscription.emitter.on(MessageType.NEW_BLOCK, event => {
-      console.log('ws new block: ', JSON.stringify(event, null, 2))
+      // console.log('ws new block: ', JSON.stringify(event, null, 2))
       this.updateBlockHeight().then(() => this.updateObservedTxs())
     })
 
     subscription.emitter.on(MessageType.EVENT_LOG, event => {
       if (!event.value) return
-      console.log('ws update: ', JSON.stringify(event, null, 2))
+      // console.log('ws update: ', JSON.stringify(event, null, 2))
       this.updateAppState()
 
       // update zilo states
@@ -1200,54 +1198,6 @@ export class Zilswap {
     subscription.start()
 
     this.subscription = subscription
-  }
-
-  /**
-   * Create a new subscription with the new addr added to the subscriptionAddress, 
-   * stop old subscription
-   * 
-   * @param addr new contract hash to add to subscription
-   */
-  public async addToSubscription(addr: string) {
-    if (!this.subscriptionAddr.includes(addr)) {
-      this.subscriptionAddr.push(addr)
-    }
-
-    try {
-      // new subscription with new address
-      this.subscribeToAppChanges()
-
-    } catch (error) {
-      if (this.subscriptionAddr.includes(addr)) {
-        this.subscriptionAddr.splice(this.subscriptionAddr.indexOf(addr), 1)
-      }
-      console.log("Add to subscription fail")
-      throw error
-    }
-  }
-
-  /**
-   * Create a new subscription with the addr removed, 
-   * stop old subscription
-   * 
-   * @param addr new contract hash to remove from subscription
-   */
-  public async removeFromSubscription(addr: string) {
-    if (this.subscriptionAddr.includes(addr)) {
-      this.subscriptionAddr.splice(this.subscriptionAddr.indexOf(addr), 1)
-    }
-
-    try {
-      // new subscription with new address
-      this.subscribeToAppChanges()
-
-    } catch (error) {
-      if (this.subscriptionAddr.includes(addr)) {
-        this.subscriptionAddr.push(addr)
-      }
-      console.log("Remove from subscription fail")
-      throw error
-    }
   }
 
   private async loadTokenList() {
