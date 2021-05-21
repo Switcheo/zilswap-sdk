@@ -185,6 +185,21 @@ export class Zilswap {
     await this.updateBalanceAndNonce()
   }
 
+  /**
+   * Initializes a new Zilo instance and registers it to the ZilSwap SDK,
+   * subscribing to subsequent state changes in the Zilo instance. You may
+   * optionally pass a state observer to subscribe to state changes of this
+   * particular Zilo instance. 
+   * 
+   * If the Zilo instance is already registered, no new instance will be
+   * created. If a new state observer is provided, it will overwrite the 
+   * existing one.
+   * 
+   * @param address is the Zilo contract address which can be given by
+   * either hash (0x...) or bech32 address (zil...).
+   * @param onStateUpdate is the state observer which triggers when state 
+   * updates
+   */
   public async registerZilo(address: string, onStateUpdate?: Zilo.OnStateUpdate): Promise<Zilo> {
     const byStr20Address = this.parseRecipientAddress(address)
 
@@ -202,6 +217,13 @@ export class Zilswap {
     return zilo;
   }
 
+  /**
+   * Deregisters an existing Zilo instance. Does nothing if provided
+   * address is not already registered.
+   * 
+   * @param address is the Zilo contract address which can be given by
+   * either hash (0x...) or bech32 address (zil...).
+   */
   public deregisterZilo(address: string) {
     const byStr20Address = this.parseRecipientAddress(address)
 
@@ -415,6 +437,7 @@ export class Zilswap {
    * hash (0x...) or bech32 address (zil...).
    * @param amountStrOrBN is the required allowance amount the Zilswap contract requires, below which the
    * `IncreaseAllowance` transition is invoked, as a unitless string or BigNumber.
+   * @param spenderHash (optional) is the spender contract address, defaults to the ZilSwap contract address.
    *
    * @returns an ObservedTx if IncreaseAllowance was called, null if not.
    */
@@ -426,7 +449,7 @@ export class Zilswap {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    const _spenderHash = spenderHash.toLowerCase()
+    const _spenderHash = this.parseRecipientAddress(spenderHash)
     const token = this.getTokenDetails(tokenID)
     const tokenState = await token.contract.getSubState('allowances', [this.appState!.currentUser!, _spenderHash])
     const allowance = new BigNumber(tokenState?.allowances[this.appState!.currentUser!]?.[_spenderHash] || 0)
