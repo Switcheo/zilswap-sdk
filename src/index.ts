@@ -10,7 +10,9 @@ import { Mutex } from 'async-mutex'
 
 import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
-import { sendBatchRequest, BatchRequest, BatchResponse } from './batch'
+import { sendBatchRequest, BatchRequest } from './batch'
+import { Zilo } from "./zilo"
+export * from "./zilo";
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
@@ -90,9 +92,11 @@ export type WalletProvider = Omit<
 type RPCBalanceResponse = { balance: string; nonce: string }
 
 export class Zilswap {
+  /* Zilliqa SDK */
+  readonly zilliqa: Zilliqa
+
   /* Internals */
   private readonly rpcEndpoint: string
-  private readonly zilliqa: Zilliqa // zilliqa sdk
   private readonly walletProvider?: WalletProvider // zilpay
   private readonly tokens: { [key in string]: string } // symbol => hash mappings
   private appState?: AppState // cached blockchain state for dApp and user
@@ -111,6 +115,9 @@ export class Zilswap {
   readonly contract: Contract
   readonly contractAddress: string
   readonly contractHash: string
+
+  /* Zilswap initial launch offerings */
+  readonly zilos: { [address: string]: Zilo }
 
   /* Transaction attributes */
   readonly _txParams: TxParams = {
@@ -143,6 +150,7 @@ export class Zilswap {
     this.contract = (this.walletProvider || this.zilliqa).contracts.at(this.contractAddress)
     this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
     this.tokens = {}
+    this.zilos = {}
     this._txParams.version = CHAIN_VERSIONS[network]
 
     if (options) {
@@ -178,12 +186,62 @@ export class Zilswap {
   }
 
   /**
+   * Initializes a new Zilo instance and registers it to the ZilSwap SDK,
+   * subscribing to subsequent state changes in the Zilo instance. You may
+   * optionally pass a state observer to subscribe to state changes of this
+   * particular Zilo instance. 
+   * 
+   * If the Zilo instance is already registered, no new instance will be
+   * created. If a new state observer is provided, it will overwrite the 
+   * existing one.
+   * 
+   * @param address is the Zilo contract address which can be given by
+   * either hash (0x...) or bech32 address (zil...).
+   * @param onStateUpdate is the state observer which triggers when state 
+   * updates
+   */
+  public async registerZilo(address: string, onStateUpdate?: Zilo.OnStateUpdate): Promise<Zilo> {
+    const byStr20Address = this.parseRecipientAddress(address)
+
+    if (this.zilos[byStr20Address]) {
+      this.zilos[byStr20Address].updateObserver(onStateUpdate)
+      return this.zilos[byStr20Address]
+    }
+
+    const zilo = new Zilo(this, byStr20Address)
+    await zilo.initialize(onStateUpdate);
+    this.zilos[byStr20Address] = zilo;
+
+    this.subscribeToAppChanges()
+
+    return zilo;
+  }
+
+  /**
+   * Deregisters an existing Zilo instance. Does nothing if provided
+   * address is not already registered.
+   * 
+   * @param address is the Zilo contract address which can be given by
+   * either hash (0x...) or bech32 address (zil...).
+   */
+  public deregisterZilo(address: string) {
+    const byStr20Address = this.parseRecipientAddress(address)
+
+    if (!this.zilos[byStr20Address]) {
+      return
+    }
+
+    delete this.zilos[address]
+
+    this.subscribeToAppChanges()
+  }
+
+  /**
    * Stops watching the Zilswap contract state.
    */
   public async teardown() {
-    if (this.subscription) {
-      this.subscription.stop()
-    }
+    this.subscription?.stop()
+
     const stopped = new Promise<void>(resolve => {
       const checkSubscription = () => {
         if (this.subscription) {
@@ -379,16 +437,22 @@ export class Zilswap {
    * hash (0x...) or bech32 address (zil...).
    * @param amountStrOrBN is the required allowance amount the Zilswap contract requires, below which the
    * `IncreaseAllowance` transition is invoked, as a unitless string or BigNumber.
+   * @param spenderHash (optional) is the spender contract address, defaults to the ZilSwap contract address.
    *
    * @returns an ObservedTx if IncreaseAllowance was called, null if not.
    */
-  public async approveTokenTransferIfRequired(tokenID: string, amountStrOrBN: BigNumber | string): Promise<ObservedTx | null> {
+  public async approveTokenTransferIfRequired(
+    tokenID: string,
+    amountStrOrBN: BigNumber | string,
+    spenderHash: string = this.contractHash,
+  ): Promise<ObservedTx | null> {
     // Check logged in
     this.checkAppLoadedWithUser()
 
+    const _spenderHash = this.parseRecipientAddress(spenderHash)
     const token = this.getTokenDetails(tokenID)
-    const tokenState = await token.contract.getSubState('allowances', [this.appState!.currentUser!, this.contractHash])
-    const allowance = new BigNumber(tokenState?.allowances[this.appState!.currentUser!]?.[this.contractHash] || 0)
+    const tokenState = await token.contract.getSubState('allowances', [this.appState!.currentUser!, _spenderHash])
+    const allowance = new BigNumber(tokenState?.allowances[this.appState!.currentUser!]?.[_spenderHash] || 0)
     const amount: BigNumber = typeof amountStrOrBN === 'string' ? unitlessBigNumber(amountStrOrBN) : amountStrOrBN
 
     if (allowance.lt(amount)) {
@@ -401,7 +465,7 @@ export class Zilswap {
             {
               vname: 'spender',
               type: 'ByStr20',
-              value: this.contractHash,
+              value: _spenderHash,
             },
             {
               vname: 'amount',
@@ -1083,7 +1147,7 @@ export class Zilswap {
     return { zilReserve, tokenReserve }
   }
 
-  private async callContract(
+  public async callContract(
     contract: Contract,
     transition: string,
     args: Value[],
@@ -1104,8 +1168,15 @@ export class Zilswap {
   }
 
   private subscribeToAppChanges() {
+    // clear existing subscription, if any
+    this.subscription?.stop()
+
+    const ziloContractHashes = Object.keys(this.zilos)
     const subscription = this.zilliqa.subscriptionBuilder.buildEventLogSubscriptions(WSS[this.network], {
-      addresses: [this.contractHash],
+      addresses: [
+        this.contractHash,
+        ...ziloContractHashes,
+      ],
     })
 
     subscription.subscribe({ query: MessageType.NEW_BLOCK })
@@ -1123,6 +1194,23 @@ export class Zilswap {
       if (!event.value) return
       // console.log('ws update: ', JSON.stringify(event, null, 2))
       this.updateAppState()
+
+      // update zilo states
+
+      const ziloAddresses = Object.keys(this.zilos)
+      if (!ziloAddresses.length) return
+
+      // loop through events to find updates in registered zilos
+      for (const item of event.value) {
+        const byStr20Address = `0x${item.address}`
+        const index = ziloAddresses.indexOf(byStr20Address)
+        if (index >= 0) {
+          this.zilos[byStr20Address].updateZiloState()
+
+          // remove updated zilo contract from list
+          ziloAddresses.splice(index, 1)
+        }
+      }
     })
 
     subscription.emitter.on(MessageType.UNSUBSCRIBE, event => {
@@ -1163,6 +1251,13 @@ export class Zilswap {
     const response = await this.zilliqa.blockchain.getNumTxBlocks()
     const bNum = parseInt(response.result!, 10)
     this.currentBlock = bNum
+
+    for (const ziloAddress in this.zilos) {
+      // updateBlockHeight should only trigger update if 
+      // contract state will be changed, i.e. only when
+      // currentBlock === zilo init.start_block or init.end_block.
+      await this.zilos[ziloAddress].updateBlockHeight(bNum)
+    }
   }
 
   private async updateAppState(): Promise<void> {
@@ -1272,7 +1367,7 @@ export class Zilswap {
       const removeTxs: string[] = []
       const promises = this.observedTxs.map(async (observedTx: ObservedTx) => {
         const result = await this.zilliqa.blockchain.getTransactionStatus(observedTx.hash)
-        
+
         if (result && result.modificationState === 2) {
           // either confirmed or rejected
           const confirmedTxn = await this.zilliqa.blockchain.getTransaction(observedTx.hash)
@@ -1341,7 +1436,7 @@ export class Zilswap {
     return this.appState.tokens[hash]
   }
 
-  private async fetchContractInit(contract: Contract): Promise<any> {
+  public async fetchContractInit(contract: Contract): Promise<any> {
     // try to use cache first
     const lsCacheKey = `contractInit:${contract.address!}`
     if (isLocalStorageAvailable()) {
@@ -1433,7 +1528,7 @@ export class Zilswap {
     }
   }
 
-  private checkAppLoadedWithUser() {
+  public checkAppLoadedWithUser() {
     // Check init
     if (!this.appState) {
       throw new Error('App state not loaded, call #initialize first.')
@@ -1455,14 +1550,18 @@ export class Zilswap {
     }
   }
 
-  private txParams(): TxParams & { nonce: number } {
+  public txParams(): TxParams & { nonce: number } {
     return {
       nonce: this.nonce(),
       ...this._txParams,
     }
   }
 
-  private deadlineBlock(): number {
+  public getCurrentBlock(): number {
+    return this.currentBlock
+  }
+
+  public deadlineBlock(): number {
     return this.currentBlock + this.deadlineBuffer!
   }
 
