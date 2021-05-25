@@ -11,6 +11,8 @@ interface ADTValue {
   arguments: Value[]
 }
 
+export type OnStateUpdate = (appState: ZiloAppState) => void
+
 export type ZiloContractState = {
   initialized: ADTValue
   contributions: { [byStr20Address: string]: BigNumber }
@@ -47,19 +49,19 @@ export type ZiloAppState = {
 
 /**
  * Zilo class to represent an instance of a ZilSwap Initial Launch Offering.
- * 
+ *
  * Usage:
  * ```
  * const zilswap = new Zilswap(Network.TestNet)
  * await zilswap.initialize()
  * const zilo = await zilswap.registerZilo(ZILO_ADDRESS, ziloStateObserver)
- * 
+ *
  * const ziloState = zilo.getZiloState()
- * 
+ *
  * if (ziloState.state === ILOState.Active) {
  *    const amount = new BigNumber(1).shiftedBy(ZIL_DECIMALS).toString(10)
  *    const tx = await zilo.contribute(amount)
- * 
+ *
  *    console.log("distribute TX sent", tx.hash)
  * } else {
  *    console.log("ZILO not yet active")
@@ -72,19 +74,19 @@ export class Zilo {
   private contract: Contract
   private appState?: ZiloAppState
 
-  private stateObserver?: Zilo.OnStateUpdate
+  private stateObserver?: OnStateUpdate
 
   constructor(zilswap: Zilswap, address: string) {
     this.zilswap = zilswap
     this.contract = zilswap.zilliqa.contracts.at(address);
   }
 
-  public async initialize(observer?: Zilo.OnStateUpdate) {
+  public async initialize(observer?: OnStateUpdate) {
     this.updateObserver(observer)
     await this.updateZiloState()
   }
 
-  public updateObserver(observer?: Zilo.OnStateUpdate) {
+  public updateObserver(observer?: OnStateUpdate) {
     this.stateObserver = observer
   }
 
@@ -103,8 +105,8 @@ export class Zilo {
       minimum_zil_amount: new BigNumber(rawInit.minimum_zil_amount),
       liquidity_zil_amount: new BigNumber(rawInit.liquidity_zil_amount),
 
-      start_block: parseInt(rawInit.start_block),
-      end_block: parseInt(rawInit.end_block),
+      start_block: parseInt(rawInit.start_block, 10),
+      end_block: parseInt(rawInit.end_block, 10),
     } as ZiloContractInit
   }
 
@@ -112,7 +114,7 @@ export class Zilo {
     const result = await this.contract.getState()
 
     const contributions: { [index: string]: BigNumber } = {}
-    for (const byStr20Address in result.contributions) {
+    for (const byStr20Address of Object.keys(result.contributions)) {
       contributions[byStr20Address] = new BigNumber(result.contributions[byStr20Address])
     }
 
@@ -141,7 +143,7 @@ export class Zilo {
       }
     }
 
-    let newState = {
+    const newState = {
       contractState,
       claimable,
       contributed,
@@ -303,10 +305,4 @@ export class Zilo {
 
     return observeTxn
   }
-}
-
-export namespace Zilo {
-  export interface OnStateUpdate {
-    (appState: ZiloAppState): void;
-  };
 }

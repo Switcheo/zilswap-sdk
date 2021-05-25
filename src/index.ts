@@ -11,8 +11,8 @@ import { Mutex } from 'async-mutex'
 import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
 import { sendBatchRequest, BatchRequest } from './batch'
-import { Zilo } from "./zilo"
-export * from "./zilo";
+import { Zilo, OnStateUpdate } from "./zilo"
+export * as Zilo from "./zilo"
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
@@ -189,18 +189,18 @@ export class Zilswap {
    * Initializes a new Zilo instance and registers it to the ZilSwap SDK,
    * subscribing to subsequent state changes in the Zilo instance. You may
    * optionally pass a state observer to subscribe to state changes of this
-   * particular Zilo instance. 
-   * 
+   * particular Zilo instance.
+   *
    * If the Zilo instance is already registered, no new instance will be
-   * created. If a new state observer is provided, it will overwrite the 
+   * created. If a new state observer is provided, it will overwrite the
    * existing one.
-   * 
+   *
    * @param address is the Zilo contract address which can be given by
    * either hash (0x...) or bech32 address (zil...).
-   * @param onStateUpdate is the state observer which triggers when state 
+   * @param onStateUpdate is the state observer which triggers when state
    * updates
    */
-  public async registerZilo(address: string, onStateUpdate?: Zilo.OnStateUpdate): Promise<Zilo> {
+  public async registerZilo(address: string, onStateUpdate?: OnStateUpdate): Promise<Zilo> {
     const byStr20Address = this.parseRecipientAddress(address)
 
     if (this.zilos[byStr20Address]) {
@@ -220,7 +220,7 @@ export class Zilswap {
   /**
    * Deregisters an existing Zilo instance. Does nothing if provided
    * address is not already registered.
-   * 
+   *
    * @param address is the Zilo contract address which can be given by
    * either hash (0x...) or bech32 address (zil...).
    */
@@ -1252,8 +1252,8 @@ export class Zilswap {
     const bNum = parseInt(response.result!, 10)
     this.currentBlock = bNum
 
-    for (const ziloAddress in this.zilos) {
-      // updateBlockHeight should only trigger update if 
+    for (const ziloAddress of Object.keys(this.zilos)) {
+      // updateBlockHeight should only trigger update if
       // contract state will be changed, i.e. only when
       // currentBlock === zilo init.start_block or init.end_block.
       await this.zilos[ziloAddress].updateBlockHeight(bNum)
