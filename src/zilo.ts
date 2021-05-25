@@ -1,7 +1,7 @@
 import { Contract, Value } from '@zilliqa-js/contract'
 import { BN } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
-import { ObservedTx, Zilswap } from "./index"
+import { ObservedTx, Zilswap } from './index'
 import { ILOState } from './constants'
 import { contractInitToMap, unitlessBigNumber } from './utils'
 
@@ -69,7 +69,6 @@ export type ZiloAppState = {
  * ```
  */
 export class Zilo {
-
   private zilswap: Zilswap
   private contract: Contract
   private appState?: ZiloAppState
@@ -78,7 +77,7 @@ export class Zilo {
 
   constructor(zilswap: Zilswap, address: string) {
     this.zilswap = zilswap
-    this.contract = zilswap.zilliqa.contracts.at(address);
+    this.contract = zilswap.zilliqa.contracts.at(address)
   }
 
   public async initialize(observer?: OnStateUpdate) {
@@ -128,7 +127,7 @@ export class Zilo {
     const contractState = await this.fetchContractState()
     const stateOfContract = await this.checkStatus(contractState)
 
-    const currentUser = this.zilswap.getAppState().currentUser;
+    const currentUser = this.zilswap.getAppState().currentUser
 
     const userContribution = contractState.contributions[currentUser || ''] ?? new BigNumber(0)
     const claimable = stateOfContract === ILOState.Completed && new BigNumber(userContribution).isPositive()
@@ -164,7 +163,7 @@ export class Zilo {
       return
     }
 
-    if (typeof height === "undefined") {
+    if (typeof height === 'undefined') {
       const response = await this.zilswap.zilliqa.blockchain.getNumTxBlocks()
       height = parseInt(response.result!, 10)
     }
@@ -201,7 +200,7 @@ export class Zilo {
       return ILOState.Uninitialized
     }
 
-    const currentBlock = this.zilswap.getCurrentBlock();
+    const currentBlock = this.zilswap.getCurrentBlock()
 
     if (currentBlock < contractInit.start_block) {
       return ILOState.Pending
@@ -255,7 +254,13 @@ export class Zilo {
   public async complete(): Promise<ObservedTx | null> {
     this.zilswap.checkAppLoadedWithUser()
 
-    const completeTxn = await this.zilswap.callContract(this.contract, 'Complete', [], { amount: new BN(0), ...this.zilswap.txParams() }, true)
+    const completeTxn = await this.zilswap.callContract(
+      this.contract,
+      'Complete',
+      [],
+      { amount: new BN(0), ...this.zilswap.txParams() },
+      true
+    )
 
     if (completeTxn.isRejected()) {
       throw new Error('Complete transaction was rejected.')

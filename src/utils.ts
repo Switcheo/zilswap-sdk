@@ -153,4 +153,4 @@ export const contractInitToMap = (params: Value[]): { [index: string]: any } => 
     output[set.vname] = set.value
   }
   return output
-};
+}

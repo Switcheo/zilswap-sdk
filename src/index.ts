@@ -11,8 +11,8 @@ import { Mutex } from 'async-mutex'
 import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
 import { sendBatchRequest, BatchRequest } from './batch'
-import { Zilo, OnStateUpdate } from "./zilo"
-export * as Zilo from "./zilo"
+import { Zilo, OnStateUpdate } from './zilo'
+export * as Zilo from './zilo'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
@@ -209,12 +209,12 @@ export class Zilswap {
     }
 
     const zilo = new Zilo(this, byStr20Address)
-    await zilo.initialize(onStateUpdate);
-    this.zilos[byStr20Address] = zilo;
+    await zilo.initialize(onStateUpdate)
+    this.zilos[byStr20Address] = zilo
 
     this.subscribeToAppChanges()
 
-    return zilo;
+    return zilo
   }
 
   /**
@@ -444,7 +444,7 @@ export class Zilswap {
   public async approveTokenTransferIfRequired(
     tokenID: string,
     amountStrOrBN: BigNumber | string,
-    spenderHash: string = this.contractHash,
+    spenderHash: string = this.contractHash
   ): Promise<ObservedTx | null> {
     // Check logged in
     this.checkAppLoadedWithUser()
@@ -1173,10 +1173,7 @@ export class Zilswap {
 
     const ziloContractHashes = Object.keys(this.zilos)
     const subscription = this.zilliqa.subscriptionBuilder.buildEventLogSubscriptions(WSS[this.network], {
-      addresses: [
-        this.contractHash,
-        ...ziloContractHashes,
-      ],
+      addresses: [this.contractHash, ...ziloContractHashes],
     })
 
     subscription.subscribe({ query: MessageType.NEW_BLOCK })
@@ -1224,7 +1221,6 @@ export class Zilswap {
   }
 
   private async loadTokenList() {
-
     if (this.network === Network.TestNet) {
       this.tokens['ZIL'] = 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz'
       this.tokens['gZIL'] = 'zil1fytuayks6njpze00ukasq3m4y4s44k79hvz8q5'
@@ -1244,7 +1240,7 @@ export class Zilswap {
       address_bech32: string
     }
 
-    tokens.forEach((token: ZilStreamToken) => this.tokens[token.symbol] = token.address_bech32)
+    tokens.forEach((token: ZilStreamToken) => (this.tokens[token.symbol] = token.address_bech32))
   }
 
   private async updateBlockHeight(): Promise<void> {
@@ -1264,7 +1260,7 @@ export class Zilswap {
     // Get user address
     const currentUser = this.walletProvider
       ? // ugly hack for zilpay provider
-      this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
+        this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
       : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Get the contract state
