@@ -268,7 +268,7 @@ export class Zilswap {
   /**
    * Gets the contract with the given address that can be called by the default account.
    */
-   public getContract(address: string): Contract {
+  public getContract(address: string): Contract {
     return (this.walletProvider || this.zilliqa).contracts.at(address)
   }
 
