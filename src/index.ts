@@ -1371,22 +1371,31 @@ export class Zilswap {
     try {
       const removeTxs: string[] = []
       const promises = this.observedTxs.map(async (observedTx: ObservedTx) => {
-        const result = await this.zilliqa.blockchain.getTransactionStatus(observedTx.hash)
+        try {
+          const result = await this.zilliqa.blockchain.getTransactionStatus(observedTx.hash)
 
-        if (result && result.modificationState === 2) {
-          // either confirmed or rejected
-          const confirmedTxn = await this.zilliqa.blockchain.getTransaction(observedTx.hash)
-          const receipt = confirmedTxn.getReceipt()
-          const txStatus = confirmedTxn.isRejected() ? 'rejected' : receipt?.success ? 'confirmed' : 'rejected'
-          if (this.observer) this.observer(observedTx, txStatus, receipt)
-          removeTxs.push(observedTx.hash)
-          return
-        }
-        if (observedTx.deadline < this.currentBlock) {
-          // expired
-          console.log(`tx deadline, current: ${observedTx.deadline}, ${this.currentBlock}`)
-          if (this.observer) this.observer(observedTx, 'expired')
-          removeTxs.push(observedTx.hash)
+          if (result && result.modificationState === 2) {
+            // either confirmed or rejected
+            const confirmedTxn = await this.zilliqa.blockchain.getTransaction(observedTx.hash)
+            const receipt = confirmedTxn.getReceipt()
+            const txStatus = confirmedTxn.isRejected() ? 'rejected' : receipt?.success ? 'confirmed' : 'rejected'
+            if (this.observer) this.observer(observedTx, txStatus, receipt)
+            removeTxs.push(observedTx.hash)
+            return
+          }
+          if (observedTx.deadline < this.currentBlock) {
+            // expired
+            console.log(`tx deadline, current: ${observedTx.deadline}, ${this.currentBlock}`)
+            if (this.observer) this.observer(observedTx, 'expired')
+            removeTxs.push(observedTx.hash)
+          }
+        } catch (e) {
+          if (e.code === -20) {
+            // "Txn Hash not Present"
+            console.warn(`tx expired`, e)
+            if (this.observer) this.observer(observedTx, 'expired')
+            removeTxs.push(observedTx.hash)
+          }
         }
       })
 
