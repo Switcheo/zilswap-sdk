@@ -77,7 +77,7 @@ export class Zilo {
 
   constructor(zilswap: Zilswap, address: string) {
     this.zilswap = zilswap
-    this.contract = zilswap.zilliqa.contracts.at(address)
+    this.contract = zilswap.getContract(address)
   }
 
   public async initialize(observer?: OnStateUpdate) {

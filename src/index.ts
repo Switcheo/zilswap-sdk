@@ -266,6 +266,13 @@ export class Zilswap {
   }
 
   /**
+   * Gets the contract with the given address that can be called by the default account.
+   */
+   public getContract(address: string): Contract {
+    return (this.walletProvider || this.zilliqa).contracts.at(address)
+  }
+
+  /**
    * Gets the pool details for the given `tokenID`.
    *
    * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
@@ -1469,7 +1476,7 @@ export class Zilswap {
 
     if (!!this.appState?.tokens[hash]) return this.appState.tokens[hash]
 
-    const contract = (this.walletProvider || this.zilliqa).contracts.at(address)
+    const contract = this.getContract(address)
 
     if (hash === ZIL_HASH) {
       return { contract, address, hash, symbol: 'ZIL', decimals: 12, whitelisted: true, registered: true }
