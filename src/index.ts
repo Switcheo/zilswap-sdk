@@ -1383,12 +1383,6 @@ export class Zilswap {
             removeTxs.push(observedTx.hash)
             return
           }
-          if (observedTx.deadline < this.currentBlock) {
-            // expired
-            console.log(`tx deadline, current: ${observedTx.deadline}, ${this.currentBlock}`)
-            if (this.observer) this.observer(observedTx, 'expired')
-            removeTxs.push(observedTx.hash)
-          }
         } catch (e) {
           if (e.code === -20) {
             // "Txn Hash not Present"
@@ -1397,6 +1391,12 @@ export class Zilswap {
             console.warn('error fetching tx state')
             console.error(e)
           }
+        }
+        if (observedTx.deadline < this.currentBlock) {
+          // expired
+          console.log(`tx exceeded deadline: ${observedTx.deadline}, current: ${this.currentBlock}`)
+          if (this.observer) this.observer(observedTx, 'expired')
+          removeTxs.push(observedTx.hash)
         }
       })
 
