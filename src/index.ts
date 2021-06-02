@@ -108,7 +108,7 @@ export class Zilswap {
   private observedTxs: ObservedTx[] = []
 
   /* Deadline tracking */
-  private deadlineBuffer: number = 10
+  private deadlineBuffer: number = 3
   private currentBlock: number = -1
 
   /* Zilswap contract attributes */
@@ -1392,9 +1392,10 @@ export class Zilswap {
         } catch (e) {
           if (e.code === -20) {
             // "Txn Hash not Present"
-            console.warn(`tx expired`, e)
-            if (this.observer) this.observer(observedTx, 'expired')
-            removeTxs.push(observedTx.hash)
+            console.warn(`tx not found in mempool: ${observedTx.hash}`)
+          } else {
+            console.warn('error fetching tx state')
+            console.error(e)
           }
         }
       })
