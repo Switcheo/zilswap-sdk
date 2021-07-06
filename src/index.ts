@@ -1230,7 +1230,7 @@ export class Zilswap {
   private async loadTokenList() {
     if (this.network === Network.TestNet) {
       this.tokens['ZIL'] = 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz'
-      this.tokens['ZWAP'] = 'zil1ktmx2udqc77eqq0mdjn8kqdvwjf9q5zvy6x7vu'
+      this.tokens['ZWAP'] = 'zil1k2c3ncjfduj9jrhlgx03t2smd6p25ur56cfzgz'
       this.tokens['gZIL'] = 'zil1fytuayks6njpze00ukasq3m4y4s44k79hvz8q5'
       this.tokens['SWTH'] = 'zil1d6yfgycu9ythxy037hkt3phc3jf7h6rfzuft0s'
       this.tokens['XSGD'] = 'zil10a9z324aunx2qj64984vke93gjdnzlnl5exygv'
@@ -1238,6 +1238,8 @@ export class Zilswap {
       this.tokens['PORT'] = 'zil10v5nstu2ff9jsm7074wer6s6xtklh9xga7n8xc'
       this.tokens['REDC'] = 'zil14jmjrkvfcz2uvj3y69kl6gas34ecuf2j5ggmye'
       this.tokens['STREAM'] = 'zil10w9gdtaau3d5uzqescshuqn9fd23gpa82myjqc'
+      this.tokens['zDAI'] = 'zil1ax362ytd0823lkccgyp62zughyrszsr36pcn5u'
+      this.tokens['zETH'] = 'zil1zrgxwrdyau3ujytt26pp8mmknlg09e7d9l9kks'
       return
     }
 
