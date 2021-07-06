@@ -1239,7 +1239,7 @@ export class Zilswap {
       this.tokens['REDC'] = 'zil14jmjrkvfcz2uvj3y69kl6gas34ecuf2j5ggmye'
       this.tokens['STREAM'] = 'zil10w9gdtaau3d5uzqescshuqn9fd23gpa82myjqc'
       this.tokens['zDAI'] = 'zil1ax362ytd0823lkccgyp62zughyrszsr36pcn5u'
-      this.tokens['zETH'] = 'zil1zrgxwrdyau3ujytt26pp8mmknlg09e7d9l9kks'
+      this.tokens['zETH'] = 'zil1mnsjvt3lnwv8a3l8qzx63ud0sdlhmvhdv9mes9'
       return
     }
 
