@@ -23,7 +23,11 @@ Initialize the sdk based on the required network, then call the required methods
 
 ### Methods
 
-All public methods can be found on the [`Zilswap` SDK object](./doc/classes/_index_.zilswap.md). Full typescript definitions can also be found in the [doc folder](./doc/README.md).
+All public Zilswap methods can be found on the [`Zilswap` SDK object](./docs/classes/index.zilswap.md). 
+
+All public Zilo methods can be found on the [`Zilo` SDK object](./docs/classes/zilo.zilo-1.md). 
+
+Full typescript definitions can also be found in the [Modules](./docs/modules.md).
 
 The following is a list of methods to quickly get you started:
 
@@ -71,4 +75,4 @@ then run:
 
 ## Contributing
 
-Please review the [contribution guidelines](./CONTRIBUTING.md) before contributing or opening pull requests.
+Please review the [contribution guidelines](docs/CONTRIBUTING.md) before contributing or opening pull requests.
