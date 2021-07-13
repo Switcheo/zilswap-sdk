@@ -1238,8 +1238,8 @@ export class Zilswap {
       this.tokens['PORT'] = 'zil10v5nstu2ff9jsm7074wer6s6xtklh9xga7n8xc'
       this.tokens['REDC'] = 'zil14jmjrkvfcz2uvj3y69kl6gas34ecuf2j5ggmye'
       this.tokens['STREAM'] = 'zil10w9gdtaau3d5uzqescshuqn9fd23gpa82myjqc'
-      this.tokens['zDAI'] = 'zil1ax362ytd0823lkccgyp62zughyrszsr36pcn5u'
-      this.tokens['zETH'] = 'zil1mnsjvt3lnwv8a3l8qzx63ud0sdlhmvhdv9mes9'
+      this.tokens['zDAI'] = 'zil1shktf07c3n59ps354wc0dx4f3tqquqxwh3csl3'
+      this.tokens['zETH'] = 'zil1vmrguxsskt83s443c3nfhc2qqn40zdyzkukwqf'
       return
     }
 
