@@ -48,6 +48,7 @@ export type TokenDetails = {
   contract: Contract // instance
   address: string
   hash: string
+  name: string
   symbol: string
   decimals: number
   registered: boolean // is in default token list
@@ -1491,18 +1492,19 @@ export class Zilswap {
     const contract = this.getContract(address)
 
     if (hash === ZIL_HASH) {
-      return { contract, address, hash, symbol: 'ZIL', decimals: 12, whitelisted: true, registered: true }
+      return { contract, address, hash, name: 'Zilliqa', symbol: 'ZIL', decimals: 12, whitelisted: true, registered: true }
     }
 
     const init = await this.fetchContractInit(contract)
 
     const decimalStr = init.find((e: Value) => e.vname === 'decimals').value as string
     const decimals = parseInt(decimalStr, 10)
+    const name = init.find((e: Value) => e.vname === 'name').value as string
     const symbol = init.find((e: Value) => e.vname === 'symbol').value as string
     const registered = this.tokens[symbol] === address
     const whitelisted = registered && (symbol === 'ZWAP' || symbol === 'XSGD' || symbol === 'gZIL') // TODO: make an actual whitelist
 
-    return { contract, address, hash, symbol, decimals, whitelisted, registered }
+    return { contract, address, hash, name, symbol, decimals, whitelisted, registered }
   }
 
   private async checkAllowedBalance(token: TokenDetails, amount: BigNumber) {
