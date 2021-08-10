@@ -1,5 +1,5 @@
 import { Contract, Value } from '@zilliqa-js/contract'
-import { BN } from '@zilliqa-js/util'
+import { BN, Long } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
 import { ObservedTx, Zilswap } from './index'
 import { ILOState } from './constants'
@@ -234,7 +234,7 @@ export class Zilo {
       throw new Error('User did not contribute')
     }
 
-    const claimTxn = await this.zilswap.callContract(this.contract, 'Claim', [], { amount: new BN(0), ...this.zilswap.txParams() }, true)
+    const claimTxn = await this.zilswap.callContract(this.contract, 'Claim', [], { amount: new BN(0), ...this.zilswap.txParams(), gasLimit: Long.fromNumber(20000) }, true)
 
     if (claimTxn.isRejected()) {
       throw new Error('Claim transaction was rejected.')
