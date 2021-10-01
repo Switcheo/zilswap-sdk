@@ -8,7 +8,7 @@ import { BN, Long, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
 import { Mutex } from 'async-mutex'
 
-import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH } from './constants'
+import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH, WHITELISTED_TOKENS } from './constants'
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
 import { sendBatchRequest, BatchRequest } from './batch'
 import { Zilo, OnStateUpdate } from './zilo'
@@ -495,7 +495,7 @@ export class Zilswap {
         await this.observeTx(observeTxn)
 
         return observeTxn
-      } catch (err) {
+      } catch (err: any) {
         if (err.message === 'Could not get balance') {
           throw new Error('No ZIL to pay for transaction.')
         } else {
@@ -1359,7 +1359,7 @@ export class Zilswap {
         }
         this.appState.currentBalance = new BigNumber(res.balance)
         this.appState.currentNonce = parseInt(res.nonce, 10)
-      } catch (err) {
+      } catch (err: any) {
         // ugly hack for zilpay non-standard API
         if (err.message === 'Account is not created') {
           this.appState.currentBalance = new BigNumber(0)
@@ -1386,13 +1386,13 @@ export class Zilswap {
             removeTxs.push(observedTx.hash)
             return
           }
-        } catch (e) {
-          if (e.code === -20) {
+        } catch (err: any) {
+          if (err.code === -20) {
             // "Txn Hash not Present"
             console.warn(`tx not found in mempool: ${observedTx.hash}`)
           } else {
             console.warn('error fetching tx state')
-            console.error(e)
+            console.error(err)
           }
         }
         if (observedTx.deadline < this.currentBlock) {
@@ -1474,12 +1474,12 @@ export class Zilswap {
         localStorage.setItem(lsCacheKey, JSON.stringify(init))
       }
       return init
-    } catch (error) {
-      if (error?.message === 'Network request failed') {
+    } catch (err: any) {
+      if (err?.message === 'Network request failed') {
         // make another fetch attempt after 800ms
         return this.fetchContractInit(contract)
       } else {
-        throw error
+        throw err
       }
     }
   }
@@ -1502,7 +1502,7 @@ export class Zilswap {
     const name = init.find((e: Value) => e.vname === 'name').value as string
     const symbol = init.find((e: Value) => e.vname === 'symbol').value as string
     const registered = this.tokens[symbol] === address
-    const whitelisted = registered && (symbol === 'ZWAP' || symbol === 'XSGD' || symbol === 'gZIL') // TODO: make an actual whitelist
+    const whitelisted = registered && WHITELISTED_TOKENS[this.network].includes(address)
 
     return { contract, address, hash, name, symbol, decimals, whitelisted, registered }
   }
