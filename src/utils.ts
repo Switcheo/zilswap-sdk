@@ -1,6 +1,9 @@
 import { Value } from '@zilliqa-js/contract'
+import { fromBech32Address } from '@zilliqa-js/crypto'
 import { BN, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
+import { Network, ARK_CONTRACTS, ZIL_HASH } from './constants'
+import crypto from 'crypto'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
@@ -153,4 +156,82 @@ export const contractInitToMap = (params: Value[]): { [index: string]: any } => 
     output[set.vname] = set.value
   }
   return output
+}
+
+/* ARK utils */
+
+/**
+ * Returns the message to sign for ARK.
+ * @param type - the type of message, either 'Execute' or 'Void'
+ * @param chequeHash - the computed cheque hash for the trade intent
+ * @returns
+ */
+export const arkMessage = (type: 'Execute' | 'Void', chequeHash: string) => {
+  return `Zilliqa Signed Message:\n${type} ARK Cheque 0x${chequeHash}`
+}
+
+export type ArkChequeParams = {
+  network: Network,
+  side: 'Buy' | 'Sell',
+  token: { id: string, address: string },
+  price: { amount: BigNumber, address: string },
+  feeAmount: BigNumber,
+  expiry: number,
+  nonce: number,
+}
+
+/**
+ * Computes the cheque hash for a trade intent on ARK.
+ * @param params - trade parameters
+ * @returns
+ */
+export const arkChequeHash = (params: ArkChequeParams): string => {
+  const { network, side, token, price, feeAmount, expiry, nonce } = params
+  const brokerAddress = fromBech32Address(ARK_CONTRACTS[network]).toLowerCase()
+  let buffer = strToHex(brokerAddress.replace('0x', ''))
+  buffer += sha256(strToHex(`${brokerAddress}.${side}`))
+  buffer += sha256(serializeNFT(brokerAddress, token))
+  buffer += sha256(serializePrice(brokerAddress, price))
+  buffer += sha256(serializeUint128(side === 'Buy' ? 0 : feeAmount))
+  buffer += sha256(strToHex(expiry.toString())) // BNum is serialized as a String
+  buffer += sha256(serializeUint128(nonce))
+  return sha256(buffer)
+}
+
+const serializeNFT = (brokerAddress: string, token: { id: string, address: string }): string => {
+  let buffer = strToHex(`${brokerAddress}.NFT`)
+  buffer += token.address.replace('0x', '').toLowerCase()
+  buffer += serializeUint256(token.id)
+  return buffer
+}
+
+const serializePrice = (brokerAddress: string, price: { amount: BigNumber, address: string }): string => {
+  let buffer = strToHex(`${brokerAddress}.Coins`)
+  if (price.address === ZIL_HASH) {
+    buffer += strToHex(`${brokerAddress}.Zil`)
+  } else {
+    buffer += strToHex(`${brokerAddress}.Token`)
+    buffer += price.address.replace('0x', '').toLowerCase()
+  }
+  buffer += serializeUint128(price.amount)
+  return buffer
+}
+
+const serializeUint128 = (val: BigNumber | number): string => {
+  return new BN(val.toString()).toBuffer('be', 16).toString('hex')
+}
+
+const serializeUint256 = (val: BigNumber | string): string => {
+  return new BN(val.toString()).toBuffer('be', 32).toString('hex')
+}
+
+const strToHex = (str: string): string => {
+  return Array.from(
+    new TextEncoder().encode(str),
+    byte => byte.toString(16).padStart(2, "0")
+  ).join("");
+}
+
+const sha256 = (byteHexString: string): string => {
+  return crypto.createHash('sha256').update(Buffer.from(byteHexString, 'hex')).digest('hex')
 }

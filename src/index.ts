@@ -495,8 +495,8 @@ export class Zilswap {
         await this.observeTx(observeTxn)
 
         return observeTxn
-      } catch (err: any) {
-        if (err.message === 'Could not get balance') {
+      } catch (err) {
+        if ((err as any).message === 'Could not get balance') {
           throw new Error('No ZIL to pay for transaction.')
         } else {
           throw err
@@ -1359,9 +1359,9 @@ export class Zilswap {
         }
         this.appState.currentBalance = new BigNumber(res.balance)
         this.appState.currentNonce = parseInt(res.nonce, 10)
-      } catch (err: any) {
+      } catch (err) {
         // ugly hack for zilpay non-standard API
-        if (err.message === 'Account is not created') {
+        if ((err as any).message === 'Account is not created') {
           this.appState.currentBalance = new BigNumber(0)
           this.appState.currentNonce = 0
         }
@@ -1386,8 +1386,8 @@ export class Zilswap {
             removeTxs.push(observedTx.hash)
             return
           }
-        } catch (err: any) {
-          if (err.code === -20) {
+        } catch (err) {
+          if ((err as any).code === -20) {
             // "Txn Hash not Present"
             console.warn(`tx not found in mempool: ${observedTx.hash}`)
           } else {
@@ -1474,8 +1474,8 @@ export class Zilswap {
         localStorage.setItem(lsCacheKey, JSON.stringify(init))
       }
       return init
-    } catch (err: any) {
-      if (err?.message === 'Network request failed') {
+    } catch (err) {
+      if ((err as any).message === 'Network request failed') {
         // make another fetch attempt after 800ms
         return this.fetchContractInit(contract)
       } else {

@@ -21,6 +21,11 @@ export const CONTRACTS: { [key in Networks]: string } = {
   [Network.TestNet]: 'zil1rf3dm8yykryffr94rlrxfws58earfxzu5lw792',
 }
 
+export const ARK_CONTRACTS: { [key in Networks]: string } = {
+  [Network.MainNet]: '',
+  [Network.TestNet]: 'zil1vf968mkk2372whae5ncd6w2h39p4nnqx2ut666',
+}
+
 export const WHITELISTED_TOKENS: { [key in Networks]: string[] } = {
   [Network.MainNet]: [
     "zil1p5suryq6q647usxczale29cu3336hhp376c627", // ZWAP
