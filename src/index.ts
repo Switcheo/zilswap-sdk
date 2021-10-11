@@ -1252,7 +1252,7 @@ export class Zilswap {
       address_bech32: string
     }
 
-    tokens.forEach((token: ZilStreamToken) => (this.tokens[token.symbol] = token.address_bech32))
+    tokens.forEach((token: ZilStreamToken) => (this.tokens[token.symbol] = token.address_bech32.split(",")[0]))
   }
 
   private async updateBlockHeight(): Promise<void> {
