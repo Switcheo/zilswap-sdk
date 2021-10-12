@@ -161,6 +161,15 @@ export const contractInitToMap = (params: Value[]): { [index: string]: any } => 
 /* ARK utils */
 
 /**
+ * Returns the message hash to sign.
+ * @param msg - the utf-8 message
+ * @returns - the computed message hahs to sign
+ */
+export const hashMessage = (msg: string): string => {
+  return crypto.createHash('sha256').update(Buffer.from(msg, 'utf-8')).digest('hex')
+}
+
+/**
  * Returns the message to sign for ARK.
  * @param type - the type of message, either 'Execute' or 'Void'
  * @param chequeHash - the computed cheque hash for the trade intent

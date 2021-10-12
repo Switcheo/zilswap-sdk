@@ -3,7 +3,7 @@ import BigNumber from 'bignumber.js'
 import { sign, getPubKeyFromPrivateKey, getAddressFromPrivateKey } from '@zilliqa-js/crypto'
 import { Zilswap, ObservedTx, TxStatus, TxReceipt } from './index'
 import { Network, ZIL_HASH } from './constants'
-import { arkMessage, arkChequeHash } from './utils'
+import { arkMessage, arkChequeHash, hashMessage } from './utils'
 
 const key: string | undefined = process.env.PRIVATE_KEY || undefined
 const zilswap = new Zilswap(Network.TestNet, key)
@@ -164,7 +164,7 @@ const test3 = () => {
   const msg = arkMessage('Execute', arkChequeHash({
     network: Network.TestNet,
     side: 'Buy',
-    token: { id: '9', address: '0xd793f378a925b9f0d3c4b6ee544d31c707899386' },
+    token: { id: '206', address: '0xc948942f55ef05a95a46bb58ee9b0a67b0f871fa' },
     price: { amount: new BigNumber(10000), address: ZIL_HASH },
     feeAmount: new BigNumber(250),
     expiry: 100,
@@ -175,8 +175,9 @@ const test3 = () => {
   console.log('Address:', address)
   const publicKey = getPubKeyFromPrivateKey(key!)
   console.log('Public Key:', publicKey)
-  console.log('Message Hex:', Buffer.from(msg, 'utf8').toString('hex'))
-  const signature = sign(Buffer.from(msg, 'utf8'), key!, publicKey)
+  const hash = hashMessage(msg)
+  console.log('Message Hash:', hash)
+  const signature = sign(Buffer.from(hash, 'hex'), key!, publicKey)
   console.log('Signature:', signature)
 }
 
