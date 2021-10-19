@@ -197,7 +197,7 @@ export type ArkChequeParams = {
 export const arkChequeHash = (params: ArkChequeParams): string => {
   const { network, side, token, price, feeAmount, expiry, nonce } = params
   const brokerAddress = fromBech32Address(ARK_CONTRACTS[network]).toLowerCase()
-  let buffer = strToHex(brokerAddress.replace('0x', ''))
+  let buffer = brokerAddress.replace('0x', '')
   buffer += sha256(strToHex(`${brokerAddress}.${side}`))
   buffer += sha256(serializeNFT(brokerAddress, token))
   buffer += sha256(serializePrice(brokerAddress, price))

@@ -23,7 +23,7 @@ export const CONTRACTS: { [key in Networks]: string } = {
 
 export const ARK_CONTRACTS: { [key in Networks]: string } = {
   [Network.MainNet]: '',
-  [Network.TestNet]: 'zil1vf968mkk2372whae5ncd6w2h39p4nnqx2ut666',
+  [Network.TestNet]: 'zil1sgf3zpgt6qeflg053pxjwx9s9pxclx3p7s06gp',
 }
 
 export const WHITELISTED_TOKENS: { [key in Networks]: string[] } = {
