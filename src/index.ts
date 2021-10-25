@@ -1231,6 +1231,7 @@ export class Zilswap {
   private async loadTokenList() {
     if (this.network === Network.TestNet) {
       this.tokens['ZIL'] = 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz'
+      this.tokens['wZIL'] = 'zil1nzn3k336xwal7egdzgalqnclxtgu3dggxed85m'
       this.tokens['ZWAP'] = 'zil1k2c3ncjfduj9jrhlgx03t2smd6p25ur56cfzgz'
       this.tokens['gZIL'] = 'zil1fytuayks6njpze00ukasq3m4y4s44k79hvz8q5'
       this.tokens['SWTH'] = 'zil1d6yfgycu9ythxy037hkt3phc3jf7h6rfzuft0s'
