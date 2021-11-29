@@ -17,7 +17,7 @@ export const WSS: { [key in Networks]: string } = {
 }
 
 export const CONTRACTS: { [key in Networks]: string } = {
-  [Network.MainNet]: 'zil1hgg7k77vpgpwj3av7q7vv5dl4uvunmqqjzpv2w',
+  [Network.MainNet]: 'zil1e8v6gvcjgwdljzk230et03uvkx3zfyeptzwvnh',
   [Network.TestNet]: 'zil1rf3dm8yykryffr94rlrxfws58earfxzu5lw792',
 }
 
