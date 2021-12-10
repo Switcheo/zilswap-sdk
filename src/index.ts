@@ -1276,7 +1276,7 @@ export class Zilswap {
     // Get user address
     const currentUser = this.walletProvider
       ? // ugly hack for zilpay provider
-        this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
+      this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
       : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Get the contract state
@@ -1316,7 +1316,8 @@ export class Zilswap {
         const d = await this.fetchTokenDetails(hash)
         tokens[hash] = d
       } catch (error: any) {
-        if (error?.message?.startsWith("Could not retrieve contract init params")) {
+        if (error?.message?.startsWith("Could not retrieve contract init params")
+          || error?.message?.startsWith("Address not contract address")) {
           return;
         }
         throw error;
