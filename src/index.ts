@@ -1312,8 +1312,15 @@ export class Zilswap {
     // Get token details
     const tokens: { [key in string]: TokenDetails } = {}
     const promises = tokenHashes.map(async hash => {
-      const d = await this.fetchTokenDetails(hash)
-      tokens[hash] = d
+      try {
+        const d = await this.fetchTokenDetails(hash)
+        tokens[hash] = d
+      } catch (error: any) {
+        if (error?.message?.startsWith("Could not retrieve contract init params")) {
+          return;
+        }
+        throw error;
+      }
     })
     await Promise.all(promises)
 
@@ -1474,6 +1481,9 @@ export class Zilswap {
     // motivation: workaround api.zilliqa.com intermittent connection issues.
     try {
       const init = await contract.getInit()
+      if (init === undefined)
+        throw new Error(`Could not retrieve contract init params ${contract.address}`)
+
       if (isLocalStorageAvailable()) {
         localStorage.setItem(lsCacheKey, JSON.stringify(init))
       }
