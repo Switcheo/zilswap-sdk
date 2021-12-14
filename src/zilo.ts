@@ -210,7 +210,7 @@ export class Zilo {
       return ILOState.Active
     }
 
-    if (new BigNumber(contractInit.target_zil_amount).gt(new BigNumber(contractState.total_contributions))) {
+    if (new BigNumber(contractInit.minimum_zil_amount).gt(new BigNumber(contractState.total_contributions))) {
       return ILOState.Failed
     } else {
       return ILOState.Completed
