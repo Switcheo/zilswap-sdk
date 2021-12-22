@@ -35,6 +35,7 @@ export const WHITELISTED_TOKENS: { [key in Networks]: string[] } = {
     'zil1sxx29cshups269ahh5qjffyr58mxjv9ft78jqy', // zUSDT
     'zil1wha8mzaxhm22dpm5cav2tepuldnr8kwkvmqtjq', // zWBTC
     'zil19j33tapjje2xzng7svslnsjjjgge930jx0w09v', // zETH
+    "zil1yk93f957fanapf0yszgm84p62xrxxfytj4d2tl", // SWTH
   ],
   [Network.TestNet]: [],
 }
