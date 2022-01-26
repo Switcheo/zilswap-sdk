@@ -1481,7 +1481,8 @@ export class Zilswap {
     }
     // motivation: workaround api.zilliqa.com intermittent connection issues.
     try {
-      const init = await contract.getInit()
+      // some wallet providers throw an uncaught error when address is non-contract
+      const init = await new Zilliqa(this.rpcEndpoint).contracts.at(contract.address!).getInit()
       if (init === undefined)
         throw new Error(`Could not retrieve contract init params ${contract.address}`)
 
