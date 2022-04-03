@@ -1,4 +1,3 @@
-
 import BigNumber from 'bignumber.js'
 import { sign, getPubKeyFromPrivateKey, getAddressFromPrivateKey } from '@zilliqa-js/crypto'
 import { Zilswap, ObservedTx, TxStatus, TxReceipt } from './index'
@@ -161,15 +160,18 @@ const test2 = async () => {
 }
 
 const test3 = () => {
-  const msg = arkMessage('Execute', arkChequeHash({
-    network: Network.TestNet,
-    side: 'Buy',
-    token: { id: '206', address: '0xc948942f55ef05a95a46bb58ee9b0a67b0f871fa' },
-    price: { amount: new BigNumber(10000), address: ZIL_HASH },
-    feeAmount: new BigNumber(250),
-    expiry: 100,
-    nonce: 0,
-   }))
+  const msg = arkMessage(
+    'Execute',
+    arkChequeHash({
+      network: Network.TestNet,
+      side: 'Buy',
+      token: { id: '206', address: '0xc948942f55ef05a95a46bb58ee9b0a67b0f871fa' },
+      price: { amount: new BigNumber(10000), address: ZIL_HASH },
+      feeAmount: new BigNumber(250),
+      expiry: 100,
+      nonce: 0,
+    })
+  )
   console.log('Message:', msg)
   const address = getAddressFromPrivateKey(key!)
   console.log('Address:', address)

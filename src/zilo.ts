@@ -234,7 +234,13 @@ export class Zilo {
       throw new Error('User did not contribute')
     }
 
-    const claimTxn = await this.zilswap.callContract(this.contract, 'Claim', [], { amount: new BN(0), ...this.zilswap.txParams(), gasLimit: Long.fromNumber(20000) }, true)
+    const claimTxn = await this.zilswap.callContract(
+      this.contract,
+      'Claim',
+      [],
+      { amount: new BN(0), ...this.zilswap.txParams(), gasLimit: Long.fromNumber(20000) },
+      true
+    )
 
     if (claimTxn.isRejected()) {
       throw new Error('Claim transaction was rejected.')

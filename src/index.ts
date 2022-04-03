@@ -1248,15 +1248,18 @@ export class Zilswap {
       this.tokens['wZIL'] = 'zil1gvr0jgwfsfmxsyx0xsnhtlte4gks6r3yk8x5fn'
     }
 
-    const res = await fetch('https://api.zilstream.com/tokens')
-    const tokens = await res.json()
+    try {
+      const res = await fetch('https://api.zilstream.com/tokens')
+      const tokens = await res.json()
+      interface ZilStreamToken {
+        symbol: string
+        address_bech32: string
+      }
 
-    interface ZilStreamToken {
-      symbol: string
-      address_bech32: string
+      tokens.forEach((token: ZilStreamToken) => (this.tokens[token.symbol] = token.address_bech32.split(',')[0]))
+    } catch (err) {
+      console.warn('WARNING: failed to load token list from zilstream, using defaults only.\nError: ' + err)
     }
-
-    tokens.forEach((token: ZilStreamToken) => (this.tokens[token.symbol] = token.address_bech32.split(",")[0]))
   }
 
   private async updateBlockHeight(): Promise<void> {
@@ -1276,7 +1279,7 @@ export class Zilswap {
     // Get user address
     const currentUser = this.walletProvider
       ? // ugly hack for zilpay provider
-      this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
+        this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
       : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Get the contract state
@@ -1315,12 +1318,14 @@ export class Zilswap {
       try {
         const d = await this.fetchTokenDetails(hash)
         tokens[hash] = d
-      } catch (error: any) {
-        if (error?.message?.startsWith("Could not retrieve contract init params")
-          || error?.message?.startsWith("Address not contract address")) {
-          return;
+      } catch (err) {
+        if (
+          (err as any).message?.startsWith('Could not retrieve contract init params') ||
+          (err as any).message?.startsWith('Address not contract address')
+        ) {
+          return
         }
-        throw error;
+        throw err
       }
     })
     await Promise.all(promises)
@@ -1483,8 +1488,7 @@ export class Zilswap {
     try {
       // some wallet providers throw an uncaught error when address is non-contract
       const init = await new Zilliqa(this.rpcEndpoint).contracts.at(contract.address!).getInit()
-      if (init === undefined)
-        throw new Error(`Could not retrieve contract init params ${contract.address}`)
+      if (init === undefined) throw new Error(`Could not retrieve contract init params ${contract.address}`)
 
       if (isLocalStorageAvailable()) {
         localStorage.setItem(lsCacheKey, JSON.stringify(init))

@@ -28,14 +28,14 @@ export const ARK_CONTRACTS: { [key in Networks]: string } = {
 
 export const WHITELISTED_TOKENS: { [key in Networks]: string[] } = {
   [Network.MainNet]: [
-    "zil1gvr0jgwfsfmxsyx0xsnhtlte4gks6r3yk8x5fn", // wZIL
-    "zil1p5suryq6q647usxczale29cu3336hhp376c627", // ZWAP
-    "zil1zu72vac254htqpg3mtywdcfm84l3dfd9qzww8t", // XSGD
-    "zil14pzuzq6v6pmmmrfjhczywguu0e97djepxt8g3e", // gZIL
+    'zil1gvr0jgwfsfmxsyx0xsnhtlte4gks6r3yk8x5fn', // wZIL
+    'zil1p5suryq6q647usxczale29cu3336hhp376c627', // ZWAP
+    'zil1zu72vac254htqpg3mtywdcfm84l3dfd9qzww8t', // XSGD
+    'zil14pzuzq6v6pmmmrfjhczywguu0e97djepxt8g3e', // gZIL
     'zil1sxx29cshups269ahh5qjffyr58mxjv9ft78jqy', // zUSDT
     'zil1wha8mzaxhm22dpm5cav2tepuldnr8kwkvmqtjq', // zWBTC
     'zil19j33tapjje2xzng7svslnsjjjgge930jx0w09v', // zETH
-    "zil1yk93f957fanapf0yszgm84p62xrxxfytj4d2tl", // SWTH
+    'zil1yk93f957fanapf0yszgm84p62xrxxfytj4d2tl', // SWTH
   ],
   [Network.TestNet]: [],
 }

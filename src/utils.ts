@@ -180,13 +180,13 @@ export const arkMessage = (type: 'Execute' | 'Void', chequeHash: string) => {
 }
 
 export type ArkChequeParams = {
-  network: Network,
-  side: 'Buy' | 'Sell',
-  token: { id: string, address: string },
-  price: { amount: BigNumber, address: string },
-  feeAmount: BigNumber,
-  expiry: number,
-  nonce: number,
+  network: Network
+  side: 'Buy' | 'Sell'
+  token: { id: string; address: string }
+  price: { amount: BigNumber; address: string }
+  feeAmount: BigNumber
+  expiry: number
+  nonce: number
 }
 
 /**
@@ -207,14 +207,14 @@ export const arkChequeHash = (params: ArkChequeParams): string => {
   return sha256(buffer)
 }
 
-const serializeNFT = (brokerAddress: string, token: { id: string, address: string }): string => {
+const serializeNFT = (brokerAddress: string, token: { id: string; address: string }): string => {
   let buffer = strToHex(`${brokerAddress}.NFT`)
   buffer += token.address.replace('0x', '').toLowerCase()
   buffer += serializeUint256(token.id)
   return buffer
 }
 
-const serializePrice = (brokerAddress: string, price: { amount: BigNumber, address: string }): string => {
+const serializePrice = (brokerAddress: string, price: { amount: BigNumber; address: string }): string => {
   let buffer = strToHex(`${brokerAddress}.Coins`)
   if (price.address === ZIL_HASH) {
     buffer += strToHex(`${brokerAddress}.Zil`)
@@ -235,10 +235,7 @@ const serializeUint256 = (val: BigNumber | string): string => {
 }
 
 const strToHex = (str: string): string => {
-  return Array.from(
-    new TextEncoder().encode(str),
-    byte => byte.toString(16).padStart(2, "0")
-  ).join("");
+  return Array.from(new TextEncoder().encode(str), byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
 const sha256 = (byteHexString: string): string => {
