@@ -17,6 +17,10 @@ export type ZiloContractState = {
   initialized: ADTValue
   contributions: { [byStr20Address: string]: BigNumber }
   total_contributions: string
+  balances?: { [byStr20Address: string]: BigNumber }
+  discount_whitelist?: {
+    [byStr20Address: string]: string;
+  }
 }
 
 export type ZiloContractInit = {
@@ -34,6 +38,7 @@ export type ZiloContractInit = {
   _scilla_version: string
   _creation_block: string
   _this_address: string
+  discount_bps?: number
 }
 
 export type ZiloAppState = {
