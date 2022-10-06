@@ -122,9 +122,17 @@ export class Zilo {
       contributions[byStr20Address] = new BigNumber(result.contributions[byStr20Address])
     }
 
+    const balances: { [index: string]: BigNumber } = {}
+    for (const byStr20Address of Object.keys(result.balances ?? {})) {
+      balances[byStr20Address] = new BigNumber(result.balances[byStr20Address])
+    }
+
     return {
       ...result,
       contributions,
+      ...!!result.balances && {
+        balances,
+      },
     } as ZiloContractState
   }
 
