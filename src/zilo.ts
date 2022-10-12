@@ -1,7 +1,7 @@
 import { Contract, Value } from '@zilliqa-js/contract'
 import { BN, Long } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
-import { ObservedTx, Zilswap } from './index'
+import { ObservedTx, TxParams, Zilswap } from './index'
 import { ILOState } from './constants'
 import { contractInitToMap, unitlessBigNumber } from './utils'
 
@@ -301,7 +301,7 @@ export class Zilo {
    *
    * @param amountToContributeStr is the exact amount of ZIL to be contribute as a unitless string (without decimals).
    */
-  public async contribute(amountToContributeStr: string): Promise<ObservedTx | null> {
+  public async contribute(amountToContributeStr: string, opts?: TxParams): Promise<ObservedTx | null> {
     this.zilswap.checkAppLoadedWithUser()
 
     // Check init
@@ -311,7 +311,12 @@ export class Zilo {
       this.contract,
       'Contribute',
       [],
-      { amount: new BN(amountToContribute.toString()), ...this.zilswap.txParams() },
+      {
+        amount: new BN(amountToContribute.toString()), 
+        ...this.zilswap.txParams(),
+        gasLimit: Long.fromNumber(10000),
+        ...opts
+      },
       true
     )
 
