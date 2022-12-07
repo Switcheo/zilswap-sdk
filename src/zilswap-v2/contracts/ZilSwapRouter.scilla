@@ -1,0 +1,2367 @@
+scilla_version 0
+
+import BoolUtils IntUtils ListUtils PairUtils
+library ZilSwapRouter
+
+type ReserveData =
+| ReserveData of Uint128 Uint128 Uint128 Uint128 (* reserve0, reserve1, vReserve0, vReserve1 *)
+
+let zero_address = 0x0000000000000000000000000000000000000000
+let zero_amount = Uint128 0
+let zero_amount_u32 = Uint32 0
+let zero_amount_u256 = Uint256 0
+let minimum_liquidity = Uint128 1000
+let bps = Uint128 10000
+let none = None {ByStr20}
+let two_u256 = Uint256 2
+let two_u128 = Uint128 2
+let one_hundred_and_twelve = Uint32 112
+let q112_u256 = builtin pow two_u256 one_hundred_and_twelve
+let q112_u128 = builtin pow two_u128 one_hundred_and_twelve
+let bps = Uint128 10000
+let precision = Uint256 1000000000000000000 (* for decimal calculations (18dp precision) *)
+let short_alpha = Uint256 370301795963710 (* 2 * precision / 5401 *)
+let long_alpha = Uint256 185168039996296 (* (2 * precision) / 10801 *)
+
+(* extracts the from_address from swap path of type Pair (from_address, to_address) *)
+let get_from_address : Pair ByStr20 ByStr20 -> ByStr20 = @fst ByStr20 ByStr20
+
+(* extracts the to_address from swap path of type Pair (from_address, to_address) *)
+let get_to_address : Pair ByStr20 ByStr20 -> ByStr20 = @snd ByStr20 ByStr20
+
+let one_msg =
+  fun (msg : Message) =>
+  let nil_msg = Nil {Message} in
+  Cons {Message} msg nil_msg
+
+let two_msgs =
+  fun (msg1 : Message) =>
+  fun (msg2 : Message) =>
+  let msgs_tmp = one_msg msg2 in
+  Cons {Message} msg1 msgs_tmp
+
+let list_exists_bystr20 = @list_exists ByStr20
+
+let get_amount_or_zero =
+  fun (maybe : Option Uint128) =>
+    match maybe with
+    | Some amt => amt
+    | None => zero_amount
+    end
+
+(* @dev: Convert Uint128 to Uint256 *)
+let grow =
+  fun (var : Uint128) =>
+    let maybe_big = builtin to_uint256 var in
+    match maybe_big with
+    | Some big => big
+    | None => Uint256 0 (* should never happen *)
+    end
+
+(* @dev: Convert Uint256 to Uint128 *)
+let reduce =
+  fun (var : Uint256) =>
+    let maybe_small = builtin to_uint128 var in
+    match maybe_small with
+    | Some small => small
+    | None => let one = Uint128 1 in builtin sub zero_amount one (* throw on overflow *)
+    end
+
+(* @dev: (x * y) / z *)
+let frac =
+  fun (x : Uint128) =>
+  fun (y : Uint128) =>
+  fun (z : Uint128) =>
+    let x_u256 = grow x in
+    let y_u256 = grow y in
+    let z_u256 = grow z in
+    let xy_u256 = builtin mul x_u256 y_u256 in
+    let ans_u256 = builtin div xy_u256 z_u256 in
+    reduce ans_u256
+
+(* @dev: Given an amount of one token and pool reserves, return an equivalent amount of the tokenB *)
+(* @dev: amountB = amountA.mul(reserveB) / reserveA *)
+let quote =
+  fun (amountA : Uint128) =>
+  fun (reserveA : Uint128) =>
+  fun (reserveB : Uint128) =>
+    frac amountA reserveB reserveA
+
+let list_or_empty =
+  fun (maybe_list : Option (List ByStr20)) =>
+  match maybe_list with
+  | Some list => list
+  | None => Nil {ByStr20}
+  end
+
+let add_once =
+  fun (list : List ByStr20) =>
+  fun (item : ByStr20) =>
+    let f = fun (i : ByStr20) => builtin eq i item in
+    let e = list_exists_bystr20 f list in
+    match e with
+    | True => list
+    | False => Cons {ByStr20} item list
+    end
+
+let pool_exists =
+  fun (list : List ByStr20) =>
+  fun (item : ByStr20) =>
+    let f = fun (i : ByStr20) => builtin eq i item in
+    let e = list_exists_bystr20 f list in
+    match e with
+    | True => True
+    | False => False
+    end
+
+(* @dev: Returns init_token pair *)
+let sort_token = 
+  fun (path: Pair ByStr20 ByStr20 ) =>
+  match path with
+  | Pair token_in token_out =>
+    let token_in_u256 = builtin to_uint256 token_in in
+    let token_out_u256 = builtin to_uint256 token_out in
+    let is_init_token0 = uint256_le token_in_u256 token_out_u256 in
+    match is_init_token0 with 
+    | True => path
+    | False => Pair {ByStr20 ByStr20} token_out token_in
+    end
+  end
+
+let get_trade_info = 
+  fun (r_0: Uint128) =>
+  fun (r_1: Uint128) =>
+  fun (v_r_0: Uint128) =>
+  fun (v_r_1: Uint128) =>
+  fun (is_eq: Bool) =>
+  fun (is_same_order: Bool) =>
+  match is_eq with
+  | True =>
+    match is_same_order with
+    | True =>
+      ReserveData r_0 r_1 r_0 r_1
+    | False =>
+      ReserveData r_1 r_0 r_1 r_0
+    end
+  | False =>
+    match is_same_order with
+    | True =>
+      ReserveData r_0 r_1 v_r_0 v_r_1
+    | False =>
+      ReserveData r_1 r_0 v_r_1 v_r_0
+    end
+  end
+
+
+let calculate_r_factor = 
+  fun (short_ema : Uint256) =>
+  fun (long_ema : Uint256) =>
+    let zero_amount = Uint256 0 in 
+    let is_eq = builtin eq long_ema zero_amount in 
+    match is_eq with
+    | True => zero_amount
+    | False =>
+      let s_e = builtin mul short_ema precision in 
+      builtin div s_e long_ema
+    end
+
+let get_final_fee = 
+  fun (fee_in_precision : Uint256) =>
+  fun (amp_bps : Uint128) =>
+    let fee_in_precision_u128 = reduce fee_in_precision in
+    let four = Uint128 4 in
+    let ten = Uint128 10 in
+    let twenty = Uint128 20 in
+    let thirty = Uint128 30 in
+    let two_bps = Uint128 20000 in
+    let five_bps = Uint128 50000 in
+    let twenty_bps = Uint128 200000 in
+    let le_two_bps = uint128_le amp_bps two_bps in 
+    match le_two_bps with
+    | True => fee_in_precision_u128
+    | False =>
+      let le_five_bps = uint128_le amp_bps five_bps in
+      match le_five_bps with 
+      | True => 
+        frac fee_in_precision_u128 twenty thirty 
+      | False =>
+        let le_twenty_bps = uint128_le amp_bps twenty_bps in
+        match le_twenty_bps with
+        | True => 
+          frac fee_in_precision_u128 ten thirty
+        | False => 
+          frac fee_in_precision_u128 four thirty
+        end
+      end
+    end
+
+let get_amount_out = 
+  fun (amount_in: Uint128) =>
+  fun (reserve_in: Uint128) =>
+  fun (reserve_out: Uint128) =>
+  fun (v_reserve_in: Uint128) =>
+  fun (v_reserve_out: Uint128) =>
+  fun (fee_in_precision: Uint128) =>
+    let precision_u128 = reduce precision in
+    let a = builtin sub precision_u128 fee_in_precision in
+    let amount_in_with_fee = frac amount_in a precision_u128 in
+    let numerator = builtin mul amount_in_with_fee v_reserve_out in
+    let denominator = builtin add v_reserve_in amount_in_with_fee in
+    builtin div numerator denominator
+
+let get_amount_in = 
+  fun (amount_out: Uint128) =>
+  fun (reserve_in: Uint128) =>
+  fun (reserve_out: Uint128) =>
+  fun (v_reserve_in: Uint128) =>
+  fun (v_reserve_out: Uint128) =>
+  fun (fee_in_precision: Uint128) =>
+    let one = Uint128 1 in
+    let precision_u128 = reduce precision in
+    let n = builtin mul v_reserve_in amount_out in
+    let d = builtin sub v_reserve_out amount_out in
+    let a_i = builtin div n d in
+    let amount_in = builtin add a_i one in
+    let numerator = builtin mul amount_in precision_u128 in
+    let denominator = builtin sub precision_u128 fee_in_precision in
+    let d_minus_one = builtin sub numerator one in
+    let n_a = builtin add numerator d_minus_one in
+    builtin div n_a denominator
+
+(* Error events *)
+type Error =
+| CodeNotSelf
+| CodeNotGovernor
+| CodeNotPendingGovernor
+| CodeDuplicateUnamplifiedPool
+| CodeInvalidPool
+| CodeInvalidWZIL
+| CodeInsufficientAmount
+| CodeInsufficientLiquidity
+| CodeBlockExpired
+| CodeOutOfBoundVReserve
+| CodeInsufficientInputAmt
+| CodeInsufficientOutputAmt
+| CodeExcessiveInputAmt
+
+let make_error =
+  fun (result : Error) =>
+    let result_code =
+      match result with
+      | CodeNotSelf                   => Int32 -1
+      | CodeNotGovernor               => Int32 -2
+      | CodeNotPendingGovernor        => Int32 -3
+      | CodeDuplicateUnamplifiedPool  => Int32 -4
+      | CodeInvalidPool               => Int32 -5
+      | CodeInvalidWZIL               => Int32 -6
+      | CodeInsufficientAmount        => Int32 -7
+      | CodeInsufficientLiquidity     => Int32 -8
+      | CodeBlockExpired              => Int32 -9
+      | CodeOutOfBoundVReserve        => Int32 -10
+      | CodeInsufficientInputAmt      => Int32 -11
+      | CodeInsufficientOutputAmt     => Int32 -12
+      | CodeExcessiveInputAmt         => Int32 -13
+      end
+    in
+    { _exception : "Error"; code : result_code }
+
+contract ZilSwapRouter
+(
+  init_governor : ByStr20,
+  init_codehash : ByStr32,
+  init_wZIL_address : ByStr20 with contract field balances: Map ByStr20 Uint128 end
+)
+
+field governor : ByStr20 = init_governor
+field pending_governor : Option ByStr20 = none
+field pool_codehash : ByStr32 = init_codehash
+field fee_configuration : Pair ByStr20 Uint128 = Pair {ByStr20 Uint128} zero_address zero_amount (* fee_to fee_bps *)
+field wZIL_address: ByStr20 with contract field balances: Map ByStr20 Uint128 end = init_wZIL_address (* Should not be changed *)
+
+field all_pools : List ByStr20 = Nil {ByStr20}
+field pools : Map ByStr20 (Map ByStr20 (List ByStr20)) = Emp ByStr20 (Map ByStr20 (List ByStr20))
+field unamplified_pools : Map ByStr20 (Map ByStr20 ByStr20) = Emp ByStr20 (Map ByStr20 ByStr20)
+
+field amt_out : Uint128 = zero_amount
+field amt_in : Uint128 = zero_amount
+
+(**************************************)
+(*             Procedures             *)
+(**************************************)
+
+procedure ThrowError(err : Error)
+  e = make_error err;
+  throw e
+end
+
+(*** Factory ***)
+
+procedure IsSelf(address : ByStr20)
+  is_self = builtin eq _this_address address;
+  match is_self with
+  | True =>
+  | False =>
+    err = CodeNotSelf;
+    ThrowError err
+  end
+end
+
+(* @dev: Validate the pool contract with correct codehash *)
+procedure IsValidPoolContract(pool_address : ByStr20)
+  maybe_pool <- & pool_address as ByStr20 with _codehash end;
+  match maybe_pool with
+  | None =>
+  | Some p =>
+    required_codehash <- pool_codehash;
+    codehash <- & p._codehash;
+    is_valid_pool = builtin eq codehash required_codehash;
+    match is_valid_pool with
+    | True =>
+    | False =>
+      err = CodeInvalidPool;
+      ThrowError err
+    end
+  end
+end
+
+procedure AddOnceToPools(tokenA : ByStr20, tokenB : ByStr20, pool : ByStr20)
+  p <- pools[tokenA][tokenB];
+  list = list_or_empty p;
+  p_new = add_once list pool;
+  pools[tokenA][tokenB] := p_new
+end
+
+(* @dev: Verifies if a pool with a token pair of tokenA-tokenB already exists *)
+(* @dev: Duplicate pools are not allowed to be added to the contract *)
+procedure VerifyPoolAddress(tokenA : ByStr20, tokenB : ByStr20, pool: ByStr20)
+  p <- pools[tokenA][tokenB];
+  list = list_or_empty p;
+  e = pool_exists list pool;
+  match e with 
+  | True =>
+  | False =>
+    err = CodeInvalidPool;
+    ThrowError err
+  end
+end
+
+(* @dev: Verify if address is equal to wZIL_address *)
+procedure VerifyWZILAddress(address: ByStr20)
+  wZIL <- wZIL_address;
+  is_wZIL = builtin eq wZIL address;
+  match is_wZIL with
+  | True =>
+  | False =>
+    err = CodeInvalidWZIL;
+    ThrowError err
+  end
+end
+
+(* @dev: Validates that the tokenAmount and the pool reserves are more than 0 *)
+procedure Quote(amountA : Uint128, reserveA : Uint128, reserveB : Uint128)
+  is_sufficient_amt = uint128_gt amountA zero_amount;
+  match is_sufficient_amt with
+  | True =>
+    is_sufficient_liquidity = 
+      let reserveA_ = uint128_gt reserveA zero_amount in 
+      let reserveB_ = uint128_gt reserveB zero_amount in 
+      andb reserveA_ reserveB_;
+    match is_sufficient_liquidity with
+    | True =>
+    | False =>
+      err = CodeInsufficientLiquidity;
+      ThrowError err
+    end
+  | False =>
+    err = CodeInsufficientAmount;
+    ThrowError err
+  end
+end
+
+(* @dev: Checks if amountA >= AmountB *)
+procedure VerifyAmount(amountA : Uint128, amountB : Uint128)
+  is_sufficient_amount = uint128_ge amountA amountB;
+  match is_sufficient_amount with
+  | True =>
+  | False =>
+    err = CodeInsufficientAmount;
+    ThrowError err
+  end
+end
+
+(* @dev: Checks if current_block >= deadline_block *)
+procedure VerifyBlock(deadline_block : BNum)
+  current_block <- & BLOCKNUMBER;
+  is_expired = builtin blt deadline_block current_block;
+  match is_expired with
+  | True =>
+    err = CodeBlockExpired;
+    ThrowError err
+  | False =>
+  end
+end
+
+(* @dev: Checks if r_in > amount_in && r_out > amount_out *)
+procedure VerifySufficientLiquidity(r_in: Uint128, r_out: Uint128, amount_in: Uint128, amount_out: Uint128)
+  is_sufficient_liquidity = 
+    let a = uint128_gt r_in amount_in in
+    let b = uint128_gt r_out amount_out in
+    andb a b;
+  match is_sufficient_liquidity with
+  | True =>
+  | False =>
+  err = CodeInsufficientLiquidity;
+  ThrowError err
+  end
+end
+
+(* @dev: Checks if amount in more than 0 *)
+procedure VerifyValidAmountIn(amount_in: Uint128)
+  is_valid_amount_in = let a = builtin eq amount_in zero_amount in negb a;
+  match is_valid_amount_in with
+  | True => | False =>
+    err = CodeInsufficientInputAmt;
+    ThrowError err
+  end
+end
+
+(*** Transfers ***)
+
+(* @dev: Transfer zil from contract balance to the user *)
+procedure Send(amount: Uint128, to_address : ByStr20)
+  msg = { _tag : "AddFunds"; _recipient: to_address; _amount: amount };
+  msgs = one_msg msg;
+  send msgs
+end
+
+procedure TransferZRC2(token_address: ByStr20, to: ByStr20, amount: Uint128)
+  msg_to_zrc2 = {
+    _tag: "Transfer";
+    _recipient: token_address;
+    _amount: zero_amount;
+    to: to;
+    amount: amount
+  };
+  msg = one_msg msg_to_zrc2;
+  send msg
+end
+
+procedure TransferFromZRC2(token_address: ByStr20, from: ByStr20, to: ByStr20, amount: Uint128)
+  msg_to_zrc2 = {
+    _tag: "TransferFrom";
+    _recipient: token_address;
+    _amount: zero_amount;
+    from: from;
+    to: to;
+    amount: amount
+  };
+  msg = one_msg msg_to_zrc2;
+  send msg
+end
+
+(* @dev: Transfer ZRC-2 tokens to pool *)
+procedure TransferZRC2ToPool(pool: ByStr20, token0: ByStr20, token1: ByStr20, amount0: Uint128, amount1: Uint128)
+  msg_to_token0 = {
+    _tag: "TransferFrom";
+    _recipient: token0;
+    _amount: zero_amount;
+    from: _sender;
+    to: pool;
+    amount: amount0
+  };
+  msg_to_token1 = {
+    _tag: "TransferFrom";
+    _recipient: token1;
+    _amount: zero_amount;
+    from: _sender;
+    to: pool;
+    amount: amount1
+  };
+  msgs = two_msgs msg_to_token0 msg_to_token1;
+  send msgs
+end
+
+(* Calls Mint transition on wZIL contract to wrap ZIL into wZIL *)
+procedure WrapZIL(amount: Uint128)
+  wZIL <- wZIL_address;
+  msg_to_zrc2 = {
+    _tag: "Mint";
+    _recipient: wZIL;
+    _amount: amount
+  };
+  msg = one_msg msg_to_zrc2;
+  send msg
+end
+
+(* Calls Burn transition on wZIL contract to unwrap wZIL into ZIL *)
+procedure UnwrapZIL(amount: Uint128)
+  wZIL <- wZIL_address;
+  msg_to_token = {
+    _tag: "Burn";
+    _recipient: wZIL;
+    _amount: zero_amount;
+    amount: amount
+  };
+
+  msg = one_msg msg_to_token;
+  send msg
+end
+
+(*** Swaps ***)
+
+(* @dev: Calculates the amount_out and assigns to amt_out *)
+procedure GetAmountOut(
+  amount_in: Uint128,
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  VerifyBlock deadline_block;
+  is_valid_amount_in = uint128_gt amount_in zero_amount;
+  match is_valid_amount_in with
+  | True =>
+  | False =>
+    err = CodeInsufficientInputAmt;
+    ThrowError err
+  end;
+
+  match path with 
+  | Pair token_in token_out =>
+    init_token_pair = sort_token path;
+    match init_token_pair with
+    | Pair init_token0 init_token1 =>
+      VerifyPoolAddress init_token0 init_token1 pool;
+      r_0 <- & pool.reserve0;
+      r_1 <- & pool.reserve1;
+      v_r_0 <- & pool.v_reserve0;
+      v_r_1 <- & pool.v_reserve1;
+      amp <- & pool.amp_bps;
+      s_e <- & pool.short_ema;
+      l_e <- & pool.long_ema;
+      r_factor_in_precision = calculate_r_factor s_e l_e;
+      fee_in_precision = get_final_fee r_factor_in_precision amp;
+  
+      is_eq = builtin eq amp bps;
+      is_same_order = builtin eq token_in init_token0;
+  
+      data = get_trade_info r_0 r_1 v_r_0 v_r_1 is_eq is_same_order;
+      match data with 
+      | ReserveData r_in r_out v_r_in v_r_out =>
+        amount_out = get_amount_out amount_in r_in r_out v_r_in v_r_out fee_in_precision;
+        amt_out := amount_out;
+  
+        VerifySufficientLiquidity r_in r_out zero_amount zero_amount;
+
+        is_valid_reserve_out = uint128_gt r_out amount_out;
+        match is_valid_reserve_out with 
+        | True => | False => 
+          err = CodeInsufficientLiquidity;
+          ThrowError err
+        end
+
+      end
+    end
+  end
+end
+
+(* @dev: Calculates the amount_in and assigns to amt_in *)
+procedure GetAmountIn(
+  amount_out: Uint128,
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  VerifyBlock deadline_block;
+  is_valid_amount_out = uint128_gt amount_out zero_amount;
+  match is_valid_amount_out with
+  | True =>
+  | False =>
+    err = CodeInsufficientOutputAmt;
+    ThrowError err
+  end;
+
+  match path with
+  | Pair token_in token_out => 
+    init_token_pair = sort_token path;
+    match init_token_pair with
+    | Pair init_token0 init_token1 =>
+      VerifyPoolAddress init_token0 init_token1 pool;
+
+      r_0 <- & pool.reserve0;
+      r_1 <- & pool.reserve1;
+      v_r_0 <- & pool.v_reserve0;
+      v_r_1 <- & pool.v_reserve1;
+      amp <- & pool.amp_bps;
+      s_e <- & pool.short_ema;
+      l_e <- & pool.long_ema;
+      r_factor_in_precision = calculate_r_factor s_e l_e;
+      fee_in_precision = get_final_fee r_factor_in_precision amp;
+
+      is_eq = builtin eq amp bps;
+      is_same_order = builtin eq token_in init_token0;
+
+      data = get_trade_info r_0 r_1 v_r_0 v_r_1 is_eq is_same_order;
+      match data with 
+      | ReserveData r_in r_out v_r_in v_r_out =>
+        amount_in = get_amount_in amount_out r_in r_out v_r_in v_r_out fee_in_precision;
+        amt_in := amount_in;
+
+        VerifySufficientLiquidity r_in r_out zero_amount amount_out
+      end
+    end
+  end
+end
+
+(* @dev: Swaps ZRC2 for ZRC2 in one pool *)
+(* @param path: token_in token_out *)
+procedure SwapZRC2Once(
+  pool: ByStr20,
+  path: Pair ByStr20 ByStr20,
+  amount_in: Uint128, 
+  amount_out: Uint128
+)
+  match path with
+  | Pair token_in token_out =>
+    init_token_pair = sort_token path;
+    match init_token_pair with
+    | Pair init_token0 init_token1 =>
+      is_same_order = builtin eq token_in init_token0;
+
+      (* _swap *)
+      match is_same_order with
+      | True =>
+      (* Swap exact amt of init_token0 for init_token1 *)
+        amount0_out = zero_amount;
+        amount1_out = amount_out;
+        msg_to_token = {_tag: "TransferFrom"; _recipient: init_token0; _amount: zero_amount;
+                      from: _sender; to: pool; amount: amount_in};
+        msg_to_pool = {_tag: "Swap"; _recipient: pool; _amount: zero_amount;
+                      amount0_out: amount0_out; amount1_out: amount1_out; to: _sender};
+        msgs = two_msgs msg_to_token msg_to_pool;
+        send msgs
+      | False =>
+      (* Swap exact amt of init_token1 for init_token0 *)
+        amount0_out = amount_out;
+        amount1_out = zero_amount;
+        msg_to_token = {_tag: "TransferFrom"; _recipient: init_token1; _amount: zero_amount;
+                        from: _sender; to: pool; amount: amount_in};
+        msg_to_pool = {_tag: "Swap"; _recipient: pool; _amount: zero_amount;
+                      amount0_out: amount0_out; amount1_out: amount1_out; to: _sender};
+        msgs = two_msgs msg_to_token msg_to_pool;
+        send msgs
+      end
+    end
+  end
+end
+
+(* @dev: Swaps wZIL for ZRC2 in one pool, with the wZIL coming from this contract to save steps of transferring back to _sender *)
+(* @param path: token_in token_out *)
+procedure SwapWZILZRC2Once(
+  pool: ByStr20,
+  path: Pair ByStr20 ByStr20,
+  amount_in: Uint128, 
+  amount_out: Uint128
+)
+  match path with
+  | Pair token_in token_out =>
+    init_token_pair = sort_token path;
+    match init_token_pair with
+    | Pair init_token0 init_token1 =>
+      is_same_order = builtin eq token_in init_token0;
+
+      (* _swap *)
+      match is_same_order with
+      | True =>
+      (* Swap exact amt of init_token0 for init_token1 *)
+        amount0_out = zero_amount;
+        amount1_out = amount_out;
+        msg_to_token = {_tag: "Transfer"; _recipient: init_token0; _amount: zero_amount;
+                      to: pool; amount: amount_in};
+        msg_to_pool = {_tag: "Swap"; _recipient: pool; _amount: zero_amount;
+                      amount0_out: amount0_out; amount1_out: amount1_out; to: _sender};
+        msgs = two_msgs msg_to_token msg_to_pool;
+        send msgs
+      | False =>
+      (* Swap exact amt of init_token1 for init_token0 *)
+        amount0_out = amount_out;
+        amount1_out = zero_amount;
+        msg_to_token = {_tag: "Transfer"; _recipient: init_token1; _amount: zero_amount;
+                      to: pool; amount: amount_in};
+        msg_to_pool = {_tag: "Swap"; _recipient: pool; _amount: zero_amount;
+                      amount0_out: amount0_out; amount1_out: amount1_out; to: _sender};
+        msgs = two_msgs msg_to_token msg_to_pool;
+        send msgs
+      end
+    end
+  end
+end
+
+(*** Governance ***)
+procedure IsGovernor(address: ByStr20)
+  g <- governor;
+  is_owner = builtin eq g address;
+  match is_owner with
+  | True =>
+  | False =>
+    err = CodeNotGovernor;
+    ThrowError err
+  end
+end
+
+procedure IsPendingGovernor(address: ByStr20)
+  maybe_pending_governor <- pending_governor;
+  match maybe_pending_governor with
+  | Some new_govenor =>
+    is_pending_governor = builtin eq new_govenor address;
+    match is_pending_governor with
+    | True =>
+    | False =>
+      err = CodeNotPendingGovernor;
+      ThrowError err
+    end
+  | None =>
+    err = CodeNotPendingGovernor;
+    ThrowError err
+  end
+end
+
+(***************************************)
+(*         Factory Transitions         *)
+(***************************************)
+
+transition AddPool(
+  pool : ByStr20 with contract
+    field token0 : ByStr20,
+    field token1 : ByStr20,
+    field factory : ByStr20,
+    field amp_bps : Uint128
+  end
+)
+  (* validate factory *)
+  f <- & pool.factory;
+  IsSelf f;
+
+ IsValidPoolContract pool;
+
+  (* TODO: not possible now as init var cannot be fetched *)
+  (* validate name and symbol *)
+  (* t0 <- & pool.token0;
+  symbol <- & t0 as ByStr20 with contract field symbol : String end;
+  match symbol with
+  | Some _ =>
+  | None =>
+    err = CodeNotSelf;
+    ThrowError err
+  end *)
+
+  (* populate pool mapping for both directions *)
+  token0 <- & pool.token0;
+  token1 <- & pool.token1;
+  AddOnceToPools token0 token1 pool;
+  AddOnceToPools token1 token0 pool;
+
+  amp_bps <- & pool.amp_bps;
+  is_unamplified = builtin eq bps amp_bps;
+  match is_unamplified with
+  | False =>
+  | True =>
+    (* only allow one umaplified pool *)
+    is_exists <- exists unamplified_pools[token0][token1];
+    match is_exists with
+    | False =>
+    | True =>
+      err = CodeDuplicateUnamplifiedPool;
+      ThrowError err
+    end;
+    unamplified_pools[token0][token1] := pool;
+    unamplified_pools[token1][token0] := pool
+  end;
+
+  ap <- all_pools;
+  new_ap = add_once ap pool;
+  all_pools := new_ap;
+
+  e = {_eventname: "PoolCreated"; token0: token0; token1: token1; amp_bps: amp_bps};
+  event e
+end
+
+(*** Governance ***)
+
+(* @dev: Only governor should be able to set fee config *)
+(* @param config: fee_to fee_bps *)
+transition SetFeeConfiguration(config: Pair ByStr20 Uint128)
+  IsGovernor _sender;
+  fee_configuration := config;
+  e = {_eventname: "FeeConfigurationSet"; fee_configuration: config};
+  event e
+end
+
+(* @dev: Only governor can set wZIL address *)
+(* @dev: Should not be used unless there is a change in wZIL contract address *)
+transition SetWZILAddress(
+  new_wZIL_address: ByStr20 with contract 
+    field balances: Map ByStr20 Uint128 
+  end
+)
+  IsGovernor _sender;
+  wZIL_address := new_wZIL_address;
+  e = {_eventname: "wZILAddressSet"; new_wZIL_address: new_wZIL_address};
+  event e
+end
+
+(* @dev: Transfers contract governorship to a new address. The new address must call the AcceptGovernorship transition to finalize the transfer. *)
+(* @param new_governor: Address of the new governor.                                                                                    *)
+transition SetGovernor(new_governor: ByStr20)
+  IsGovernor _sender;
+  g = Some {ByStr20} new_governor;
+  pending_governor := g;
+  e = {_eventname : "GovernanceTransferInitiated"; governor : _sender; pending_governor : new_governor};
+  event e
+end
+
+(* @dev: Finalizes transfer of contract governance. Must be called by the pending governor. *)
+transition AcceptGovernance()
+  IsPendingGovernor _sender;
+  previous_governor <- governor;
+  governor := _sender;
+  pending_governor := none;
+  e = {_eventname : "GovernanceTransferAccepted"; previous_governor : previous_governor; governor : _sender};
+  event e
+end
+
+(***************************************)
+(*          Router Transitions         *)
+(***************************************)
+
+(*** LIQUIDITY ***)
+
+(* @params: tokenA < tokenB (ie tokenA == token0, tokenB == token1 on Pool) *)
+(* @params: v_reserve_ratio_bounds only applies for amp_pool *)
+transition AddLiquidity(
+  tokenA : ByStr20,
+  tokenB : ByStr20,
+  pool: ByStr20 with contract 
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field amp_bps : Uint128
+  end,
+  amountA_desired: Uint128,
+  amountB_desired: Uint128,
+  amountA_min: Uint128,
+  amountB_min: Uint128,
+  v_reserve_ratio_bounds: Pair Uint256 Uint256,
+  to: ByStr20,
+  deadline_block: BNum
+)
+  (* check if current_block has passed the deadline block to process this transaction *)
+  VerifyBlock deadline_block;
+  (* check if pool contract for tokenA and tokenB exists *)
+  VerifyPoolAddress tokenA tokenB pool;(* Order should not matter here *)
+
+  r_a <- & pool.reserve0;
+  r_b <- & pool.reserve1;
+  v_r_a <- & pool.v_reserve0;
+  v_r_b <- & pool.v_reserve1;
+
+  e = 
+    let r_a_ = builtin eq r_a zero_amount in 
+    let r_b_ = builtin eq r_b zero_amount in 
+    andb r_a_ r_b_;
+  match e with 
+  | True =>
+    (* pool with no liquidity *)
+    (* Transfer pairing of tokenA and tokenB to pool *)
+    amountA = amountA_desired;
+    amountB = amountB_desired;
+    TransferZRC2ToPool pool tokenA tokenB amountA amountB
+  | False =>
+    (* pool with existing liquidity *)
+    (* check how much tokenB is required to fulfil amountA_desired pairing *)
+    Quote amountA_desired r_a r_b;
+    amountB_optimal = quote amountA_desired r_a r_b;
+
+    (* check if sufficient tokenB is provided to fulfil pairing *)
+    is_sufficient_amountB = uint128_le amountB_optimal amountB_desired;
+    match is_sufficient_amountB with
+    | True =>
+      (* sufficient tokenB is provided *)
+      (* check if amount of tokenB to be deposited in pool is greater than or equal to the amountB_min user wants to deposit *)
+      VerifyAmount amountB_optimal amountB_min;
+      (* check if amount of tokenA to be deposited in pool is greater than or equal to the amountA_min user wants to deposit *)
+      VerifyAmount amountA_desired amountA_min;
+
+      (* Transfer pairing of tokenA and tokenB to pool *)
+      amountA = amountA_desired;
+      amountB = amountB_optimal;
+      TransferZRC2ToPool pool tokenA tokenB amountA amountB
+    | False =>
+      (* insufficient tokenB is provided *)
+      (* check how much tokenA is required to fulfil amountB_desired pairing *)
+      Quote amountB_desired r_a r_b;
+      amountA_optimal = quote amountB_desired r_b r_a;
+      (* check if amount of tokenA provided is greater than or equal to the tokens required to fulfil the tokenB pairing *)
+      VerifyAmount amountA_desired amountA_optimal;
+      (* check if amount of tokenA to be deposited in pool is greater than or equal to the tokenA_min user wants to deposit *)
+      VerifyAmount amountA_optimal amountA_min;
+      (* check if amount of tokenB to be deposited in pool is greater than or equal to the tokenB_min user wants to deposit *)
+      VerifyAmount amountB_desired amountB_min;
+
+      (* Transfer pairing of tokenA and tokenB to pool *)
+      amountA = amountA_optimal;
+      amountB = amountB_desired;
+      TransferZRC2ToPool pool tokenA tokenB amountA amountB
+    end;
+
+    amp <- & pool.amp_bps;
+    is_amp_pool = let is_eq = builtin eq amp bps in negb is_eq;
+    match is_amp_pool with 
+    | False => 
+    | True =>
+    (* only for amp pool *)
+      current_rate = 
+        let v_r_a_u256 = grow v_r_a in
+        let v_r_b_u256 = grow v_r_b in
+        let a = builtin mul v_r_b_u256 q112_u256 in
+        builtin div a v_r_a_u256;
+      match v_reserve_ratio_bounds with
+      | Pair l_bound u_bound =>
+        is_not_out_of_bound_vreserve = 
+          let l_b = uint256_ge current_rate l_bound in
+          let u_b = uint256_le current_rate u_bound in
+          andb l_b u_b;
+        match is_not_out_of_bound_vreserve with 
+        | True =>
+        | False =>
+          err = CodeOutOfBoundVReserve;
+          ThrowError err
+        end
+      end
+    end
+  end;
+
+  (* Calls Mint transition on Pool *)
+  msg_to_pool = {_tag: "Mint"; _recipient: pool; _amount: zero_amount; to: to};
+  msg = one_msg msg_to_pool;
+  send msg
+end
+
+transition AddLiquidityZIL(
+  token : ByStr20,
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field amp_bps : Uint128
+  end,
+  amount_token_desired: Uint128,
+  amount_token_min: Uint128,
+  amount_wZIL_min: Uint128,
+  v_reserve_ratio_bounds: Pair Uint256 Uint256,
+  to: ByStr20,
+  deadline_block: BNum
+)
+  (* fetch wZIL addresses from mutable fields *)
+  wZIL <- wZIL_address;
+
+  (* check if current_block has passed the deadline block to process this transaction *)
+  VerifyBlock deadline_block;
+  (* check if pool contract for tokenA and tokenB exists *)
+  VerifyPoolAddress token wZIL pool;(* Order should not matter here *)
+
+  r_a <- & pool.reserve0;
+  r_b <- & pool.reserve1;
+  v_r_a <- & pool.v_reserve0;
+  v_r_b <- & pool.v_reserve1;
+
+  e = 
+    let r_a_ = builtin eq r_a zero_amount in 
+    let r_b_ = builtin eq r_b zero_amount in 
+    andb r_a_ r_b_;
+  match e with 
+  | True =>
+    (* pool with no liquidity,  *)
+    amount_token = amount_token_desired;
+    amount_wZIL = _amount;
+
+    (* Send ZIL to wZIL contract and mint wZIL *)
+    accept;
+    WrapZIL amount_wZIL;
+
+    (* transfers wZIL balance from this contract to user, that was obtained by using user's ZIL to mint wZIL *)
+    TransferZRC2 wZIL _sender amount_wZIL;
+
+    (* Transfer pairing of wZIL and token to pool *)
+    TransferZRC2ToPool pool token wZIL amount_token amount_wZIL
+  | False =>
+    (* pool with existing liquidity *)
+    (* check how much wZIL is required to fulfil amount_token_desired pairing *)
+    Quote amount_token_desired r_a r_b;
+    amount_wZIL_optimal = quote amount_token_desired r_a r_b;
+
+    (* check if sufficient wZIL is provided to fulfil pairing *)
+    is_sufficient_wZIL = uint128_le amount_wZIL_optimal _amount;
+    match is_sufficient_wZIL with
+    | True =>
+      (* sufficient wZIL is provided *)
+      (* check if amount of wZIL to be deposited in pool is greater than or equal to the min_wZIL user wants to deposit *)
+      VerifyAmount amount_wZIL_optimal amount_wZIL_min;
+      (* check if amount of token to be deposited in pool is greater than or equal to the min_token user wants to deposit *)
+      VerifyAmount amount_token_desired amount_token_min;
+      amount_token = amount_token_desired;
+      amount_wZIL = amount_wZIL_optimal;
+
+      (* Send ZIL to wZIL contract and mint wZIL *)
+      accept;
+      WrapZIL amount_wZIL;
+
+      (* transfers wZIL balance from this contract to user, that was obtained by using user's ZIL to mint wZIL *)
+      TransferZRC2 wZIL _sender amount_wZIL;
+
+      (* refund back remaining ZIL not used up in conversion to wZIL *)
+      refund = builtin sub _amount amount_wZIL;
+      Send refund _sender;
+
+      (* Transfer pairing of wZIL and token to pool *)
+      TransferZRC2ToPool pool token wZIL amount_token amount_wZIL
+    | False =>
+      (* insufficient wZIL provided *)
+      (* check how many tokens are required to fulfil wZIL pairing, based on insufficient wZIL provided *)
+      Quote _amount r_a r_b;
+      amount_token_optimal = quote _amount r_b r_a;
+      (* check if amount of tokens provided is greater than or equal to the tokens required to fulfil the wZIL pairing *)
+      VerifyAmount amount_token_desired amount_token_optimal;
+      (* check if amount of wZIL to be deposited in pool is greater than or equal to the min_wZIL user wants to deposit *)
+      VerifyAmount _amount amount_wZIL_min;
+      (* check if amount of token to be deposited in pool is greater than or equal to the min_token user wants to deposit *)
+      VerifyAmount amount_token_optimal amount_token_min;
+      amount_token = amount_token_optimal;
+      amount_wZIL = _amount;
+
+      (* Send ZIL to wZIL contract and mint wZIL *)
+      accept;
+      WrapZIL amount_wZIL;
+    
+      (* transfers wZIL balance from this contract to user, that was obtained by using user's ZIL to mint wZIL *)
+      TransferZRC2 wZIL _sender amount_wZIL;
+      
+      (* Transfer pairing of wZIL and token to pool *)
+      TransferZRC2ToPool pool token wZIL amount_token amount_wZIL
+    end;
+
+    amp <- & pool.amp_bps;
+    is_amp_pool = let is_eq = builtin eq amp bps in negb is_eq;
+    match is_amp_pool with 
+    | False => 
+    | True =>
+    (* only for amp pool *)
+      current_rate = 
+        let v_r_a_u256 = grow v_r_a in
+        let v_r_b_u256 = grow v_r_b in
+        let a = builtin mul v_r_b_u256 q112_u256 in
+        builtin div a v_r_a_u256;
+      match v_reserve_ratio_bounds with
+      | Pair l_bound u_bound =>
+        is_not_out_of_bound_vreserve = 
+          let l_b = uint256_ge current_rate l_bound in
+          let u_b = uint256_le current_rate u_bound in
+          andb l_b u_b;
+        match is_not_out_of_bound_vreserve with 
+        | True =>
+        | False =>
+          err = CodeOutOfBoundVReserve;
+          ThrowError err
+        end
+      end
+    end
+  end;
+  
+  (* Calls Mint transition on Pool *)
+  msg_to_pool = {_tag: "Mint"; _recipient: pool; _amount: zero_amount; to: to};
+  msg = one_msg msg_to_pool;
+  send msg
+end
+
+(* // **** REMOVE LIQUIDITY **** *)
+
+(* @params: tokenA < tokenB (ie tokenA == token0, tokenB == token1 on Pool) *)
+transition RemoveLiquidity(
+  tokenA : ByStr20 with contract
+    field balances: Map ByStr20 Uint128
+  end,
+  tokenB : ByStr20 with contract
+    field balances: Map ByStr20 Uint128
+  end,
+  pool: ByStr20 with contract
+    field total_supply: Uint128
+  end,
+  liquidity: Uint128,
+  amountA_min: Uint128,
+  amountB_min: Uint128,
+  deadline_block: BNum
+)
+  VerifyBlock deadline_block;
+  VerifyPoolAddress tokenA tokenB pool;
+
+  (* fetch tokenA and tokenB balance held by pool *)
+  m_b0 <- & tokenA.balances[pool];
+  tokenA_balance = get_amount_or_zero m_b0;
+  m_b1 <- & tokenB.balances[pool];
+  tokenB_balance = get_amount_or_zero m_b1;
+
+  (* fetch the total supply in the pool *)
+  supply <- & pool.total_supply;
+
+  (* calculate amount of tokenA and tokenB removed based on amount of liquidity provided *)
+  tokenA_amount = frac liquidity tokenA_balance supply;
+  tokenB_amount = frac liquidity tokenB_balance supply;
+
+  (* check if amount of tokenA and tokenB removed matches min *)
+  VerifyAmount tokenA_amount amountA_min;
+  VerifyAmount tokenB_amount amountB_min;
+
+  (* Sends LP tokens to Pool *)
+  msg_to_pool_1 = {_tag: "TransferFrom"; _recipient: pool; _amount: zero_amount; 
+                from: _sender; to: pool; amount: liquidity};
+
+  (* Calls Burn transition on Pool, that transfers tokenA and tokenB back to _sender *)
+  msg_to_pool_2 = {_tag: "Burn"; _recipient: pool; _amount: zero_amount};
+  msgs = two_msgs msg_to_pool_1 msg_to_pool_2;
+  send msgs
+end
+
+transition RemoveLiquidityZIL(
+  token: ByStr20 with contract
+    field balances: Map ByStr20 Uint128
+  end,
+  pool: ByStr20 with contract
+    field total_supply: Uint128
+  end,
+  liquidity: Uint128,
+  amount_token_min: Uint128,
+  amount_wZIL_min: Uint128,
+  deadline_block: BNum
+)
+  (* fetch wZIL addresses from mutable fields *)
+  wZIL <- wZIL_address;
+
+  VerifyBlock deadline_block;
+  VerifyPoolAddress token wZIL pool;
+
+  (* fetch token and wZIL balance held by pool *)
+  m_b0 <- & token.balances[pool];
+  token_balance = get_amount_or_zero m_b0;
+  m_b1 <- & wZIL.balances[pool];
+  wZil_balance = get_amount_or_zero m_b1;
+
+  (* fetch the total supply in the pool *)
+  supply <- & pool.total_supply;
+
+  (* calculate amount of tokens and wZIL removed based on amount of liquidity provided *)
+  token_amount = frac liquidity token_balance supply;
+  wZil_amount = frac liquidity wZil_balance supply;
+
+  (* check if amount of tokens and wZIL removed matches min *)
+  VerifyAmount token_amount amount_token_min;
+  VerifyAmount wZil_amount amount_wZIL_min;
+
+  (* Sends LP tokens to Pool *)
+  msg_to_pool_1 = {_tag: "TransferFrom"; _recipient: pool; _amount: zero_amount; 
+                from: _sender; to: pool; amount: liquidity};
+
+  (* Calls Burn transition on Pool, that transfers token and wZIL back to _sender *)
+  msg_to_pool_2 = {_tag: "Burn"; _recipient: pool; _amount: zero_amount};
+
+  msgs = two_msgs msg_to_pool_1 msg_to_pool_2;
+  send msgs;
+
+  (* transfer wZIL to this contract *)
+  TransferFromZRC2 wZIL _sender _this_address wZil_amount;
+
+  (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to _sender *)
+  UnwrapZIL wZil_amount
+end
+
+(*** SWAP ***)
+
+(* @param path: token_in token_out *)
+transition SwapExactTokensForTokensOnce(
+  amount_in: Uint128,
+  amount_out_min: Uint128,
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_out == 0 *)
+  amount_out <- amt_out;
+  is_valid_amount_out = builtin eq amount_out zero_amount;
+  match is_valid_amount_out with
+  | True => | False =>
+    amt_out := zero_amount
+  end;
+
+  GetAmountOut amount_in pool path deadline_block;
+  final_amount_out <- amt_out;
+  is_valid_final_amount_out = uint128_gt final_amount_out amount_out_min;
+  match is_valid_final_amount_out with 
+  | True => | False => 
+    err = CodeInsufficientOutputAmt;
+    ThrowError err
+  end;
+
+  SwapZRC2Once pool path amount_in final_amount_out;
+  amt_out := zero_amount (* Reassign back to 0 *)
+end
+
+(* @dev: amount_in -> pool1 -> intermediate_amount_out === intermediate_amount_in -> pool2 -> final_amount_out *)
+(* @param path: token_in token_out *)
+transition SwapExactTokensForTokensTwice(
+  amount_in: Uint128,
+  amount_out_min: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_out == 0 *)
+  amount_out <- amt_out;
+  is_valid_amount_out = builtin eq amount_out zero_amount;
+  match is_valid_amount_out with
+  | True => | False =>
+    amt_out := zero_amount
+  end;
+
+  GetAmountOut amount_in pool1 path1 deadline_block;
+  intermediate_amount_out <- amt_out;
+  intermediate_amount_in = intermediate_amount_out;
+  VerifyValidAmountIn intermediate_amount_in;
+
+  GetAmountOut intermediate_amount_in pool2 path2 deadline_block;
+  final_amount_out <- amt_out;
+  is_valid_final_amount_out = uint128_gt final_amount_out amount_out_min;
+  match is_valid_final_amount_out with 
+  | True => | False => 
+    err = CodeInsufficientOutputAmt;
+    ThrowError err
+  end;
+  
+  SwapZRC2Once pool1 path1 amount_in intermediate_amount_out;
+  SwapZRC2Once pool2 path2 intermediate_amount_in final_amount_out;
+
+  amt_out := zero_amount (* Reassign back to 0 *)
+end
+
+(* @dev: amount_in -> pool1 -> first_intermediate_amount_out === first_intermediate_amount_in *)
+(* @dev: first_intermediate_amount_in -> pool2 -> second_intermediate_amount_out === second_intermediate_amount_in *)
+(* @dev: second_intermediate_amount_in -> pool3 -> final_amount_out *)
+(* @param path: token_in token_out *)
+transition SwapExactTokensForTokensThrice(
+  amount_in: Uint128,
+  amount_out_min: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool3: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  path3: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_out == 0 *)
+  amount_out <- amt_out;
+  is_valid_amount_out = builtin eq amount_out zero_amount;
+  match is_valid_amount_out with
+  | True => | False =>
+    amt_out := zero_amount
+  end;
+
+  GetAmountOut amount_in pool1 path1 deadline_block;
+  first_intermediate_amount_out <- amt_out;
+  first_intermediate_amount_in = first_intermediate_amount_out;
+  VerifyValidAmountIn first_intermediate_amount_in;
+
+  GetAmountOut first_intermediate_amount_in pool2 path2 deadline_block;
+  second_intermediate_amount_out <- amt_out;
+  second_intermediate_amount_in = second_intermediate_amount_out;
+  VerifyValidAmountIn second_intermediate_amount_in;
+
+  GetAmountOut second_intermediate_amount_in pool3 path3 deadline_block;
+  final_amount_out <- amt_out;
+  is_valid_final_amount_out = uint128_gt final_amount_out amount_out_min;
+  match is_valid_final_amount_out with 
+  | True => | False => 
+    err = CodeInsufficientOutputAmt;
+    ThrowError err
+  end;
+
+  SwapZRC2Once pool1 path1 amount_in first_intermediate_amount_out;
+  SwapZRC2Once pool2 path2 first_intermediate_amount_in second_intermediate_amount_out;
+  SwapZRC2Once pool3 path3 second_intermediate_amount_in final_amount_out;
+
+  amt_out := zero_amount (* Reassign back to 0 *)
+end
+
+(* @dev: init_amt_in -> pool1 -> intermediate_amount_out === intermediate_amount_in -> pool2 -> amount_out *)
+(* @param path: token_in token_out *)
+transition SwapTokensForExactTokensOnce(
+  amount_out: Uint128,
+  amount_in_max: Uint128,
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_in == 0 *)
+  amount_in <- amt_in;
+  is_valid_amt_in = builtin eq amount_in zero_amount;
+  match is_valid_amt_in with 
+  | True => | False =>
+    amt_in := zero_amount
+  end;
+
+  GetAmountIn amount_out pool path deadline_block;
+  init_amt_in <- amt_in;
+  VerifyValidAmountIn init_amt_in;
+
+  is_valid_amount_in = uint128_le init_amt_in amount_in_max;
+  match is_valid_amount_in with 
+  | True => | False =>
+    err = CodeExcessiveInputAmt;
+    ThrowError err
+  end;
+
+  SwapZRC2Once pool path init_amt_in amount_out;
+  amt_in := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapTokensForExactTokensTwice(
+  amount_out: Uint128,
+  amount_in_max: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_in == 0 *)
+  amount_in <- amt_in;
+  is_valid_amt_in = builtin eq amount_in zero_amount;
+  match is_valid_amt_in with 
+  | True => | False =>
+    amt_in := zero_amount
+  end;
+
+  GetAmountIn amount_out pool2 path2 deadline_block;
+  intermediate_amt_in <- amt_in;
+  VerifyValidAmountIn intermediate_amt_in;
+
+  intermediate_amt_out = intermediate_amt_in;
+  GetAmountIn intermediate_amt_out pool1 path1 deadline_block;
+  init_amt_in <- amt_in;
+  VerifyValidAmountIn init_amt_in;
+
+  is_valid_amount_in = uint128_le init_amt_in amount_in_max;
+  match is_valid_amount_in with 
+  | True => | False =>
+    err = CodeExcessiveInputAmt;
+    ThrowError err
+  end;
+
+  SwapZRC2Once pool1 path1 init_amt_in intermediate_amt_out;
+  SwapZRC2Once pool2 path2 intermediate_amt_in amount_out;
+
+  amt_in := zero_amount (* Reassign back to 0 *)
+end
+
+(* @dev: init_amount_in -> pool1 -> first_intermediate_amount_out === first_intermediate_amount_in *)
+(* @dev: first_intermediate_amount_in -> pool2 -> second_intermediate_amount_out === second_intermediate_amount_in *)
+(* @dev: second_intermediate_amount_in -> pool3 -> amount_out *)
+(* @param path: token_in token_out *)
+transition SwapTokensForExactTokensThrice(
+  amount_out: Uint128,
+  amount_in_max: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool3: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  path3: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_in == 0 *)
+  amount_in <- amt_in;
+  is_valid_amt_in = builtin eq amount_in zero_amount;
+  match is_valid_amt_in with 
+  | True => | False =>
+    amt_in := zero_amount
+  end;
+
+  GetAmountIn amount_out pool3 path3 deadline_block;
+  second_intermediate_amt_in <- amt_in;
+  VerifyValidAmountIn second_intermediate_amt_in;
+
+  second_intermediate_amt_out = second_intermediate_amt_in;
+  GetAmountIn second_intermediate_amt_out pool2 path2 deadline_block;
+  first_intermediate_amt_in <- amt_in;
+  VerifyValidAmountIn first_intermediate_amt_in;
+
+  first_intermediate_amt_out = first_intermediate_amt_in;
+  GetAmountIn first_intermediate_amt_out pool1 path1 deadline_block;
+  init_amt_in <- amt_in;
+  VerifyValidAmountIn init_amt_in;
+
+  is_valid_amount_in = uint128_le init_amt_in amount_in_max;
+  match is_valid_amount_in with 
+  | True => | False =>
+    err = CodeExcessiveInputAmt;
+    ThrowError err
+  end;
+
+  SwapZRC2Once pool1 path1 init_amt_in first_intermediate_amt_out;
+  SwapZRC2Once pool2 path2 first_intermediate_amt_in second_intermediate_amt_out;
+  SwapZRC2Once pool3 path3 second_intermediate_amt_in amount_out;
+
+  amt_in := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapExactZILForTokensOnce(
+  amount_out_min: Uint128,
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_out == 0 *)
+  amount_out <- amt_out;
+  is_valid_amount_out = builtin eq amount_out zero_amount;
+  match is_valid_amount_out with
+  | True => | False =>
+    amt_out := zero_amount
+  end;
+
+  GetAmountOut _amount pool path deadline_block;
+  final_amount_out <- amt_out;
+  is_valid_final_amount_out = uint128_gt final_amount_out amount_out_min;
+  match is_valid_final_amount_out with 
+  | True => | False => 
+    err = CodeInsufficientOutputAmt;
+    ThrowError err
+  end;
+
+  (* accept ZIL *)
+  accept;
+
+  (* convert ZIL to wZIL *)
+  WrapZIL _amount;
+
+  (* transfers wZIL balance from this contract to user, that was obtained by using user's ZIL to mint wZIL *)
+  wZIL = get_from_address path;
+  VerifyWZILAddress wZIL;
+  TransferZRC2 wZIL _sender _amount;
+
+  SwapZRC2Once pool path _amount final_amount_out;
+
+  amt_out := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapExactZILForTokensTwice(
+  amount_out_min: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_out == 0 *)
+  amount_out <- amt_out;
+  is_valid_amount_out = builtin eq amount_out zero_amount;
+  match is_valid_amount_out with
+  | True => | False =>
+    amt_out := zero_amount
+  end;
+
+  GetAmountOut _amount pool1 path1 deadline_block;
+  intermediate_amount_out <- amt_out;
+  intermediate_amount_in = intermediate_amount_out;
+  VerifyValidAmountIn intermediate_amount_in;
+
+  GetAmountOut intermediate_amount_in pool2 path2 deadline_block;
+  final_amount_out <- amt_out;
+  is_valid_final_amount_out = uint128_gt final_amount_out amount_out_min;
+  match is_valid_final_amount_out with 
+  | True => | False => 
+    err = CodeInsufficientOutputAmt;
+    ThrowError err
+  end;
+
+  (* accept ZIL *)
+  accept;
+
+  (* convert ZIL to wZIL *)
+  WrapZIL _amount;
+
+  (* transfers wZIL balance from this contract to user, that was obtained by using user's ZIL to mint wZIL *)
+  wZIL = get_from_address path1;
+  VerifyWZILAddress wZIL;
+  TransferZRC2 wZIL _sender _amount;
+
+  SwapZRC2Once pool1 path1 _amount intermediate_amount_out;
+  SwapZRC2Once pool2 path2 intermediate_amount_in final_amount_out;
+
+  amt_out := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapExactZILForTokensThrice(
+  amount_out_min: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool3: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  path3: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_out == 0 *)
+  amount_out <- amt_out;
+  is_valid_amount_out = builtin eq amount_out zero_amount;
+  match is_valid_amount_out with
+  | True => | False =>
+    amt_out := zero_amount
+  end;
+
+  GetAmountOut _amount pool1 path1 deadline_block;
+  first_intermediate_amount_out <- amt_out;
+  first_intermediate_amount_in = first_intermediate_amount_out;
+  VerifyValidAmountIn first_intermediate_amount_in;
+
+  GetAmountOut first_intermediate_amount_in pool2 path2 deadline_block;
+  second_intermediate_amount_out <- amt_out;
+  second_intermediate_amount_in = second_intermediate_amount_out;
+  VerifyValidAmountIn second_intermediate_amount_in;
+
+  GetAmountOut second_intermediate_amount_out pool3 path3 deadline_block;
+  final_amount_out <- amt_out;
+  is_valid_final_amount_out = uint128_gt final_amount_out amount_out_min;
+  match is_valid_final_amount_out with 
+  | True => | False => 
+    err = CodeInsufficientOutputAmt;
+    ThrowError err
+  end;
+
+  (* accept ZIL *)
+  (* accept; *)
+
+  (* convert ZIL to wZIL *)
+  (* wZil_address = get_from_address path1;
+  WrapZIL _amount; *)
+
+  (* transfers wZIL balance from this contract to user, that was obtained by using user's ZIL to mint wZIL *)
+  (* wZIL = get_from_address path1; *)
+  (* VerifyWZILAddress wZIL; *)
+  (* TransferZRC2 wZIL _sender _amount; *)
+
+  SwapZRC2Once pool1 path1 _amount first_intermediate_amount_out;
+  SwapZRC2Once pool2 path2 first_intermediate_amount_in second_intermediate_amount_out;
+  SwapZRC2Once pool3 path3 second_intermediate_amount_in final_amount_out;
+
+  amt_out := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapTokensForExactZILOnce(
+  amount_out: Uint128,
+  amount_in_max: Uint128,
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_in == 0 *)
+  amount_in <- amt_in;
+  is_valid_amt_in = builtin eq amount_in zero_amount;
+  match is_valid_amt_in with 
+  | True => | False =>
+    amt_in := zero_amount
+  end;
+
+  GetAmountIn amount_out pool path deadline_block;
+  init_amt_in <- amt_in;
+  VerifyValidAmountIn init_amt_in;
+
+  is_valid_amount_in = uint128_le init_amt_in amount_in_max;
+  match is_valid_amount_in with 
+  | True => | False =>
+    err = CodeExcessiveInputAmt;
+    ThrowError err
+  end;
+
+  (* swap need to burn wZIL back to ZIL and transfer *)
+  SwapZRC2Once pool path init_amt_in amount_out;
+
+  (* transfer wZIL to this contract *)
+  wZIL = get_to_address path;
+  VerifyWZILAddress wZIL;
+  TransferFromZRC2 wZIL _sender _this_address amount_out;
+
+  (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user*)
+  UnwrapZIL amount_out;
+
+  amt_in := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapTokensForExactZILTwice(
+  amount_out: Uint128,
+  amount_in_max: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_in == 0 *)
+  amount_in <- amt_in;
+  is_valid_amt_in = builtin eq amount_in zero_amount;
+  match is_valid_amt_in with 
+  | True => | False =>
+    amt_in := zero_amount
+  end;
+
+  GetAmountIn amount_out pool2 path2 deadline_block;
+  intermediate_amt_in <- amt_in;
+  VerifyValidAmountIn intermediate_amt_in;
+  
+  intermediate_amt_out = intermediate_amt_in;
+  GetAmountIn intermediate_amt_out pool1 path1 deadline_block;
+  init_amt_in <- amt_in;
+  VerifyValidAmountIn init_amt_in;
+
+  is_valid_amount_in = uint128_le init_amt_in amount_in_max;
+  match is_valid_amount_in with 
+  | True => | False =>
+    err = CodeExcessiveInputAmt;
+    ThrowError err
+  end;
+
+  (* swap need to burn wZIL back to ZIL and transfer *)
+  SwapZRC2Once pool1 path1 init_amt_in intermediate_amt_out;
+  SwapZRC2Once pool2 path2 intermediate_amt_in amount_out;
+
+  (* transfer wZIL to this contract *)
+  wZIL = get_to_address path2;
+  VerifyWZILAddress wZIL;
+  TransferFromZRC2 wZIL _sender _this_address amount_out;
+
+  (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user*)
+  UnwrapZIL amount_out;
+
+  amt_in := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapTokensForExactZILThrice(
+  amount_out: Uint128,
+  amount_in_max: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool3: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  path3: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_in == 0 *)
+  amount_in <- amt_in;
+  is_valid_amt_in = builtin eq amount_in zero_amount;
+  match is_valid_amt_in with 
+  | True => | False =>
+    amt_in := zero_amount
+  end;
+
+  GetAmountIn amount_out pool3 path3 deadline_block;
+  second_intermediate_amt_in <- amt_in;
+  VerifyValidAmountIn second_intermediate_amt_in;
+
+  second_intermediate_amt_out = second_intermediate_amt_in;
+  GetAmountIn second_intermediate_amt_out pool2 path2 deadline_block;
+  first_intermediate_amt_in <- amt_in;
+  VerifyValidAmountIn first_intermediate_amt_in;
+  
+  first_intermediate_amt_out = first_intermediate_amt_in;
+  GetAmountIn first_intermediate_amt_out pool1 path1 deadline_block;
+  init_amt_in <- amt_in;
+  VerifyValidAmountIn init_amt_in;
+
+  is_valid_amount_in = uint128_le init_amt_in amount_in_max;
+  match is_valid_amount_in with 
+  | True => | False =>
+    err = CodeExcessiveInputAmt;
+    ThrowError err
+  end;
+
+  (* swap need to burn wZIL back to ZIL and transfer *)
+  SwapZRC2Once pool1 path1 init_amt_in first_intermediate_amt_out;
+  SwapZRC2Once pool2 path2 first_intermediate_amt_in second_intermediate_amt_out;
+  SwapZRC2Once pool3 path3 second_intermediate_amt_in amount_out;
+
+  (* transfer wZIL to this contract *)
+  wZIL = get_to_address path3;
+  VerifyWZILAddress wZIL;
+  TransferFromZRC2 wZIL _sender _this_address amount_out;
+
+  (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user*)
+  UnwrapZIL amount_out;
+
+  amt_in := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapExactTokensForZILOnce(
+  amount_in: Uint128,
+  amount_out_min: Uint128,
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_out == 0 *)
+  amount_out <- amt_out;
+  is_valid_amount_out = builtin eq amount_out zero_amount;
+  match is_valid_amount_out with
+  | True => | False =>
+    amt_out := zero_amount
+  end;
+
+  GetAmountOut amount_in pool path deadline_block;
+  final_amount_out <- amt_out;
+  is_valid_final_amount_out = uint128_gt final_amount_out amount_out_min;
+  match is_valid_final_amount_out with 
+  | True => | False => 
+    err = CodeInsufficientOutputAmt;
+    ThrowError err
+  end;
+
+  (* swap need to burn wZIL back to ZIL and transfer *)
+  SwapZRC2Once pool path amount_in final_amount_out;
+
+  (* transfer wZIL to this contract *)
+  wZIL = get_to_address path;
+  VerifyWZILAddress wZIL;
+  TransferFromZRC2 wZIL _sender _this_address final_amount_out;
+
+  (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user *)
+  UnwrapZIL final_amount_out;
+
+  amt_out := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapExactTokensForZILTwice(
+  amount_in: Uint128,
+  amount_out_min: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_out == 0 *)
+  amount_out <- amt_out;
+  is_valid_amount_out = builtin eq amount_out zero_amount;
+  match is_valid_amount_out with
+  | True => | False =>
+    amt_out := zero_amount
+  end;
+
+  GetAmountOut amount_in pool1 path1 deadline_block;
+  intermediate_amount_out <- amt_out;
+  intermediate_amount_in = intermediate_amount_out;
+  VerifyValidAmountIn intermediate_amount_in;
+
+  GetAmountOut intermediate_amount_in pool2 path2 deadline_block;
+  final_amount_out <- amt_out;
+  is_valid_final_amount_out = uint128_gt final_amount_out amount_out_min;
+  match is_valid_final_amount_out with 
+  | True => | False => 
+    err = CodeInsufficientOutputAmt;
+    ThrowError err
+  end;
+
+  (* swap need to burn wZIL back to ZIL and transfer *)
+  SwapZRC2Once pool1 path1 amount_in intermediate_amount_out;
+  SwapZRC2Once pool2 path2 intermediate_amount_in final_amount_out;
+
+  (* transfer wZIL to this contract *)
+  wZIL = get_to_address path2;
+  VerifyWZILAddress wZIL;
+  TransferFromZRC2 wZIL _sender _this_address final_amount_out;
+
+  (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user *)
+  UnwrapZIL final_amount_out;
+
+  amt_out := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapExactTokensForZILThrice(
+  amount_in: Uint128,
+  amount_out_min: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool3: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  path3: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_out == 0 *)
+  amount_out <- amt_out;
+  is_valid_amount_out = builtin eq amount_out zero_amount;
+  match is_valid_amount_out with
+  | True => | False =>
+    amt_out := zero_amount
+  end;
+
+  GetAmountOut amount_in pool1 path1 deadline_block;
+  first_intermediate_amount_out <- amt_out;
+  first_intermediate_amount_in = first_intermediate_amount_out;
+  VerifyValidAmountIn first_intermediate_amount_in;
+
+  GetAmountOut first_intermediate_amount_in pool2 path2 deadline_block;
+  second_intermediate_amount_out <- amt_out;
+  second_intermediate_amount_in = second_intermediate_amount_out;
+  VerifyValidAmountIn second_intermediate_amount_in;
+
+  GetAmountOut second_intermediate_amount_in pool3 path3 deadline_block;
+  final_amount_out <- amt_out;
+  is_valid_final_amount_out = uint128_gt final_amount_out amount_out_min;
+  match is_valid_final_amount_out with 
+  | True => | False => 
+    err = CodeInsufficientOutputAmt;
+    ThrowError err
+  end;
+
+  (* swap need to burn wZIL back to ZIL and transfer *)
+  SwapZRC2Once pool1 path1 amount_in first_intermediate_amount_out;
+  SwapZRC2Once pool2 path2 first_intermediate_amount_in second_intermediate_amount_out;
+  SwapZRC2Once pool3 path3 second_intermediate_amount_in final_amount_out;
+
+  (* transfer wZIL to this contract *)
+  wZIL = get_to_address path3;
+  VerifyWZILAddress wZIL;
+  TransferFromZRC2 wZIL _sender _this_address final_amount_out;
+
+  (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user *)
+  UnwrapZIL final_amount_out;
+
+  amt_out := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapZILForExactTokensOnce(
+  amount_out: Uint128,
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_in == 0 *)
+  amount_in <- amt_in;
+  is_valid_amt_in = builtin eq amount_in zero_amount;
+  match is_valid_amt_in with 
+  | True => | False =>
+    amt_in := zero_amount
+  end;
+
+  GetAmountIn amount_out pool path deadline_block;
+  init_amt_in <- amt_in;
+  VerifyValidAmountIn init_amt_in;
+
+  is_valid_amount_in = uint128_le init_amt_in _amount;
+  match is_valid_amount_in with 
+  | True => | False =>
+    err = CodeExcessiveInputAmt;
+    ThrowError err
+  end;
+
+  (* accept ZIL *)
+  accept;
+
+  (* convert ZIL to wZIL *)
+  WrapZIL init_amt_in;
+
+  (* transfers wZIL balance from this contract to user, that was obtained by using user's ZIL to mint wZIL *)
+  wZIL = get_from_address path;
+  VerifyWZILAddress wZIL;
+  TransferZRC2 wZIL _sender init_amt_in;
+
+  (* refund back remaining ZIL not used up in conversion to wZIL *)
+  refund = builtin sub _amount init_amt_in;
+  Send refund _sender;
+
+  SwapZRC2Once pool path init_amt_in amount_out;
+
+  amt_in := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapZILForExactTokensTwice(
+  amount_out: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_in == 0 *)
+  amount_in <- amt_in;
+  is_valid_amt_in = builtin eq amount_in zero_amount;
+  match is_valid_amt_in with 
+  | True => | False =>
+    amt_in := zero_amount
+  end;
+
+  GetAmountIn amount_out pool2 path2 deadline_block;
+  intermediate_amt_in <- amt_in;
+  VerifyValidAmountIn intermediate_amt_in;
+
+  intermediate_amt_out = intermediate_amt_in;
+  GetAmountIn intermediate_amt_out pool1 path1 deadline_block;
+  init_amt_in <- amt_in;
+  VerifyValidAmountIn init_amt_in;
+
+  is_valid_amount_in = uint128_le init_amt_in _amount;
+  match is_valid_amount_in with 
+  | True => | False =>
+    err = CodeExcessiveInputAmt;
+    ThrowError err
+  end;
+
+  (* accept ZIL *)
+  accept;
+
+  (* convert ZIL to wZIL *)
+  WrapZIL init_amt_in;
+
+  (* transfers wZIL balance from this contract to user, that was obtained by using user's ZIL to mint wZIL *)
+  wZIL = get_from_address path1;
+  VerifyWZILAddress wZIL;
+  TransferZRC2 wZIL _sender init_amt_in;
+
+  (* refund back remaining ZIL not used up in conversion to wZIL *)
+  refund = builtin sub _amount init_amt_in;
+  Send refund _sender;
+
+  SwapZRC2Once pool1 path1 init_amt_in intermediate_amt_out;
+  SwapZRC2Once pool2 path2 intermediate_amt_in amount_out;
+
+  amt_in := zero_amount (* Reassign back to 0 *)
+end
+
+transition SwapZILForExactTokensThrice(
+  amount_out: Uint128,
+  pool1: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool2: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  pool3: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256
+  end,
+  path1: Pair ByStr20 ByStr20,
+  path2: Pair ByStr20 ByStr20,
+  path3: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  (* Checks if amt_in == 0 *)
+  amount_in <- amt_in;
+  is_valid_amt_in = builtin eq amount_in zero_amount;
+  match is_valid_amt_in with 
+  | True => | False =>
+    amt_in := zero_amount
+  end;
+
+  GetAmountIn amount_out pool3 path3 deadline_block;
+  second_intermediate_amt_in <- amt_in;
+  VerifyValidAmountIn second_intermediate_amt_in;
+  
+  second_intermediate_amt_out = second_intermediate_amt_in;
+  GetAmountIn second_intermediate_amt_out pool2 path2 deadline_block;
+  first_intermediate_amt_in <- amt_in;
+  VerifyValidAmountIn first_intermediate_amt_in;
+
+  first_intermediate_amt_out = first_intermediate_amt_in;
+  GetAmountIn first_intermediate_amt_out pool1 path1 deadline_block;
+  init_amt_in <- amt_in;
+  VerifyValidAmountIn init_amt_in;
+
+  is_valid_amount_in = uint128_le init_amt_in _amount;
+  match is_valid_amount_in with 
+  | True => | False =>
+    err = CodeExcessiveInputAmt;
+    ThrowError err
+  end;
+
+  (* accept ZIL *)
+  accept;
+
+  (* convert ZIL to wZIL *)
+  WrapZIL init_amt_in;
+
+  (* transfers wZIL balance from this contract to user, that was obtained by using user's ZIL to mint wZIL *)
+  wZIL = get_from_address path1;
+  VerifyWZILAddress wZIL;
+  TransferZRC2 wZIL _sender init_amt_in;
+
+  (* refund back remaining ZIL not used up in conversion to wZIL *)
+  refund = builtin sub _amount init_amt_in;
+  Send refund _sender;
+
+  SwapZRC2Once pool1 path1 init_amt_in first_intermediate_amt_out;
+  SwapZRC2Once pool2 path2 first_intermediate_amt_in second_intermediate_amt_out;
+  SwapZRC2Once pool3 path3 second_intermediate_amt_in amount_out;
+
+  amt_in := zero_amount (* Reassign back to 0 *)
+end
+
+(*************************************)
+(*             Callbacks             *)
+(*************************************)
+
+(* @dev: Handle callback when sending ZRC-2 tokens to the recipient using TransferFrom transition *)
+transition TransferFromSuccessCallBack(initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128)
+(* no-op *)
+end
+
+(* @dev: Handle callback when sending ZRC-2 tokens to the recipient using Transfer transition *)
+transition TransferSuccessCallBack(sender: ByStr20, recipient: ByStr20, amount: Uint128)
+(* no-op *)
+end
+
+(* @dev: Handle callback when sending ZRC-2 tokens to the recipient using Transfer transition *)
+transition RecipientAcceptTransfer(sender: ByStr20, recipient: ByStr20, amount: Uint128)
+(* no-op *)
+end
+
+(* @dev: Handle callback when sending ZRC-2 tokens to the recipient using TransferFrom transition *)
+transition RecipientAcceptTransferFrom (initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128)
+(* no-op *)
+end
+
+(* @dev: Handle callback when minting wZIL tokens to the contract *)
+transition RecipientAcceptMint (minter: ByStr20, recipient: ByStr20, amount: Uint128)
+(* no-op *)
+end
+
+(* @dev: Handle callback when minting wZIL tokens to the contract *)
+transition MintSuccessCallBack(minter: ByStr20, recipient: ByStr20, amount: Uint128)
+(* no-op *)
+end
+
+(* @dev: Handling accepting of ZIL from wZIL contract *)
+transition AddFunds()
+  (* validate that _sender is wZIL *)
+  VerifyWZILAddress _sender;
+
+  (* accept ZIL from wZIL contract *)
+  accept;
+  amount <- _balance;
+
+  (* Transfer ZIL to _origin *)
+  msg_to_origin = {
+    _tag: "AddFunds";
+    _recipient: _origin;
+    _amount: amount
+  };
+
+  msg = one_msg msg_to_origin;
+  send msg
+end
