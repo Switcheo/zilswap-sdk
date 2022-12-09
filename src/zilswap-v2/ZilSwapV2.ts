@@ -199,7 +199,7 @@ export class ZilSwapV2 {
 
 
   /////////////////////// Contract Transition functions //////////////////
-  public async deployZilswapV2Pool(token0Address: string, token1Address: string, init_amp_bps: number) {
+  public async deployZilswapV2Pool(token0Address: string, token1Address: string, init_amp_bps: number): Promise<Contract> {
     // Check logged in
     this.checkAppLoadedWithUser()
 
@@ -220,10 +220,10 @@ export class ZilSwapV2 {
       this.param('init_token0', 'ByStr20', `${token0Address}`),
       this.param('init_token1', 'ByStr20', `${token1Address}`),
       this.param('init_factory', 'ByStr20', this.contractHash),
-      this.param('init_amp_bps', 'Uint128', '10000'),
+      this.param('init_amp_bps', 'Uint128', `${init_amp_bps}`),
       this.param('contract_owner', 'ByStr20', this.contractHash),
-      this.param('name', 'String', 'name'),
-      this.param('symbol', 'String', 'symbol'),
+      this.param('name', 'String', `${name}`),
+      this.param('symbol', 'String', `${symbol}`),
       this.param('decimals', 'Uint32', '12'),
       this.param('init_supply', 'Uint128', '0'),
     ];
@@ -236,7 +236,7 @@ export class ZilSwapV2 {
 
   // Call AddPool transition on the router
   // To be used together with the DeployPool
-  public async addPool(poolAddress: string) {
+  public async addPool(poolAddress: string): Promise<Transaction> {
     const contract: Contract = this.contract
     const args: any = [
       this.param('pool', 'ByStr20', poolAddress)
@@ -250,6 +250,14 @@ export class ZilSwapV2 {
     if (!addPoolTx.id) {
       throw new Error(JSON.stringify('Failed to get tx id!', null, 2))
     }
+
+    // Add to observedTx
+    const deadline = this.deadlineBlock()
+    const observeTxn = {
+      hash: addPoolTx.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
 
     await this.updateAppState()
     return addPoolTx
@@ -364,6 +372,7 @@ export class ZilSwapV2 {
       throw new Error(error)
     }
 
+    // Add to observedTx
     const deadline = this.deadlineBlock()
     const observeTxn = {
       hash: confirmedTx.id!,
