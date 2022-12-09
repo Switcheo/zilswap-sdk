@@ -1,17 +1,17 @@
-import 'isomorphic-fetch'
-import { Zilliqa } from '@zilliqa-js/zilliqa'
-import { Wallet, Transaction, TxReceipt as _TxReceipt } from '@zilliqa-js/account'
-import { Contract, Value, CallParams } from '@zilliqa-js/contract'
+import { Transaction, TxReceipt as _TxReceipt, Wallet } from '@zilliqa-js/account'
+import { CallParams, Contract, Value } from '@zilliqa-js/contract'
+import { TransactionError } from '@zilliqa-js/core'
 import { fromBech32Address, toBech32Address } from '@zilliqa-js/crypto'
-import { StatusType, MessageType, NewEventSubscription } from '@zilliqa-js/subscriptions'
 import { BN, Long, units } from '@zilliqa-js/util'
-import { BigNumber } from 'bignumber.js'
+import { Zilliqa } from '@zilliqa-js/zilliqa'
 import { Mutex } from 'async-mutex'
+import { BigNumber } from 'bignumber.js'
+import 'isomorphic-fetch'
 
-import { APIS, WSS, ZILSWAPV2_CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH, WHITELISTED_TOKENS } from '../constants'
-import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from '../utils'
-import { sendBatchRequest, BatchRequest } from '../batch'
-import { Zilo, OnStateUpdate } from '../zilo'
+import { BatchRequest, sendBatchRequest } from '../batch'
+import { APIS, CHAIN_VERSIONS, Network, ZILSWAPV2_CONTRACTS } from '../constants'
+import { isLocalStorageAvailable, toPositiveQa } from '../utils'
+import { compile } from './util'
 export * as Zilo from '../zilo'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
@@ -52,19 +52,17 @@ export type TokenDetails = {
   name: string
   symbol: string
   decimals: number
-  registered: boolean // is in default token list
-  whitelisted: boolean // is a verified token
 }
 
 // V2 Pool contract
 export type PoolState = {
   token0: string
   token1: string
-  token0Reserve: BigNumber
-  token0VReserve: BigNumber
-  token1Reserve: BigNumber
-  token1VReserve: BigNumber
-  ampBps: BigNumber
+  token0Reserve: string
+  token0VReserve: string
+  token1Reserve: string
+  token1VReserve: string
+  ampBps: string
   balances: { [key in string]?: string }
   allowances: { [key in string]?: { [key2 in string]?: string } }
 }
@@ -76,17 +74,6 @@ export type RouterState = {
   pools: { [key in string]?: { [key2 in string]?: string[] } } // tokenA tokenB poolAddress
   unamplified_pools: { [key in string]?: { [key2 in string]?: string[] } } // tokenA tokenB poolAddress
   fee_configuration: [string, string]
-}
-
-// Check again
-export type AppState = {
-  routerState: RouterState
-  pools: { [key in string]?: PoolState } // poolAddress : poolState
-  tokens: { [key in string]?: TokenDetails } // tokenAddress : tokenDetails
-  tokenBalance: { [key in string]?: BigNumber } // tokenAddress : userZRC2balance
-  currentUser: string | null
-  currentNonce: number | null
-  currentBalance: BigNumber | null // userZILbalance
 }
 
 export type WalletProvider = Omit<
@@ -103,7 +90,28 @@ export class ZilSwapV2 {
   /* Internals */
   private readonly rpcEndpoint: string
   private readonly walletProvider?: WalletProvider // zilpay
-  private appState?: AppState // cached blockchain state for dApp and user
+
+  // router contract state: Updates when there are new pools
+  private routerState?: RouterState
+
+  // pool state: Updates when there are new pools/ changes in the state of the pool
+  private poolStates?: { [key in string]?: PoolState } // poolHash : poolState
+
+  // Mapping of tokens in pools to TokenDetails
+  private tokens?: { [key in string]?: TokenDetails } // tokenHash : tokenDetails
+
+  private currentUser?: string | null
+  private currentNonce?: number | null
+
+  // User's zil balance
+  private currentZILBalance?: BigNumber | null
+
+  // User's ZRC2 balance
+  private currentZRC2Balance?: { [key in string]?: BigNumber } // tokenHash : userZRC2balance
+
+  /* Txn observers */
+  private observerMutex: Mutex
+  private observedTxs: ObservedTx[] = []
 
   /* Deadline tracking */
   private deadlineBuffer: number = 3
@@ -118,7 +126,7 @@ export class ZilSwapV2 {
   readonly _txParams: TxParams = {
     version: -1,
     gasPrice: new BN(0),
-    gasLimit: Long.fromNumber(5000),
+    gasLimit: Long.fromNumber(80000),
   }
 
   /**
@@ -129,7 +137,7 @@ export class ZilSwapV2 {
    * @param walletProviderOrKey a Provider with Wallet or private key string to be used for signing txns.
    * @param options a set of Options that will be used for all txns.
    */
-  // remember to remove the contractAddress in constructor
+  // remember to remove the contractAddress in constructor params
   constructor(readonly network: Network, walletProviderOrKey?: WalletProvider | string, contractAddress: string | null = null, options?: Options) {
 
     // initialize Internals
@@ -145,7 +153,7 @@ export class ZilSwapV2 {
     }
 
     // Initialize router contract attributes
-    this.contractAddress = contractAddress ? contractAddress : ZILSWAPV2_CONTRACTS[network]
+    this.contractAddress = contractAddress || ZILSWAPV2_CONTRACTS[network]
     this.contract = (this.walletProvider || this.zilliqa).contracts.at(this.contractAddress)
     this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
 
@@ -157,6 +165,8 @@ export class ZilSwapV2 {
       if (options.gasPrice && options.gasPrice > 0) this._txParams.gasPrice = toPositiveQa(options.gasPrice, units.Units.Li)
       if (options.gasLimit && options.gasLimit > 0) this._txParams.gasLimit = Long.fromNumber(options.gasLimit)
     }
+
+    this.observerMutex = new Mutex()
   }
 
   /**
@@ -168,6 +178,14 @@ export class ZilSwapV2 {
    * @param observedTx is the array of txs to observe.
    */
   public async initialize() {
+
+    // Initialize current user
+    // Get user address
+    this.currentUser = this.walletProvider
+      ? // ugly hack for zilpay provider
+      this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
+      : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
+
     // Update the txParams using chain information
     // Note: javascript constructors cannot contain async tasks
     if (this._txParams.gasPrice.isZero()) {
@@ -175,16 +193,19 @@ export class ZilSwapV2 {
       if (!minGasPrice.result) throw new Error('Failed to get min gas price.')
       this._txParams.gasPrice = new BN(minGasPrice.result)
     }
+
+    await this.updateAppState()
   }
 
-  public async deployPool(token0Address: string, token1Address: string, init_amp_bps: number) {
+
+  /////////////////////// Contract Transition functions //////////////////
+  public async deployZilswapV2Pool(token0Address: string, token1Address: string, init_amp_bps: number) {
     // Check logged in
     this.checkAppLoadedWithUser()
 
     const token0Contract: Contract = this.getContract(token0Address)
     const token1Contract: Contract = this.getContract(token1Address)
 
-    // Any for now
     const t0State = await this.fetchContractInit(token0Contract)
     const t1State = await this.fetchContractInit(token1Contract)
 
@@ -192,67 +213,193 @@ export class ZilSwapV2 {
     const name = `ZilSwap V2 ${pair} LP Token`
     const symbol = `ZWAPv2LP.${pair}`
 
-
     // Load file and contract initialization variables
-    const file = `./src/contracts/zilswap-v2/ZilSwapPool.scilla`
+    const file = `./src/zilswap-v2/contracts/ZilSwapPool.scilla`
     const init = [
-      // this parameter is mandatory for all init arrays
-      {
-        vname: '_scilla_version',
-        type: 'Uint32',
-        value: '0',
-      },
-      {
-        vname: 'init_token0',
-        type: 'ByStr20',
-        value: t0State.address.toLowerCase(),
-      },
-      {
-        vname: 'init_token1',
-        type: 'ByStr20',
-        value: t1State.address.toLowerCase(),
-      },
-      {
-        vname: 'init_factory',
-        type: 'ByStr20',
-        value: this.contractAddress.toLowerCase(),
-      },
-      {
-        vname: 'init_amp_bps',
-        type: 'Uint128',
-        value: init_amp_bps,
-      },
-      {
-        vname: 'contract_owner',
-        type: 'ByStr20',
-        value: this.contractAddress.toLowerCase(),
-      },
-      {
-        vname: 'name',
-        type: 'String',
-        value: name,
-      },
-      {
-        vname: 'symbol',
-        type: 'String',
-        value: symbol,
-      },
-      {
-        vname: 'decimals',
-        type: 'Uint32',
-        value: '12',
-      },
-      {
-        vname: 'init_supply',
-        type: 'Uint128',
-        value: '0',
-      },
+      this.param('_scilla_version', 'Uint32', '0'),
+      this.param('init_token0', 'ByStr20', `${token0Address}`),
+      this.param('init_token1', 'ByStr20', `${token1Address}`),
+      this.param('init_factory', 'ByStr20', this.contractHash),
+      this.param('init_amp_bps', 'Uint128', '10000'),
+      this.param('contract_owner', 'ByStr20', this.contractHash),
+      this.param('name', 'String', 'name'),
+      this.param('symbol', 'String', 'symbol'),
+      this.param('decimals', 'Uint32', '12'),
+      this.param('init_supply', 'Uint128', '0'),
     ];
+
+    // Call deployContract
+    const pool = await this.deployContract(file, init)
+
+    return pool
+  }
+
+  // Call AddPool transition on the router
+  // To be used together with the DeployPool
+  public async addPool(poolAddress: string) {
+    const contract: Contract = this.contract
+    const args: any = [
+      this.param('pool', 'ByStr20', poolAddress)
+    ]
+    const params: CallParams = {
+      amount: new BN(0),
+      ...this.txParams()
+    }
+    const addPoolTx = await this.callContract(contract, 'AddPool', args, params, true)
+
+    if (!addPoolTx.id) {
+      throw new Error(JSON.stringify('Failed to get tx id!', null, 2))
+    }
+
+    await this.updateAppState()
+    return addPoolTx
+  }
+
+  // reserve_ratio_allowance: in percentage
+  public async addLiquidity(tokenA: string, tokenB: string, pool: string, amountA_desired: number, amountB_desired: number, amountA_min: number, amountB_min: number, reserve_ratio_allowance: number, to: string): Promise<Transaction> {
+
+    if (this.routerState!.all_pools.includes(pool)) {
+      const poolState = this.poolStates![pool]
+      const q112 = new BigNumber(2).pow(112)
+      const v_reserve_a = new BigNumber(poolState!.token0VReserve)
+      const v_reserve_b = new BigNumber(poolState!.token1VReserve)
+      const ratio = v_reserve_b.dividedBy(v_reserve_a)
+
+      const v_reserve_min: string = new BigNumber(q112.multipliedBy(ratio).dividedBy(1 + reserve_ratio_allowance / 100)).toString(10)
+      const v_reserve_max: string = new BigNumber(q112.multipliedBy(ratio).multipliedBy(1 + reserve_ratio_allowance / 100)).toString(10)
+
+      const contract: Contract = this.contract
+      const args: any = [
+        this.param('tokenA', 'ByStr20', tokenA),
+        this.param('tokenB', 'ByStr20', tokenB),
+        this.param('pool', 'ByStr20', pool),
+        this.param('amountB_desired', 'Uint128', `${amountA_desired}`),
+        this.param('amountB_desired', 'Uint128', `${amountB_desired}`),
+        this.param('amountA_min', 'Uint128', `${amountA_min}`),
+        this.param('amountB_min', 'Uint128', `${amountB_min}`),
+        this.param('v_reserve_ratio_bounds', 'Pair (Uint256) (Uint256)',
+          {
+            "constructor": "Pair",
+            "argtypes": ["Uint256", "Uint256"],
+            "arguments": [`${v_reserve_min}`, `${v_reserve_max}`]
+          }),
+        // this.param('to', 'ByStr20', to)
+      ]
+      const params: CallParams = {
+        amount: new BN(0),
+        ...this.txParams()
+      }
+
+      const tx = await this.callContract(contract, 'AddLiquidity', args, params, true)
+      if (!tx.id) {
+        throw new Error(JSON.stringify('Failed to get tx id!', null, 2))
+      }
+
+      await this.updatePoolStates() // might want to have a method that only updates the state of one pool
+      return tx
+    }
+    else {
+      throw new Error('Pool does not exist')
+    }
+  }
+
+  public async removeLiquidity(tokenA: string, tokenB: string, pool: string, liquidity: number, amountA_min: number, amountB_min: number) {
+
+    if (this.routerState!.all_pools.includes(pool)) {
+      const contract: Contract = this.contract
+      const args: any = [
+        this.param('tokenA', 'ByStr20', tokenA),
+        this.param('tokenB', 'ByStr20', tokenB),
+        this.param('pool', 'ByStr20', pool),
+        this.param('liquidity', 'Uint128', `${liquidity}`),
+        this.param('amountA_min', 'Uint128', `${amountA_min}`),
+        this.param('amountB_min', 'Uint128', `${amountB_min}`),
+      ]
+      const params: CallParams = {
+        amount: new BN(0),
+        ...this.txParams()
+      }
+
+      const tx = await this.callContract(contract, 'RemoveLiquidity', args, params, true)
+      if (!tx.id) {
+        throw new Error(JSON.stringify('Failed to get tx id!', null, 2))
+      }
+    }
+    else {
+      throw new Error('Pool does not exist')
+    }
+  }
+
+  public async addLiquidityZIL() {
+  }
+
+  public async removeLiquidityZIL() {
+  }
+
+  /////////////////////// Blockchain Helper functions //////////////////
+
+  // Deploy new contract
+  private async deployContract(file: string, init: Value[]) {
+    const code = await compile(file)
+    const contract = this.zilliqa.contracts.new(code, init)
+    const [deployTx, s] = await contract.deployWithoutConfirm(this._txParams, false)
+
+    // Check for txn acceptance
+    if (!deployTx.id) {
+      throw new Error(JSON.stringify(s.error || 'Failed to get tx id!', null, 2))
+    }
+    console.info(`Deployment transaction id: ${deployTx.id}`)
+
+    const confirmedTx = await deployTx.confirm(deployTx.id, 33, 1000);
+
+    // Check for txn execution success
+    if (!confirmedTx.txParams.receipt!.success) {
+      const errors = confirmedTx.txParams.receipt!.errors || {}
+      const errMsgs = JSON.stringify(
+        Object.keys(errors).reduce((acc, depth) => {
+          const errorMsgList = errors[depth].map((num: any) => TransactionError[num])
+          return { ...acc, [depth]: errorMsgList }
+        }, {}))
+      const error = `Failed to deploy contract at ${file}!\n${errMsgs}`
+      throw new Error(error)
+    }
+
+    const deadline = this.deadlineBlock()
+    const observeTxn = {
+      hash: confirmedTx.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
+
+    const deployedContract = this.getContract(s.address!)
+    return deployedContract
+  }
+
+  public async callContract(
+    contract: Contract,
+    transition: string,
+    args: Value[],
+    params: CallParams,
+    toDs?: boolean
+  ): Promise<Transaction> {
+    if (this.walletProvider) {
+      // ugly hack for zilpay provider
+      const txn = await (contract as any).call(transition, args, params, toDs)
+      txn.id = txn.ID
+      txn.isRejected = function (this: { errors: any[]; exceptions: any[] }) {
+        return this.errors.length > 0 || this.exceptions.length > 0
+      }
+      return txn
+    } else {
+      // const txn = await contract.callWithoutConfirm(transition, args, params, toDs)
+      const txn = await (contract as any).call(transition, args, params, toDs)
+      return txn
+    }
   }
 
   /**
-   * Gets the contract with the given address that can be called by the default account.
-   */
+  * Gets the contract with the given address that can be called by the default account.
+  */
   public getContract(address: string): Contract {
     return (this.walletProvider || this.zilliqa).contracts.at(address)
   }
@@ -290,39 +437,203 @@ export class ZilSwapV2 {
     }
   }
 
-  public async callContract(
-    contract: Contract,
-    transition: string,
-    args: Value[],
-    params: CallParams,
-    toDs?: boolean
-  ): Promise<Transaction> {
-    if (this.walletProvider) {
-      // ugly hack for zilpay provider
-      const txn = await (contract as any).call(transition, args, params, toDs)
-      txn.id = txn.ID
-      txn.isRejected = function (this: { errors: any[]; exceptions: any[] }) {
-        return this.errors.length > 0 || this.exceptions.length > 0
+  // Obtains token details  
+  private async fetchTokenDetails(hash: string): Promise<TokenDetails> {
+
+    const contract = this.getContract(hash)
+    const address = toBech32Address(hash)
+
+    const init = await this.fetchContractInit(contract)
+
+    const decimalStr = init.find((e: Value) => e.vname === 'decimals').value as string
+    const decimals = parseInt(decimalStr, 10)
+    const name = init.find((e: Value) => e.vname === 'name').value as string
+    const symbol = init.find((e: Value) => e.vname === 'symbol').value as string
+
+    return { contract, address, hash, name, symbol, decimals }
+  }
+
+  /////////////////////// App Helper functions //////////////////
+
+  private async updateAppState(): Promise<void> {
+    await this.updateRouterState()
+    await this.updatePoolStates()
+    await this.updateTokens()
+    await this.updateZILBalanceAndNonce()
+    await this.updateCurrentZRC2Balance()
+  }
+
+  // Updates the router state
+  private async updateRouterState(): Promise<void> {
+    const requests: BatchRequest[] = []
+    const address = this.contractHash.replace('0x', '')
+    requests.push({ id: '1', method: 'GetSmartContractSubState', params: [address, 'pool_codehash', []], jsonrpc: '2.0' })
+    requests.push({ id: '2', method: 'GetSmartContractSubState', params: [address, 'all_pools', []], jsonrpc: '2.0' })
+    requests.push({ id: '3', method: 'GetSmartContractSubState', params: [address, 'pools', []], jsonrpc: '2.0' })
+    requests.push({ id: '4', method: 'GetSmartContractSubState', params: [address, 'unamplified_pools', []], jsonrpc: '2.0' })
+    requests.push({ id: '5', method: 'GetSmartContractSubState', params: [address, 'fee_configuration', []], jsonrpc: '2.0' })
+
+    const result = await sendBatchRequest(this.rpcEndpoint, requests)
+    // console.log("updateRouterState result", result)
+
+    // console.log("Object.values(result)", Object.values(result))
+
+    const routerState = Object.values(result).reduce((a, i) => ({ ...a, ...i }), {}) as RouterState
+    this.routerState = routerState;
+
+    // Log out to see what is the object type
+    // console.log("this.routerState", this.routerState)
+  }
+
+  // Updates the state of all pools
+  private async updatePoolStates(): Promise<void> {
+    if (this.routerState) {
+      const allPools = this.routerState.all_pools
+      // console.log("allPools", allPools)
+
+      if (allPools.length === 0) { // If there is no pool
+        return
       }
-      return txn
-    } else {
-      return await contract.callWithoutConfirm(transition, args, params, toDs)
+
+      const poolStates: { [key in string]?: PoolState } = {}
+
+      for (let poolHash of allPools) {
+        const requests: BatchRequest[] = []
+
+        // console.log("poolHash", poolHash)
+        const address = poolHash.replace('0x', '')
+        // console.log("address", address)
+        requests.push({ id: '1', method: 'GetSmartContractSubState', params: [address, 'token0', []], jsonrpc: '2.0' })
+        requests.push({ id: '2', method: 'GetSmartContractSubState', params: [address, 'token1', []], jsonrpc: '2.0' })
+        requests.push({ id: '3', method: 'GetSmartContractSubState', params: [address, 'reserve0', []], jsonrpc: '2.0' })
+        requests.push({ id: '4', method: 'GetSmartContractSubState', params: [address, 'v_reserve0', []], jsonrpc: '2.0' })
+        requests.push({ id: '5', method: 'GetSmartContractSubState', params: [address, 'reserve1', []], jsonrpc: '2.0' })
+        requests.push({ id: '6', method: 'GetSmartContractSubState', params: [address, 'v_reserve1', []], jsonrpc: '2.0' })
+        requests.push({ id: '7', method: 'GetSmartContractSubState', params: [address, 'amp_bps', []], jsonrpc: '2.0' })
+        requests.push({ id: '8', method: 'GetSmartContractSubState', params: [address, 'balances', []], jsonrpc: '2.0' })
+        requests.push({ id: '9', method: 'GetSmartContractSubState', params: [address, 'allowances', []], jsonrpc: '2.0' })
+
+        const result = await sendBatchRequest(this.rpcEndpoint, requests)
+        // console.log("result", result)
+        const poolSubState = Object.values(result).reduce((a, i) => ({ ...a, ...i }), {})
+        poolStates[poolHash] = poolSubState;
+      }
+      this.poolStates = poolStates
+      // console.log("poolState", this.poolState)
     }
   }
 
+  private async updateTokens(): Promise<void> {
+    // Obtain an array of token hashes that are used in the pools
+    if (this.poolStates) {
+      const tokenHash: string[] = []
+      const poolStates = this.poolStates
+      if (poolStates) {
+        if (Object.keys(poolStates).length != 0) { // if there are poolStates
+          Object.keys(poolStates).map((poolAddress) => {
+            const token0 = poolStates[poolAddress]!.token0
+            const token1 = poolStates[poolAddress]!.token1
+            if (!tokenHash.includes(token0)) {
+              tokenHash.push(token0)
+            }
+            if (!tokenHash.includes(token1)) {
+              tokenHash.push(token1)
+            }
+          })
+          // console.log("tokenHash", tokenHash)
+        }
+      }
+
+      // fetch the token details using the token hash
+      const tokens: { [key in string]: TokenDetails } = {} // tokenAddress: tokenDetails
+      const promises = tokenHash.map(async (hash) => {
+        try {
+          const d = await this.fetchTokenDetails(hash)
+          tokens[hash] = d
+        } catch (err) {
+          if (
+            (err as any).message?.startsWith('Could not retrieve contract init params') ||
+            (err as any).message?.startsWith('Address not contract address')
+          ) {
+            return
+          }
+          throw err
+        }
+      })
+      await Promise.all(promises)
+
+      this.tokens = tokens;
+      // console.log("this.tokens", this.tokens)
+    }
+  }
+
+  // Updates the user's ZIL balance and nonce
+  private async updateZILBalanceAndNonce() {
+    if (this.currentUser) {
+      try {
+        const res: RPCBalanceResponse = (await this.zilliqa.blockchain.getBalance(this.currentUser)).result
+        // console.log(res)
+        if (!res) {
+          this.currentZILBalance = new BigNumber(0)
+          this.currentNonce = 0
+          return
+        }
+        this.currentZILBalance = new BigNumber(res.balance)
+        this.currentNonce = parseInt(res.nonce, 10)
+      } catch (err) {
+        // ugly hack for zilpay non-standard API
+        if ((err as any).message === 'Account is not created') {
+          this.currentZILBalance = new BigNumber(0)
+          this.currentNonce = 0
+        }
+      }
+      // console.log("this.currentZILBalance", this.currentZILBalance)
+      // console.log("this.currentNonce", this.currentNonce)
+    }
+  }
+
+  private async updateCurrentZRC2Balance() {
+    if (this.currentUser && this.tokens) {
+      const tokens = this.tokens
+      const requests: BatchRequest[] = []
+
+      Object.keys(tokens).map(async (token) => {
+        const address = token.replace('0x', '')
+        requests.push({
+          id: token,
+          method: 'GetSmartContractSubState',
+          params: [address, 'balances', [this.currentUser]],
+          jsonrpc: '2.0',
+        })
+      })
+
+      const currentZRC2Balance: { [key in string]: BigNumber } = {}
+      const result = await sendBatchRequest(this.rpcEndpoint, requests)
+      // console.log("ZRC2Balance", result)
+      Object.entries(result).map((t) => {
+        const address = t[0]
+        const balances = t[1].balances
+        currentZRC2Balance[address] = balances
+      }
+      )
+      this.currentZRC2Balance = currentZRC2Balance
+      // console.log("this.currentZRC2Balance", this.currentZRC2Balance)
+    }
+  }
+
+  // Check if the user is loggged in
   public checkAppLoadedWithUser() {
-    // Check init
-    if (!this.appState) {
+    if (!this.routerState) {
       throw new Error('App state not loaded, call #initialize first.')
     }
 
     // Check user address
-    if (this.appState!.currentUser === null) {
+    if (this.currentUser === null) {
       throw new Error('No wallet connected.')
     }
 
     // Check wallet account
-    if (this.walletProvider && this.walletProvider.wallet.defaultAccount.base16.toLowerCase() !== this.appState!.currentUser) {
+    if (this.walletProvider && this.walletProvider.wallet.defaultAccount.base16.toLowerCase() !== this.currentUser) {
       throw new Error('Wallet user has changed, please reconnect.')
     }
 
@@ -330,5 +641,73 @@ export class ZilSwapV2 {
     if (this.walletProvider && this.walletProvider.wallet.net.toLowerCase() !== this.network.toLowerCase()) {
       throw new Error('Wallet is connected to wrong network.')
     }
+  }
+
+  public txParams(): TxParams & { nonce: number } {
+    return {
+      nonce: this.nonce(),
+      ...this._txParams,
+    }
+  }
+
+  public getCurrentBlock(): number {
+    return this.currentBlock
+  }
+
+  public deadlineBlock(): number {
+    return this.currentBlock + this.deadlineBuffer!
+  }
+
+  /**
+ * Sets the number of blocks to use as the allowable buffer duration before transactions
+ * are considered invalid.
+ *
+ * When a transaction is signed, the deadline block by adding the buffer blocks to
+ * the latest confirmed block height.
+ *
+ * @param bufferBlocks is the number of blocks to use as buffer for the deadline block.
+ */
+  public setDeadlineBlocks(bufferBlocks: number) {
+    if (bufferBlocks <= 0) {
+      throw new Error('Buffer blocks must be greater than 0.')
+    }
+    this.deadlineBuffer = bufferBlocks
+  }
+
+  /**
+   * Observes the given transaction until the deadline block.
+   *
+   * Calls the `OnUpdate` callback given during `initialize` with the updated ObservedTx
+   * when a change has been observed.
+   *
+   * @param observedTx is the txn hash of the txn to observe with the deadline block number.
+   */
+  public async observeTx(observedTx: ObservedTx) {
+    const release = await this.observerMutex.acquire()
+    try {
+      this.observedTxs.push(observedTx)
+    } finally {
+      release()
+    }
+  }
+
+  private nonce(): number {
+    return this.currentNonce! + this.observedTxs.length + 1
+  }
+
+  public getRouterState(): RouterState | undefined {
+    return this.routerState
+  }
+
+  public getPoolStates(): { [key in string]?: PoolState } | undefined {
+    return this.poolStates
+  }
+
+  public getTokens(): { [key in string]?: TokenDetails } | undefined {
+    return this.tokens
+  }
+
+  private param = (vname: string, type: string, value: any) => {
+    return { vname, type, value };
   }
 }

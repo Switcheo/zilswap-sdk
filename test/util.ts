@@ -31,7 +31,9 @@ export const rpc = getRPC(network)
 export const zilliqa = new Zilliqa(rpc)
 
 
-
+export const param = (vname: string, type: string, value: string) => {
+  return { vname, type, value };
+}
 
 const randomHex = (size: number): string => [...Array(size)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')
 
