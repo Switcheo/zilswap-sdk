@@ -311,15 +311,28 @@ export class ZilSwapV2 {
 
     // Generate contract args
     const ampBps = new BigNumber(poolState!.amp_bps)
-    const isAmpPool = ampBps.isEqualTo(BASIS)
+    const isAmpPool = !ampBps.isEqualTo(BASIS)
 
-    const q112 = new BigNumber(2).pow(112)
-    const v_reserve_a = new BigNumber(poolState!.v_reserve0)
-    const v_reserve_b = new BigNumber(poolState!.v_reserve1)
-    const ratio = v_reserve_b.dividedBy(v_reserve_a)
+    let v_reserve_min, v_reserve_max
 
-    const v_reserve_min: string = ampBps ? '0' : ratio.multipliedBy(q112).dividedBy(1 + reserve_ratio_allowance / 100).toString(10)
-    const v_reserve_max: string = ampBps ? '0' : ratio.multipliedBy(q112).multipliedBy(1 + reserve_ratio_allowance / 100).toString(10)
+    if (tokenAReserve.isZero() && tokenBReserve.isZero()) {
+      v_reserve_min = '0'
+      v_reserve_max = '0'
+    }
+    else {
+      if (isAmpPool) {
+        const q112: any = new BigNumber(2).pow(112)
+        const v_reserve_a = parseInt(poolState!.v_reserve0)
+        const v_reserve_b = parseInt(poolState!.v_reserve1)
+
+        v_reserve_min = new BigNumber((v_reserve_b / v_reserve_a) * (q112) / ((1 + reserve_ratio_allowance / 100))).toString(10)
+        v_reserve_max = new BigNumber((v_reserve_b / v_reserve_a) * (q112) * ((1 + reserve_ratio_allowance / 100))).toString(10)
+      }
+      else {
+        v_reserve_min = '0'
+        v_reserve_max = '0'
+      }
+    }
 
     const deadline = this.deadlineBlock()
 
@@ -359,95 +372,118 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    await this.updatePoolStates() // might want to have a method that only updates the state of one pool
+    // Update relevant app states
+    await this.updateAppState()
+
     return addLiquidityTxn
   }
 
   // reserve_ratio_allowance: in percentage
-  // public async addLiquidityZIL(token: string, pool: string, amount_token_desired: string, amount_wZIL_desired: string, amount_token_min: string, amount_wZIL_min: string, reserve_ratio_allowance: number) {
+  public async addLiquidityZIL(token: string, pool: string, amount_token_desired: string, amount_wZIL_desired: string, amount_token_min: string, amount_wZIL_min: string, reserve_ratio_allowance: number) {
 
-  //   const poolState = this.poolStates![pool]
-  //   if (!poolState) {
-  //     throw new Error('Pool does not exist')
-  //   }
+    const poolState = this.poolStates![pool]
+    if (!poolState) {
+      throw new Error('Pool does not exist')
+    }
 
-  //   // Check logged in
-  //   this.checkAppLoadedWithUser()
+    // Check logged in
+    this.checkAppLoadedWithUser()
 
-  //   // Calculate amount of tokens added
-  //   const tokenAReserve = new BigNumber(poolState.token0Reserve)
-  //   const tokenBReserve = new BigNumber(poolState.token1Reserve)
-  //   let amountToken, amountWZIL
+    // Update blockHeight
+    await this.updateBlockHeight()
 
-  //   if (tokenAReserve.isZero() && tokenBReserve.isZero()) {
-  //     amountToken = new BigNumber(amount_token_desired)
-  //     amountWZIL = new BigNumber(amount_wZIL_desired)
-  //   }
-  //   else {
-  //     const amountWZILOptimal = await this.quote(new BigNumber(amount_token_desired), tokenAReserve, tokenBReserve)
-  //     if (amountWZILOptimal.lte(amount_wZIL_desired)) {
-  //       amountToken = new BigNumber(amount_token_desired)
-  //       amountWZIL = new BigNumber(amountWZILOptimal)
-  //     }
-  //     else {
-  //       const amountTokenOptimal = await this.quote(new BigNumber(amount_wZIL_desired), tokenBReserve, tokenAReserve)
-  //       amountToken = new BigNumber(amountTokenOptimal)
-  //       amountWZIL = new BigNumber(amount_wZIL_desired)
-  //     }
-  //   }
+    // Calculate amount of tokens added
+    const tokenAReserve = new BigNumber(poolState.reserve0, 10)
+    const tokenBReserve = new BigNumber(poolState.reserve1, 10)
+    let amountToken, amountWZIL
 
-  //   // Check Balance and Allowance
-  //   this.checkAllowance(token, amountToken)
-  //   this.checkBalance(token, amountToken)
-  //   this.checkBalance(ZIL_HASH, amountWZIL)
+    if (tokenAReserve.isZero() && tokenBReserve.isZero()) {
+      amountToken = new BigNumber(amount_token_desired)
+      amountWZIL = new BigNumber(amount_wZIL_desired)
+    }
+    else {
+      const amountWZILOptimal = await this.quote(new BigNumber(amount_token_desired), tokenAReserve, tokenBReserve)
+      if (amountWZILOptimal.lte(amount_wZIL_desired)) {
+        amountToken = new BigNumber(amount_token_desired)
+        amountWZIL = new BigNumber(amountWZILOptimal)
+      }
+      else {
+        const amountTokenOptimal = await this.quote(new BigNumber(amount_wZIL_desired), tokenBReserve, tokenAReserve)
+        amountToken = new BigNumber(amountTokenOptimal)
+        amountWZIL = new BigNumber(amount_wZIL_desired)
+      }
+    }
 
-  //   // Generate contract args
-  //   const q112 = new BigNumber(2).pow(112)
-  //   const v_reserve_a = new BigNumber(poolState!.token0VReserve)
-  //   const v_reserve_b = new BigNumber(poolState!.token1VReserve)
-  //   const ratio = v_reserve_b.dividedBy(v_reserve_a)
+    // Check Balance and Allowance
+    this.checkAllowance(token, amountToken)
+    this.checkBalance(token, amountToken)
+    this.checkBalance(ZIL_HASH, amountWZIL)
 
-  //   const v_reserve_min: string = new BigNumber(q112.multipliedBy(ratio).dividedBy(1 + reserve_ratio_allowance / 100)).toString(10)
-  //   const v_reserve_max: string = new BigNumber(q112.multipliedBy(ratio).multipliedBy(1 + reserve_ratio_allowance / 100)).toString(10)
+    // Generate contract args
+    const ampBps = new BigNumber(poolState!.amp_bps)
+    const isAmpPool = !ampBps.isEqualTo(BASIS)
 
-  //   const deadline = this.deadlineBlock()
+    let v_reserve_min, v_reserve_max
 
-  //   const contract: Contract = this.contract
-  //   const args: any = [
-  //     this.param('tokenA', 'ByStr20', token),
-  //     this.param('pool', 'ByStr20', pool),
-  //     this.param('amount_token_desired', 'Uint128', amount_token_desired),
-  //     this.param('amount_token_min', 'Uint128', amount_token_min),
-  //     this.param('amount_wZIL_min', 'Uint128', amount_wZIL_min),
-  //     this.param('v_reserve_ratio_bounds', 'Pair (Uint256) (Uint256)',
-  //       {
-  //         "constructor": "Pair",
-  //         "argtypes": ["Uint256", "Uint256"],
-  //         "arguments": [`${v_reserve_min}`, `${v_reserve_max}`]
-  //       }),
-  //     this.param('deadline_block', 'BNum', `${deadline}`),
-  //   ]
-  //   const params: CallParams = {
-  //     amount: new BN(amount_wZIL_desired),
-  //     ...this.txParams()
-  //   }
+    if (tokenAReserve.isZero() && tokenBReserve.isZero()) {
+      v_reserve_min = '0'
+      v_reserve_max = '0'
+    }
+    else {
+      if (isAmpPool) {
+        const q112: any = new BigNumber(2).pow(112)
+        const v_reserve_a = parseInt(poolState!.v_reserve0)
+        const v_reserve_b = parseInt(poolState!.v_reserve1)
 
-  //   // Call contract
-  //   const addLiquidityZilTxn = await this.callContract(contract, 'AddLiquidityZIL', args, params, true)
+        v_reserve_min = new BigNumber((v_reserve_b / v_reserve_a) * (q112) / ((1 + reserve_ratio_allowance / 100))).toString(10)
+        v_reserve_max = new BigNumber((v_reserve_b / v_reserve_a) * (q112) * ((1 + reserve_ratio_allowance / 100))).toString(10)
+      }
+      else {
+        v_reserve_min = '0'
+        v_reserve_max = '0'
+      }
+    }
 
-  //   if (addLiquidityZilTxn.isRejected()) {
-  //     throw new Error('Submitted transaction was rejected.')
-  //   }
+    const deadline = this.deadlineBlock()
 
-  //   const observeTxn = {
-  //     hash: addLiquidityZilTxn.id!,
-  //     deadline,
-  //   }
-  //   await this.observeTx(observeTxn)
+    const contract: Contract = this.contract
+    const args: any = [
+      this.param('token', 'ByStr20', token),
+      this.param('pool', 'ByStr20', pool),
+      this.param('amount_token_desired', 'Uint128', amount_token_desired),
+      this.param('amount_token_min', 'Uint128', amount_token_min),
+      this.param('amount_wZIL_min', 'Uint128', amount_wZIL_min),
+      this.param('v_reserve_ratio_bounds', 'Pair (Uint256) (Uint256)',
+        {
+          "constructor": "Pair",
+          "argtypes": ["Uint256", "Uint256"],
+          "arguments": [`${v_reserve_min}`, `${v_reserve_max}`]
+        }),
+      this.param('deadline_block', 'BNum', `${deadline}`),
+    ]
+    const params: CallParams = {
+      amount: new BN(amount_wZIL_desired),
+      ...this.txParams()
+    }
 
-  //   await this.updatePoolStates() // might want to have a method that only updates the state of one pool
-  //   return addLiquidityZilTxn
-  // }
+    // Call contract
+    const addLiquidityZilTxn = await this.callContract(contract, 'AddLiquidityZIL', args, params, true)
+
+    if (addLiquidityZilTxn.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
+    }
+
+    const observeTxn = {
+      hash: addLiquidityZilTxn.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
+
+    // Update relevant app states
+    await this.updateAppState()
+
+    return addLiquidityZilTxn
+  }
 
   public async removeLiquidity(tokenA: string, tokenB: string, pool: string, liquidity: string, amountA_min: string, amountB_min: string) {
 
@@ -459,10 +495,12 @@ export class ZilSwapV2 {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // Check Balance and Allowance
-    this.checkAllowance(this.contractAddress, new BigNumber(liquidity))
-    this.checkBalance(this.contractAddress, new BigNumber(liquidity))
+    // Update blockHeight
+    await this.updateBlockHeight()
 
+    // Check Balance and Allowance
+    this.checkAllowance(this.contractHash, new BigNumber(liquidity))
+    this.checkBalance(this.contractHash, new BigNumber(liquidity))
 
     // Generate contract args
     const deadline = this.deadlineBlock()
@@ -475,6 +513,7 @@ export class ZilSwapV2 {
       this.param('liquidity', 'Uint128', liquidity),
       this.param('amountA_min', 'Uint128', amountA_min),
       this.param('amountB_min', 'Uint128', amountB_min),
+      this.param('deadline_block', 'BNum', `${deadline}`)
     ]
     const params: CallParams = {
       amount: new BN(0),
@@ -498,53 +537,56 @@ export class ZilSwapV2 {
     return removeLiquidityTxn
   }
 
-  // public async removeLiquidityZIL(token: string, pool: string, liquidity: string, amount_token_min: string, amount_wZIL_min: string) {
+  public async removeLiquidityZIL(token: string, pool: string, liquidity: string, amount_token_min: string, amount_wZIL_min: string) {
 
-  //   const poolState = this.poolStates![pool]
-  //   if (!poolState) {
-  //     throw new Error('Pool does not exist')
-  //   }
+    const poolState = this.poolStates![pool]
+    if (!poolState) {
+      throw new Error('Pool does not exist')
+    }
 
-  //   // Check logged in
-  //   this.checkAppLoadedWithUser()
+    // Check logged in
+    this.checkAppLoadedWithUser()
 
-  //   // Check Balance and Allowance
-  //   this.checkAllowance(this.contractAddress, new BigNumber(liquidity))
-  //   this.checkBalance(this.contractAddress, new BigNumber(liquidity))
+    // Update blockHeight
+    await this.updateBlockHeight()
 
-  //   // Generate contract args
-  //   const deadline = this.deadlineBlock()
+    // Check Balance and Allowance
+    this.checkAllowance(this.contractHash, new BigNumber(liquidity))
+    this.checkBalance(this.contractHash, new BigNumber(liquidity))
 
-  //   const contract: Contract = this.contract
-  //   const args: any = [
-  //     this.param('token', 'ByStr20', token),
-  //     this.param('pool', 'ByStr20', pool),
-  //     this.param('liquidity', 'Uint128', liquidity),
-  //     this.param('amount_token_min', 'Uint128', amount_token_min),
-  //     this.param('amount_wZIL_min', 'Uint128', amount_wZIL_min),
-  //     this.param('deadline', 'BNum', `${deadline}`),
-  //   ]
-  //   const params: CallParams = {
-  //     amount: new BN(0),
-  //     ...this.txParams()
-  //   }
+    // Generate contract args
+    const deadline = this.deadlineBlock()
 
-  //   // Call contract
-  //   const removeLiquidityZilTxn = await this.callContract(contract, 'RemoveLiquidityZIL', args, params, true)
+    const contract: Contract = this.contract
+    const args: any = [
+      this.param('token', 'ByStr20', token),
+      this.param('pool', 'ByStr20', pool),
+      this.param('liquidity', 'Uint128', liquidity),
+      this.param('amount_token_min', 'Uint128', amount_token_min),
+      this.param('amount_wZIL_min', 'Uint128', amount_wZIL_min),
+      this.param('deadline_block', 'BNum', `${deadline}`),
+    ]
+    const params: CallParams = {
+      amount: new BN(0),
+      ...this.txParams()
+    }
 
-  //   if (removeLiquidityZilTxn.isRejected()) {
-  //     throw new Error('Submitted transaction was rejected.')
-  //   }
+    // Call contract
+    const removeLiquidityZilTxn = await this.callContract(contract, 'RemoveLiquidityZIL', args, params, true)
 
-  //   const observeTxn = {
-  //     hash: removeLiquidityZilTxn.id!,
-  //     deadline,
-  //   }
-  //   await this.observeTx(observeTxn)
+    if (removeLiquidityZilTxn.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
+    }
 
-  //   await this.updatePoolStates() // might want to have a method that only updates the state of one pool
-  //   return removeLiquidityZilTxn
-  // }
+    const observeTxn = {
+      hash: removeLiquidityZilTxn.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
+
+    await this.updatePoolStates() // might want to have a method that only updates the state of one pool
+    return removeLiquidityZilTxn
+  }
 
   /////////////////////// Blockchain Helper functions //////////////////
 
@@ -630,6 +672,27 @@ export class ZilSwapV2 {
     return tx
   }
 
+  // Method created for testing such that the nonce is correct
+  // 
+  public async increaseAllowance(contract: Contract, spender: string, allowance: string): Promise<void> {
+
+    const args: any = [
+      this.param('spender', 'ByStr20', spender),
+      this.param('amount', 'Uint128', allowance)
+    ]
+
+    const params: CallParams = {
+      amount: new BN(0),
+      ...this.txParams()
+    }
+
+    // Call contract
+    await this.callContract(contract, 'IncreaseAllowance', args, params, true)
+
+    // Update app state
+    await this.updateAppState()
+  }
+
   // Check Allowance
   private async checkAllowance(tokenHash: string, amount: BigNumber) {
     // Check init
@@ -679,7 +742,7 @@ export class ZilSwapV2 {
       const balance = new BigNumber(result.balances?.balances[user] || 0)
       if (balance.lt(amount)) {
         throw new Error(`Insufficent tokens in wallet.
-        Required: ${this.toUnit(tokenHash, amount.toString()).toString()},
+        Required: ${(this.toUnit(tokenHash, amount.toString())).toString()},
         have: ${this.toUnit(tokenHash, balance.toString()).toString()}.`)
       }
     }
