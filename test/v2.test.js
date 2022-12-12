@@ -6,10 +6,10 @@ const { default: BigNumber } = require('bignumber.js')
 const { BASIS } = require('../src/constants')
 require('dotenv').config()
 
-let zilswap, privateKey, owner
-let router, pool, token0, token1
-let routerState, poolState, tokens
+let zilswap, privateKey, owner, tx
+let router, pool, token0, token1, routerState, poolState, tokens
 const codehash = getContractCodeHash("./src/zilswap-v2/contracts/ZilSwapPool.scilla");
+const init_liquidity = 10000
 
 describe("test", () => {
   beforeAll(async () => {
@@ -17,21 +17,22 @@ describe("test", () => {
   })
 
   test('initialize zilswap object', async () => {
-    jest.setTimeout(10000)
+    jest.setTimeout(20000)
     const routerHash = toBech32Address(router.address.toLowerCase())
     zilswap = new ZilSwapV2(network, privateKey, routerHash)
     await zilswap.initialize()
+    zilswap.setDeadlineBlocks(10)
   })
 
   test('deploy pool', async () => {
-    jest.setTimeout(10000)
+    jest.setTimeout(20000)
     pool = await zilswap.deployZilswapV2Pool(token0.address.toLowerCase(), token1.address.toLowerCase(), 10000)
     // console.log("pool", pool)
   })
 
   test('add pool', async () => {
     const poolAddress = pool.address.toLowerCase()
-    const tx = await zilswap.addPool(poolAddress)
+    tx = await zilswap.addPool(poolAddress)
     // console.log('tx', tx)
     expect(tx.status).toEqual(2)
   })
@@ -44,6 +45,12 @@ describe("test", () => {
     console.log("routerState", routerState)
     console.log("poolState", poolState)
     console.log("tokens", tokens)
+  })
+
+  test('addLiquidity', async () => {
+    jest.setTimeout(20000)
+    tx = await zilswap.addLiquidity(token0.address.toLowerCase(), token1.address.toLowerCase(), pool.address.toLowerCase(), new BigNumber(init_liquidity).shiftedBy(12).toString(), new BigNumber(init_liquidity).shiftedBy(12).toString(), '0', '0', 5)
+    expect(tx.status).toEqual(2)
   })
 })
 
