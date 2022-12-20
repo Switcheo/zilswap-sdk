@@ -5,7 +5,7 @@ const { default: BigNumber } = require('bignumber.js')
 require('dotenv').config()
 
 let zilswap, privateKey, owner, tx
-let router, pool, token0, token1, routerState, poolState, tokens
+let router, pool, token0, token1, wZil, routerState, poolState, tokens, tokenPools
 const codehash = getContractCodeHash("./src/zilswap-v2/contracts/ZilSwapPool.scilla");
 const init_liquidity = 10000
 const amountIn = 100
@@ -49,20 +49,20 @@ describe("test", () => {
     expect(tx.status).toEqual(2)
   })
 
-  test('removeLiquidity', async () => {
-    jest.setTimeout(20000)
-    poolState = await pool.getState()
-    // console.log("poolState", poolState)
-    // console.log("owner", owner)
-    // console.log("poolState.balances[owner]", poolState.balances[owner])
+  // test('removeLiquidity', async () => {
+  //   jest.setTimeout(20000)
+  //   poolState = await pool.getState()
+  //   // console.log("poolState", poolState)
+  //   // console.log("owner", owner)
+  //   // console.log("poolState.balances[owner]", poolState.balances[owner])
 
-    // Increase allowance of LP tokens
-    await zilswap.increaseAllowance(pool, router.address.toLowerCase(), poolState.balances[owner])
+  //   // Increase allowance of LP tokens
+  //   await zilswap.increaseAllowance(pool, router.address.toLowerCase(), poolState.balances[owner])
 
-    // Remove Liquidity to pool
-    tx = await zilswap.removeLiquidity(token0.address.toLowerCase(), token1.address.toLowerCase(), pool.address.toLowerCase(), poolState.balances[owner], '0', '0')
-    expect(tx.status).toEqual(2)
-  })
+  //   // Remove Liquidity to pool
+  //   tx = await zilswap.removeLiquidity(token0.address.toLowerCase(), token1.address.toLowerCase(), pool.address.toLowerCase(), poolState.balances[owner], '0', '0')
+  //   expect(tx.status).toEqual(2)
+  // })
 
   test('deploy amp pool (ZIL)', async () => {
     jest.setTimeout(20000)
@@ -93,26 +93,35 @@ describe("test", () => {
     expect(tx.status).toEqual(2)
   })
 
-  test('removeLiquidityZIL', async () => {
-    jest.setTimeout(20000)
-    poolState = await pool.getState()
+  // test('removeLiquidityZIL', async () => {
+  //   jest.setTimeout(20000)
+  //   poolState = await pool.getState()
 
-    // Increase allowance of LP tokens
-    await zilswap.increaseAllowance(pool, router.address.toLowerCase(), poolState.balances[owner])
+  //   // Increase allowance of LP tokens
+  //   await zilswap.increaseAllowance(pool, router.address.toLowerCase(), poolState.balances[owner])
 
-    // Remove Liquidity to pool
-    tx = await zilswap.removeLiquidityZIL(token0.address.toLowerCase(), pool.address.toLowerCase(), poolState.balances[owner], '0', '0')
-    expect(tx.status).toEqual(2)
-  })
+  //   // Remove Liquidity to pool
+  //   tx = await zilswap.removeLiquidityZIL(token0.address.toLowerCase(), pool.address.toLowerCase(), poolState.balances[owner], '0', '0')
+  //   expect(tx.status).toEqual(2)
+  // })
 
   test('check sdk state', async () => {
     routerState = zilswap.getRouterState()
     poolState = zilswap.getPoolStates()
     tokens = zilswap.getTokens()
+    tokenPools = zilswap.getTokenPools()
+
 
     console.log("routerState", routerState)
     console.log("poolState", poolState)
     console.log("tokens", tokens)
+    console.log("tokenPools", tokenPools)
+  })
+
+  test('swap exact tokens for tokens', async () => {
+    const txn = await zilswap.swapExactTokensForTokens(token0.address.toLowerCase(), token1.address.toLowerCase(), amountIn, amountOutMin)
+    expect(txn.status).toEqual(2)
+    console.log(txn)
   })
 })
 
