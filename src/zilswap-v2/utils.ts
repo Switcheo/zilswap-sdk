@@ -1,12 +1,16 @@
-import { APIS, CHAIN_VERSIONS, Network } from "../src/constants";
-import Crypto from "crypto"
+import { Transaction } from "@zilliqa-js/account";
+import { Contract, Value } from "@zilliqa-js/contract";
+import { TransactionError } from '@zilliqa-js/core';
+import { BN, getAddressFromPrivateKey, Long, units, Zilliqa } from "@zilliqa-js/zilliqa";
+import BigNumber from "bignumber.js";
+import Crypto from "crypto";
 import * as fs from 'fs';
 import * as util from 'util';
-import { BN, getAddressFromPrivateKey, Long, units, Zilliqa } from "@zilliqa-js/zilliqa";
-import { Contract, Value } from "@zilliqa-js/contract";
-import { Transaction } from "@zilliqa-js/account";
-import { TransactionError } from '@zilliqa-js/core'
-import BigNumber from "bignumber.js";
+import { APIS, CHAIN_VERSIONS, Network } from "../constants";
+
+export const PRECISION = 1000000000000000000
+export const SHORT_ALPHA = 370301795963710
+export const LONG_ALPHA = 185168039996296
 
 const getNetwork = (): Network => {
   const network: string = (process.env.NETWORK || '').toLowerCase()
@@ -30,7 +34,6 @@ export const network = getNetwork()
 export const rpc = getRPC(network)
 export const zilliqa = new Zilliqa(rpc)
 
-
 export const param = (vname: string, type: string, value: string) => {
   return { vname, type, value };
 }
@@ -38,14 +41,22 @@ export const param = (vname: string, type: string, value: string) => {
 const randomHex = (size: number): string => [...Array(size)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')
 
 const readFile = util.promisify(fs.readFile)
+const matchComments = /[(][*].*?[*][)]/gs
 
 export const compile = async (file: string) => {
   const code = (await readFile(file)).toString()
-  return code;
+  return compress(code);
+}
+
+export const compress = (code: string) => {
+  return code.replace(matchComments, '')
 }
 
 export const getContractCodeHash = (file: string): string => {
-  return "0x" + Crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+  const code = fs.readFileSync(file).toString()
+  const compressedCode = compress(code)
+  const buffer = Buffer.from(compressedCode)
+  return "0x" + Crypto.createHash("sha256").update(buffer).digest("hex");
 };
 
 export const getAmpBps = (isAmpPool: boolean) => {
@@ -61,15 +72,15 @@ async function getBlockNum() {
   return parseInt(response.result, 10)
 }
 
-async function nextBlock(n = 1) {
-  if (process.env.NETWORK === 'localhost') {
-    // console.log('Advancing block...')
-    const response = await zilliqa.provider.send('IncreaseBlocknum', n)
-    if (!response.result) {
-      throw new Error(`Failed to advanced block! Error: ${JSON.stringify(response.error)}`)
-    }
-  }
-}
+// async function nextBlock(n = 1) {
+//   if (process.env.NETWORK === 'localhost') {
+//     // console.log('Advancing block...')
+//     const response = await zilliqa.provider.send('IncreaseBlocknum', n)
+//     if (!response.result) {
+//       throw new Error(`Failed to advanced block! Error: ${JSON.stringify(response.error)}`)
+//     }
+//   }
+// }
 
 function useKey(privateKey: string) {
   const address = getAddressFromPrivateKey(privateKey)
@@ -189,7 +200,7 @@ export async function callContract(privateKey: string, contract: Contract, trans
     }
   }
 
-  await nextBlock()
+  // await nextBlock()
 
   return tx
 }
@@ -246,7 +257,7 @@ export async function deployContract(privateKey: string, file: string, init: Val
 
   // Print txn receipt
   console.log(`Deployment transaction receipt:\n${JSON.stringify(confirmedTx.txParams.receipt)}`)
-  await nextBlock()
+  // await nextBlock()
 
   // Refetch contract
   console.info(`The contract address is: ${s.address}`)

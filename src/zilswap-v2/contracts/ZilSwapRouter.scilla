@@ -1,6 +1,6 @@
 scilla_version 0
 
-import BoolUtils IntUtils ListUtils PairUtils
+import BoolUtils IntUtils ListUtils PairUtils NatUtils
 library ZilSwapRouter
 
 type ReserveData =
@@ -8,20 +8,41 @@ type ReserveData =
 
 let zero_address = 0x0000000000000000000000000000000000000000
 let zero_amount = Uint128 0
-let zero_amount_u32 = Uint32 0
-let zero_amount_u256 = Uint256 0
-let minimum_liquidity = Uint128 1000
+let zero_block = BNum 0
 let bps = Uint128 10000
 let none = None {ByStr20}
-let two_u256 = Uint256 2
-let two_u128 = Uint128 2
-let one_hundred_and_twelve = Uint32 112
-let q112_u256 = builtin pow two_u256 one_hundred_and_twelve
-let q112_u128 = builtin pow two_u128 one_hundred_and_twelve
 let bps = Uint128 10000
 let precision = Uint256 1000000000000000000 (* for decimal calculations (18dp precision) *)
 let short_alpha = Uint256 370301795963710 (* 2 * precision / 5401 *)
 let long_alpha = Uint256 185168039996296 (* (2 * precision) / 10801 *)
+
+(* constants used for get_fee *)
+let zero_u256 = Uint256 0
+let one_u256 = Uint256 1
+let two_u256 = Uint256 2
+let three_u256 = Uint256 3
+let four_u256 = Uint256 4
+let five_u256 = Uint256 5 
+let nine_u256 = Uint256 9
+let ten_u256 = Uint256 10
+let twenty_u256 = Uint256 20
+let twenty_seven_u256 = Uint256 27
+let thirty_u256 = Uint256 30
+let sixty_u256 = Uint256 60
+let one_hundred_u256 = Uint256 100
+let one_hundred_twenty_u256 = Uint256 120
+let two_hundred_fifty_u256 = Uint256 250
+let eight_hundred_thirty_six_u256 = Uint256 836
+let nine_hundred_eighty_five_u256 = Uint256 985
+let one_thousand_u256 = Uint256 1000
+let ten_thousand_u256 = Uint256 10000
+let twenty_thousand_u256 = Uint256 20000
+let fifty_thousand_u256 = Uint256 50000
+let two_hundred_thousand_u256 = Uint256 200000
+
+(* constants used for AddLiquidity and AddLiquidityZIL *)
+let one_hundred_and_twelve = Uint32 112
+let q112_u256 = builtin pow two_u256 one_hundred_and_twelve
 
 (* extracts the from_address from swap path of type Pair (from_address, to_address) *)
 let get_from_address : Pair ByStr20 ByStr20 -> ByStr20 = @fst ByStr20 ByStr20
@@ -58,6 +79,15 @@ let grow =
     | None => Uint256 0 (* should never happen *)
     end
 
+(* @dev: Convert Int256 to Uint128 *)
+let shrink =
+  fun (var : Int256) =>
+    let maybe_small = builtin to_uint128 var in
+    match maybe_small with
+    | Some small => small
+    | None => let one = Uint128 1 in builtin sub zero_amount one (* throw on overflow *)
+    end
+
 (* @dev: Convert Uint256 to Uint128 *)
 let reduce =
   fun (var : Uint256) =>
@@ -79,8 +109,18 @@ let frac =
     let ans_u256 = builtin div xy_u256 z_u256 in
     reduce ans_u256
 
+(* @dev: (x * y) / z in Uint256 *)
+let frac_u256 =
+  fun (x_u256: Uint256) => 
+  fun (y_u256: Uint256) => 
+  fun (z_u256: Uint256) => 
+    let xy_u256 = builtin mul x_u256 y_u256 in
+    builtin div xy_u256 z_u256
+
 (* @dev: Given an amount of one token and pool reserves, return an equivalent amount of the tokenB *)
-(* @dev: amountB = amountA.mul(reserveB) / reserveA *)
+(* @solidity DMMLibrary.sol: 
+  amountB = amountA.mul(reserveB) / reserveA 
+*)
 let quote =
   fun (amountA : Uint128) =>
   fun (reserveA : Uint128) =>
@@ -115,6 +155,9 @@ let pool_exists =
     end
 
 (* @dev: Returns init_token pair *)
+(* @solidity DMMLibrary.sol:
+  (token0, token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+*)
 let sort_token = 
   fun (path: Pair ByStr20 ByStr20 ) =>
   match path with
@@ -128,6 +171,13 @@ let sort_token =
     end
   end
 
+(* @dev: Returns reserves and vReserves in the correct order *)
+(* @solidity DMMLibrary.sol: 
+  (reserve0, reserve1, vReserve0, vReserve1, feeInPrecision) = IDMMPool(pool).getTradeInfo();
+  (reserveA, reserveB, vReserveA, vReserveB) = tokenA == token0
+    ? (reserve0, reserve1, vReserve0, vReserve1)
+    : (reserve1, reserve0, vReserve1, vReserve0); 
+*)
 let get_trade_info = 
   fun (r_0: Uint128) =>
   fun (r_1: Uint128) =>
@@ -152,81 +202,357 @@ let get_trade_info =
     end
   end
 
+(* @dev: Returns x*y in precision *)
+(* @solidity MathExt.sol: 
+  return x.mul(y) / PRECISION;
+*)
+let mul_in_precision =
+  fun (x : Uint256) =>
+  fun (y : Uint256) =>
+    let xy = builtin mul x y in
+    builtin div xy precision
 
+(* @dev: Used in unsafe_pow_in_precision *)
+(* @solidity MathExt.sol: 
+  zInPrecision = k % 2 != 0 ? xInPrecision : PRECISION; 
+*)
+let get_z_in_precision = 
+  fun (x_in_precision: Uint256) =>
+  fun (k: Uint256)=> 
+    let remainder = builtin rem k two_u256 in
+    let is_zero = builtin eq remainder zero_u256 in
+    match is_zero with 
+    | True => precision
+    | False =>  x_in_precision
+    end
+
+let u32_to_nat_or_zero =
+  fun (uint: Uint32) =>
+    let nat = uint32_to_nat uint in
+    match nat with
+    | None => Zero (* uint32 always fits in a nat, so shld nvr happen *)
+    | Some r => r
+    end
+
+(* @dev: Gets z_in_precision from the pair output of unsafe_pow_in_precision *)
+(* @param: k (Pair x_in_precision z_in_precision) *)
+let get_z_from_unsafe_pow_in_precision =
+  fun (pair: Pair Uint256 (Pair Uint256 Uint256)) =>
+  match pair with
+  | Pair k xz_pair =>
+    match xz_pair with
+    | Pair x_in_precision z_in_precision => z_in_precision
+    end
+  end
+
+(* @solidity MathExt.sol:
+  zInPrecision = k % 2 != 0 ? xInPrecision : PRECISION;
+  for (k /= 2; k != 0; k /= 2) {
+      xInPrecision = (xInPrecision * xInPrecision) / PRECISION;
+      if (k % 2 != 0) { zInPrecision = (zInPrecision * xInPrecision) / PRECISION; }
+  } 
+  return zInPrecision;
+*)
+let unsafe_pow_in_precision = 
+  fun (x_in_precision: Uint256) =>
+  fun (k: Uint256) =>
+    let z_in_precision = get_z_in_precision x_in_precision k in
+
+    let m = Uint32 128 in
+    let m_nat = u32_to_nat_or_zero m in (* max no of loops is fixed at 128 times *)
+
+    let xz_pair = Pair {Uint256 Uint256} x_in_precision z_in_precision in
+    let init_pair = Pair {Uint256 (Pair Uint256 Uint256)} k xz_pair in
+
+    let foldk = @nat_foldk (Pair Uint256 (Pair Uint256 Uint256)) in (* k (Pair x_in_precision z_in_precision) *)
+    let iter =
+      fun (n : Pair Uint256 (Pair Uint256 Uint256)) =>
+      fun (ignore : Nat) =>
+      fun (recurse : (Pair Uint256 (Pair Uint256 Uint256) -> Pair Uint256 (Pair Uint256 Uint256))) =>
+        match n with
+        | Pair k cur_xz_pair =>
+          let is_k_zero = builtin eq k zero_u256 in
+          match is_k_zero with
+          | True => n
+          | False => 
+            match cur_xz_pair with
+            | Pair x_in_precision z_in_precision =>
+              let new_k = builtin div k two_u256 in
+              let inter_x_in_precision = builtin mul x_in_precision x_in_precision in
+              let new_x_in_precision = builtin div inter_x_in_precision precision in
+              let mod = builtin rem new_k two_u256 in
+              let is_odd = builtin eq mod one_u256 in
+              match is_odd with
+              | False =>
+                let new_xz_pair = Pair {Uint256 Uint256} new_x_in_precision z_in_precision in
+                let new_accum = Pair {Uint256 (Pair Uint256 Uint256)} new_k new_xz_pair in
+                recurse new_accum
+              | True =>
+                let inter_z_in_precision = builtin mul z_in_precision x_in_precision in
+                let new_z_in_precision = builtin div inter_z_in_precision precision in
+
+                let new_xz_pair = Pair {Uint256 Uint256} new_x_in_precision new_z_in_precision in
+                let new_accum = Pair {Uint256 (Pair Uint256 Uint256)} new_k new_xz_pair in
+                recurse new_accum
+              end
+            end
+          end
+        end
+      in
+    foldk iter init_pair m_nat
+
+(* @solidity VolumeTrendRecorder.sol: 
+  return ((precision - alpha) * ema + alpha * value) / precision; 
+*)
+let get_ema =
+  fun (ema : Uint256) =>
+  fun (alpha : Uint256) =>
+  fun (value : Uint128) =>
+    let v = grow value in
+    let i_a = builtin sub precision alpha in
+    let a = builtin mul i_a ema in
+    let b = builtin mul alpha v in
+    let n = builtin add a b in
+    builtin div n precision
+
+(* @dev: Returns r_factor_in_precision in Uint256 from short_ema and long_ema *)
+(* @solidity VolumeTrendRecorder.sol: 
+  if (_longEMA == 0) { return 0; }
+  return (_shortEMA * MathExt.PRECISION) / _longEMA; 
+*)
 let calculate_r_factor = 
   fun (short_ema : Uint256) =>
   fun (long_ema : Uint256) =>
-    let zero_amount = Uint256 0 in 
-    let is_eq = builtin eq long_ema zero_amount in 
-    match is_eq with
-    | True => zero_amount
+    let is_zero = builtin eq long_ema zero_u256 in 
+    match is_zero with
+    | True => zero_u256
     | False =>
-      let s_e = builtin mul short_ema precision in 
-      builtin div s_e long_ema
+      frac_u256 short_ema precision long_ema
     end
 
-let get_final_fee = 
-  fun (fee_in_precision : Uint256) =>
-  fun (amp_bps : Uint128) =>
-    let fee_in_precision_u128 = reduce fee_in_precision in
-    let four = Uint128 4 in
-    let ten = Uint128 10 in
-    let twenty = Uint128 20 in
-    let thirty = Uint128 30 in
-    let two_bps = Uint128 20000 in
-    let five_bps = Uint128 50000 in
-    let twenty_bps = Uint128 200000 in
-    let le_two_bps = uint128_le amp_bps two_bps in 
-    match le_two_bps with
-    | True => fee_in_precision_u128
+(* @dev: Returns rFactor in Precision for this trade *)
+(* @solidity VolumeTrendRecorder.sol:
+  skipBlock = blockNumber - lastTradeBlock;
+  if (skipBlock == 0) { return calculateRFactor(shortEMA, longEMA); }
+
+  _shortEMA = (newEMA(shortEMA, SHORT_ALPHA, currentBlockVolume)).mulInPrecision(
+      (PRECISION - SHORT_ALPHA).unsafePowInPrecision(skipBlock - 1));
+
+  _longEMA = (newEMA(longEMA, LONG_ALPHA, currentBlockVolume)).mulInPrecision(
+      (PRECISION - LONG_ALPHA).unsafePowInPrecision(skipBlock - 1));
+  return calculateRFactor(_shortEMA, _longEMA);}
+*)
+let get_r_factor = 
+  fun (current_block: BNum) =>
+  fun (last_trade_block: BNum) =>
+  fun (current_block_volume: Uint128) =>
+  fun (short_ema: Uint256) =>
+  fun (long_ema: Uint256) =>
+    let block_skipped_int256 = builtin bsub current_block last_trade_block in
+    let blocks_skipped_u128 = shrink block_skipped_int256 in
+    let blocks_skipped_u256 = grow blocks_skipped_u128 in
+    let is_zero = builtin eq blocks_skipped_u256 zero_u256 in
+    match is_zero with
+    | True => calculate_r_factor short_ema long_ema
     | False =>
-      let le_five_bps = uint128_le amp_bps five_bps in
-      match le_five_bps with 
-      | True => 
-        frac fee_in_precision_u128 twenty thirty 
+      let block_skipped_minus_one = builtin sub blocks_skipped_u256 one_u256 in
+      let short_e = get_ema short_ema short_alpha current_block_volume in
+      let long_e = get_ema long_ema long_alpha current_block_volume in
+      let s_e = 
+        let a = builtin sub precision short_alpha in
+        let b = mul_in_precision short_e a in
+        let pair = unsafe_pow_in_precision b block_skipped_minus_one in
+        get_z_from_unsafe_pow_in_precision pair
+      in
+      let l_e = 
+        let a = builtin sub precision long_alpha in
+        let b = mul_in_precision long_e a in
+        let pair = unsafe_pow_in_precision b block_skipped_minus_one in
+        get_z_from_unsafe_pow_in_precision pair
+      in
+      calculate_r_factor s_e l_e
+    end
+
+(* @dev: Calculates fee in Uint256 from r_factor_in_precision *)
+(* @solidity FeeFormula.sol:
+  if (rFactorInPrecision >= R0) { return C0; } 
+  else if (rFactorInPrecision >= PRECISION) {
+    // C1 + A * (r-U)^3 + b * (r -U)
+    if (rFactorInPrecision > U) {
+      tmp = rFactorInPrecision - U;
+      tmp3 = tmp.unsafePowInPrecision(3);
+      return (C1.add(A.mulInPrecision(tmp3)).add(B.mulInPrecision(tmp))) / 10000;
+    } else {
+      tmp = U - rFactorInPrecision;
+      tmp3 = tmp.unsafePowInPrecision(3);
+      return C1.sub(A.mulInPrecision(tmp3)).sub(B.mulInPrecision(tmp)) / 10000;
+    }
+  } else {
+    // [ C2 + sign(r - G) *  F * (r-G) ^2 / (L + (r-G) ^2) ] / 10000
+    tmp = (rFactorInPrecision > G ? (rFactorInPrecision - G) : (G - rFactorInPrecision));
+    tmp = tmp.unsafePowInPrecision(2);
+    tmp2 = F.mul(tmp).div(tmp.add(L));
+    if (rFactorInPrecision > G) { return C2.add(tmp2) / 10000; }
+    else { return C2.sub(tmp2) / 10000; }
+  }
+*)
+let get_fee = 
+  fun (r_factor_in_precision: Uint256) => 
+    let r0 = Uint256 1477405064814996100 in
+    let c2 = Uint256 20036905816356657810 in
+    let c0 = frac_u256 sixty_u256 precision ten_thousand_u256 in
+    let a = frac_u256 twenty_thousand_u256 precision twenty_seven_u256 in
+    let b = frac_u256 two_hundred_fifty_u256 precision nine_u256 in
+    let c1 = frac_u256 nine_hundred_eighty_five_u256 precision twenty_seven_u256 in
+    let u = frac_u256 one_hundred_twenty_u256 precision one_hundred_u256 in
+    let g = frac_u256 eight_hundred_thirty_six_u256 precision one_thousand_u256 in
+    let f = builtin mul five_u256 precision in
+    let l = frac_u256 two_u256 precision ten_thousand_u256 in
+    let is_ge_r0 = uint256_ge r_factor_in_precision r0 in
+    match is_ge_r0 with 
+    | True => c0
+    | False => 
+      let is_ge_precision = uint256_ge r_factor_in_precision precision in
+      match is_ge_precision with
+      | True =>
+        (* C1 + A * (r-U)^3 + b * (r -U) *)
+        let is_gt_u = uint256_gt r_factor_in_precision u in
+        match is_gt_u with
+        | True =>
+          let tmp = builtin sub r_factor_in_precision u in
+          let tmp3 = 
+            let pair = unsafe_pow_in_precision tmp three_u256 in
+            get_z_from_unsafe_pow_in_precision pair
+          in
+          let a_tmp3 = mul_in_precision a tmp3 in
+          let b_tmp = mul_in_precision b tmp in
+          let c1_add_a = builtin add c1 a_tmp3 in
+          let c1_add_a_add_b = builtin add c1_add_a b_tmp in
+          builtin div c1_add_a_add_b ten_thousand_u256
+        | False =>
+          let tmp = builtin sub u r_factor_in_precision in
+          let tmp3 = 
+            let pair = unsafe_pow_in_precision tmp three_u256 in
+            get_z_from_unsafe_pow_in_precision pair
+          in
+          let a_tmp3 = mul_in_precision a tmp3 in
+          let b_tmp = mul_in_precision b tmp in
+          let c1_sub_a = builtin sub c1 a_tmp3 in
+          let c1_sub_a_sub_b = builtin sub c1_sub_a b_tmp in
+          builtin div c1_sub_a_sub_b ten_thousand_u256
+        end
       | False =>
-        let le_twenty_bps = uint128_le amp_bps twenty_bps in
-        match le_twenty_bps with
+        (* [ C2 + sign(r - G) *  F * (r-G) ^2 / (L + (r-G) ^2) ] / 10000 *)
+        let is_gt_g = uint256_gt r_factor_in_precision g in
+        let tmp = match is_gt_g with
         | True => 
-          frac fee_in_precision_u128 ten thirty
+          let r_sub_g = builtin sub r_factor_in_precision g in
+          let pair = unsafe_pow_in_precision r_sub_g two_u256 in
+          get_z_from_unsafe_pow_in_precision pair
         | False => 
-          frac fee_in_precision_u128 four thirty
+          let g_sub_r = builtin sub g r_factor_in_precision in
+          let pair = unsafe_pow_in_precision g_sub_r two_u256 in 
+          get_z_from_unsafe_pow_in_precision pair
+        end in
+        let tmp_add_l = builtin add tmp l in
+        let tmp2 = frac_u256 f tmp tmp_add_l in
+        match is_gt_g with 
+        | True =>
+          let c2_add_tmp2 = builtin add c2 tmp2 in
+          builtin div c2_add_tmp2 ten_thousand_u256
+        | False =>
+          let c2_sub_tmp2 = builtin sub c2 tmp2 in
+          builtin div c2_sub_tmp2 ten_thousand_u256
         end
       end
     end
 
+(* @dev: Returns final_fee in Uint256 *)
+(* @solidity DMMPool.sol:
+  if (_ampBps <= 20000) { return feeInPrecision; } 
+  else if (_ampBps <= 50000) { return (feeInPrecision * 20) / 30; }
+  else if (_ampBps <= 200000) { return (feeInPrecision * 10) / 30; }
+  else { return (feeInPrecision * 4) / 30; }
+} *)
+let get_final_fee = 
+  fun (fee_in_precision : Uint256) =>
+  fun (amp_bps : Uint128) =>
+    let amp_bps_u256 = grow amp_bps in
+    let is_le_twenty_thousand = uint256_le amp_bps_u256 twenty_thousand_u256 in 
+    match is_le_twenty_thousand with
+    | True => fee_in_precision
+    | False =>
+      let is_le_fifty_thousand_u256 = uint256_le amp_bps_u256 fifty_thousand_u256 in
+      match is_le_fifty_thousand_u256 with 
+      | True => 
+        frac_u256 fee_in_precision twenty_u256 thirty_u256 
+      | False =>
+        let is_le_two_hundred_thousand_u256 = uint256_le amp_bps_u256 two_hundred_thousand_u256 in
+        match is_le_two_hundred_thousand_u256 with
+        | True => 
+          frac_u256 fee_in_precision ten_u256 thirty_u256
+        | False => 
+          frac_u256 fee_in_precision four_u256 thirty_u256
+        end
+      end
+    end
+
+(* @dev: Calculates amount_out *)
+(* @solidity DMMLibrary.sol:
+  require(amountIn > 0, "DMMLibrary: INSUFFICIENT_INPUT_AMOUNT");
+  require(reserveIn > 0 && reserveOut > 0, "DMMLibrary: INSUFFICIENT_LIQUIDITY");
+  amountInWithFee = amountIn.mul(PRECISION.sub(feeInPrecision)).div(PRECISION);
+  numerator = amountInWithFee.mul(vReserveOut);
+  denominator = vReserveIn.add(amountInWithFee);
+  amountOut = numerator.div(denominator);
+  require(reserveOut > amountOut, "DMMLibrary: INSUFFICIENT_LIQUIDITY");
+} *)
 let get_amount_out = 
   fun (amount_in: Uint128) =>
   fun (reserve_in: Uint128) =>
   fun (reserve_out: Uint128) =>
   fun (v_reserve_in: Uint128) =>
   fun (v_reserve_out: Uint128) =>
-  fun (fee_in_precision: Uint128) =>
+  fun (fee_in_precision: Uint256) =>
     let precision_u128 = reduce precision in
-    let a = builtin sub precision_u128 fee_in_precision in
-    let amount_in_with_fee = frac amount_in a precision_u128 in
+    let fee_in_precision_u128 = reduce fee_in_precision in
+    let precision_sub_fee = builtin sub precision_u128 fee_in_precision_u128 in
+    let amount_in_with_fee = frac amount_in precision_sub_fee precision_u128 in
     let numerator = builtin mul amount_in_with_fee v_reserve_out in
     let denominator = builtin add v_reserve_in amount_in_with_fee in
     builtin div numerator denominator
 
+(* @dev: Calculates amount_in *)
+(* @solidity DMMLibrary.sol:
+  require(amountOut > 0, "DMMLibrary: INSUFFICIENT_OUTPUT_AMOUNT");
+  require(reserveIn > 0 && reserveOut > amountOut, "DMMLibrary: INSUFFICIENT_LIQUIDITY");
+  numerator = vReserveIn.mul(amountOut);
+  denominator = vReserveOut.sub(amountOut);
+  amountIn = numerator.div(denominator).add(1);
+  // amountIn = floor(amountIN *PRECISION / (PRECISION - feeInPrecision));
+  numerator = amountIn.mul(PRECISION);
+  denominator = PRECISION.sub(feeInPrecision);
+  amountIn = numerator.add(denominator - 1).div(denominator); 
+*)
 let get_amount_in = 
   fun (amount_out: Uint128) =>
   fun (reserve_in: Uint128) =>
   fun (reserve_out: Uint128) =>
   fun (v_reserve_in: Uint128) =>
   fun (v_reserve_out: Uint128) =>
-  fun (fee_in_precision: Uint128) =>
+  fun (fee_in_precision: Uint256) =>
     let one = Uint128 1 in
     let precision_u128 = reduce precision in
+    let fee_in_precision_u128 = reduce fee_in_precision in
     let n = builtin mul v_reserve_in amount_out in
     let d = builtin sub v_reserve_out amount_out in
     let a_i = builtin div n d in
     let amount_in = builtin add a_i one in
     let numerator = builtin mul amount_in precision_u128 in
-    let denominator = builtin sub precision_u128 fee_in_precision in
-    let d_minus_one = builtin sub numerator one in
-    let n_a = builtin add numerator d_minus_one in
-    builtin div n_a denominator
+    let denominator = builtin sub precision_u128 fee_in_precision_u128 in
+    let denominator_minus_one = builtin sub denominator one in
+    let numerator_add_denominator_minus_one = builtin add numerator denominator_minus_one in
+    builtin div numerator_add_denominator_minus_one denominator
 
 (* Error events *)
 type Error =
@@ -307,22 +633,22 @@ procedure IsSelf(address : ByStr20)
 end
 
 (* @dev: Validate the pool contract with correct codehash *)
-(*procedure IsValidPoolContract(pool_address : ByStr20)*)
-(*  maybe_pool <- & pool_address as ByStr20 with _codehash end;*)
-(*  match maybe_pool with*)
-(*  | None =>*)
-(*  | Some p =>*)
-(*    required_codehash <- pool_codehash;*)
-(*    codehash <- & p._codehash;*)
-(*    is_valid_pool = builtin eq codehash required_codehash;*)
-(*    match is_valid_pool with*)
-(*    | True =>*)
-(*    | False =>*)
-(*      err = CodeInvalidPool;*)
-(*      ThrowError err*)
-(*    end*)
-(*  end*)
-(*end*)
+procedure IsValidPoolContract(pool_address : ByStr20)
+  maybe_pool <- & pool_address as ByStr20 with _codehash end;
+  match maybe_pool with
+  | None =>
+  | Some p =>
+    required_codehash <- pool_codehash;
+    codehash <- & p._codehash;
+    is_valid_pool = builtin eq codehash required_codehash;
+    match is_valid_pool with
+    | True =>
+    | False =>
+      err = CodeInvalidPool;
+      ThrowError err
+    end
+  end
+end
 
 procedure AddOnceToPools(tokenA : ByStr20, tokenB : ByStr20, pool : ByStr20)
   p <- pools[tokenA][tokenB];
@@ -358,6 +684,11 @@ procedure VerifyWZILAddress(address: ByStr20)
 end
 
 (* @dev: Validates that the tokenAmount and the pool reserves are more than 0 *)
+(* @solidity DMMLibrary.sol:
+  require(amountA > 0, "DMMLibrary: INSUFFICIENT_AMOUNT");
+  require(reserveA > 0 && reserveB > 0, "DMMLibrary: INSUFFICIENT_LIQUIDITY");
+  amountB = amountA.mul(reserveB) / reserveA;
+*)
 procedure Quote(amountA : Uint128, reserveA : Uint128, reserveB : Uint128)
   is_sufficient_amt = uint128_gt amountA zero_amount;
   match is_sufficient_amt with
@@ -459,148 +790,34 @@ procedure TransferFromZRC2(token_address: ByStr20, from: ByStr20, to: ByStr20, a
   send msg
 end
 
-(* Calls Mint transition on wZIL contract to wrap ZIL into wZIL *)
-procedure WrapZIL(amount: Uint128)
-  wZIL <- wZIL_address;
-  msg_to_zrc2 = {
-    _tag: "Mint";
-    _recipient: wZIL;
-    _amount: amount
-  };
-  msg = one_msg msg_to_zrc2;
-  send msg
-end
-
-(* Calls Burn transition on wZIL contract to unwrap wZIL into ZIL *)
-procedure UnwrapZIL(amount: Uint128)
-  wZIL <- wZIL_address;
-  msg_to_token = {
-    _tag: "Burn";
-    _recipient: wZIL;
-    _amount: zero_amount;
-    amount: amount
-  };
-
-  msg = one_msg msg_to_token;
-  send msg
-end
-
-(*** Swaps ***)
-
-(* @dev: Calculates the amount_out and assigns to amt_out *)
-procedure GetAmountOut(
-  amount_in: Uint128,
-  pool: ByStr20 with contract
-    field reserve0 : Uint128,
-    field reserve1 : Uint128,
-    field amp_bps : Uint128,
-    field v_reserve0 : Uint128,
-    field v_reserve1 : Uint128,
-    field short_ema : Uint256,
-    field long_ema : Uint256
-  end,
+(* @dev: Transfers this contract's ZRC2 tokens into pool *)
+(* @param: path: token_in token_out *)
+procedure TransferZRC2ToPool(
+  pool: ByStr20,
   path: Pair ByStr20 ByStr20,
-  deadline_block: BNum
+  amount_in: Uint128
 )
-  VerifyBlock deadline_block;
-  is_valid_amount_in = uint128_gt amount_in zero_amount;
-  match is_valid_amount_in with
-  | True =>
-  | False =>
-    err = CodeInsufficientInputAmt;
-    ThrowError err
-  end;
-
-  match path with 
+  match path with
   | Pair token_in token_out =>
     init_token_pair = sort_token path;
     match init_token_pair with
     | Pair init_token0 init_token1 =>
-      VerifyPoolAddress init_token0 init_token1 pool;
-      r_0 <- & pool.reserve0;
-      r_1 <- & pool.reserve1;
-      v_r_0 <- & pool.v_reserve0;
-      v_r_1 <- & pool.v_reserve1;
-      amp <- & pool.amp_bps;
-      s_e <- & pool.short_ema;
-      l_e <- & pool.long_ema;
-      r_factor_in_precision = calculate_r_factor s_e l_e;
-      fee_in_precision = get_final_fee r_factor_in_precision amp;
-  
-      is_eq = builtin eq amp bps;
-      is_same_order = builtin eq token_in init_token0;
-  
-      data = get_trade_info r_0 r_1 v_r_0 v_r_1 is_eq is_same_order;
-      match data with 
-      | ReserveData r_in r_out v_r_in v_r_out =>
-        amount_out = get_amount_out amount_in r_in r_out v_r_in v_r_out fee_in_precision;
-        amt_out := amount_out;
-  
-        VerifySufficientLiquidity r_in r_out zero_amount zero_amount;
-
-        is_valid_reserve_out = uint128_gt r_out amount_out;
-        match is_valid_reserve_out with 
-        | True => | False => 
-          err = CodeInsufficientLiquidity;
-          ThrowError err
-        end
-
-      end
-    end
-  end
-end
-
-(* @dev: Calculates the amount_in and assigns to amt_in *)
-procedure GetAmountIn(
-  amount_out: Uint128,
-  pool: ByStr20 with contract
-    field reserve0 : Uint128,
-    field reserve1 : Uint128,
-    field amp_bps : Uint128,
-    field v_reserve0 : Uint128,
-    field v_reserve1 : Uint128,
-    field short_ema : Uint256,
-    field long_ema : Uint256
-  end,
-  path: Pair ByStr20 ByStr20,
-  deadline_block: BNum
-)
-  VerifyBlock deadline_block;
-  is_valid_amount_out = uint128_gt amount_out zero_amount;
-  match is_valid_amount_out with
-  | True =>
-  | False =>
-    err = CodeInsufficientOutputAmt;
-    ThrowError err
-  end;
-
-  match path with
-  | Pair token_in token_out => 
-    init_token_pair = sort_token path;
-    match init_token_pair with
-    | Pair init_token0 init_token1 =>
-      VerifyPoolAddress init_token0 init_token1 pool;
-
-      r_0 <- & pool.reserve0;
-      r_1 <- & pool.reserve1;
-      v_r_0 <- & pool.v_reserve0;
-      v_r_1 <- & pool.v_reserve1;
-      amp <- & pool.amp_bps;
-      s_e <- & pool.short_ema;
-      l_e <- & pool.long_ema;
-      r_factor_in_precision = calculate_r_factor s_e l_e;
-      fee_in_precision = get_final_fee r_factor_in_precision amp;
-
-      is_eq = builtin eq amp bps;
       is_same_order = builtin eq token_in init_token0;
 
-      data = get_trade_info r_0 r_1 v_r_0 v_r_1 is_eq is_same_order;
-      match data with 
-      | ReserveData r_in r_out v_r_in v_r_out =>
-        amount_in = get_amount_in amount_out r_in r_out v_r_in v_r_out fee_in_precision;
-        amt_in := amount_in;
-
-        VerifySufficientLiquidity r_in r_out zero_amount amount_out
+      (* _swap *)
+      match is_same_order with
+      | True =>
+      (* Transfer exact amt of init_token0 to pool *)
+        msg_to_token = {_tag: "Transfer"; _recipient: init_token0; _amount: zero_amount;
+                        to: pool; amount: amount_in};
+        msgs = one_msg msg_to_token;
+        send msgs
+      | False =>
+      (* Transfer exact amt of init_token1 to pool *)
+        msg_to_token = {_tag: "Transfer"; _recipient: init_token1; _amount: zero_amount;
+                        to: pool; amount: amount_in};
+        msgs = one_msg msg_to_token;
+        send msgs
       end
     end
   end
@@ -639,34 +856,193 @@ procedure TransferFromZRC2ToPool(
   end
 end
 
-(* @dev: Transfers this contract's ZRC2 tokens into pool *)
-(* @param: path: token_in token_out *)
-procedure TransferZRC2ToPool(
-  pool: ByStr20,
+(* Calls Mint transition on wZIL contract to wrap ZIL into wZIL *)
+procedure WrapZIL(amount: Uint128)
+  wZIL <- wZIL_address;
+  msg_to_zrc2 = {
+    _tag: "Mint";
+    _recipient: wZIL;
+    _amount: amount
+  };
+  msg = one_msg msg_to_zrc2;
+  send msg
+end
+
+(* Calls Burn transition on wZIL contract to unwrap wZIL into ZIL *)
+procedure UnwrapZIL(amount: Uint128)
+  wZIL <- wZIL_address;
+  msg_to_token = {
+    _tag: "Burn";
+    _recipient: wZIL;
+    _amount: zero_amount;
+    amount: amount
+  };
+
+  msg = one_msg msg_to_token;
+  send msg
+end
+
+(*** Swaps ***)
+
+(* @dev: Calculates the amount_out and assigns to amt_out *)
+(* @solidity DMMLibrary.sol:
+  amounts = new uint256[](path.length);
+  amounts[0] = amountIn;
+  for (i; i < path.length - 1; i++) {
+    (reserveIn, reserveOut, vReserveIn, vReserveOut, feeInPrecision) = getTradeInfo(poolsPath[i], path[i], path[i + 1]);
+    amounts[i + 1] = getAmountOut(amounts[i], reserveIn, reserveOut, vReserveIn, vReserveOut, feeInPrecision);
+  }
+*)
+procedure GetAmountOut(
+  amount_in: Uint128,
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256,
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
+  end,
   path: Pair ByStr20 ByStr20,
-  amount_in: Uint128
+  deadline_block: BNum
 )
-  match path with
+  VerifyBlock deadline_block;
+  is_valid_amount_in = uint128_gt amount_in zero_amount;
+  match is_valid_amount_in with
+  | True =>
+  | False =>
+    err = CodeInsufficientInputAmt;
+    ThrowError err
+  end;
+
+  match path with 
   | Pair token_in token_out =>
     init_token_pair = sort_token path;
     match init_token_pair with
     | Pair init_token0 init_token1 =>
+      VerifyPoolAddress init_token0 init_token1 pool;
+
+      r_0 <- & pool.reserve0;
+      r_1 <- & pool.reserve1;
+      v_r_0 <- & pool.v_reserve0;
+      v_r_1 <- & pool.v_reserve1;
+
+      amp <- & pool.amp_bps;
+      short_ema <- & pool.short_ema;
+      long_ema <- & pool.long_ema;
+      current_block_volume <- & pool.current_block_volume;
+      current_block <- & BLOCKNUMBER;
+
+      last <- & pool.last_trade_block;
+      is_first_trade = builtin eq last zero_block;
+      last_block = match is_first_trade with
+      | True => current_block
+      | False => last
+      end;
+
+      r_factor_in_precision = get_r_factor current_block last_block current_block_volume short_ema long_ema;
+      intermediate_fee = get_fee r_factor_in_precision;
+      fee_in_precision = get_final_fee intermediate_fee amp;
+
+      is_eq = builtin eq amp bps;
       is_same_order = builtin eq token_in init_token0;
 
-      (* _swap *)
-      match is_same_order with
-      | True =>
-      (* Transfer exact amt of init_token0 to pool *)
-        msg_to_token = {_tag: "Transfer"; _recipient: init_token0; _amount: zero_amount;
-                        to: pool; amount: amount_in};
-        msgs = one_msg msg_to_token;
-        send msgs
-      | False =>
-      (* Transfer exact amt of init_token1 to pool *)
-        msg_to_token = {_tag: "Transfer"; _recipient: init_token1; _amount: zero_amount;
-                        to: pool; amount: amount_in};
-        msgs = one_msg msg_to_token;
-        send msgs
+      data = get_trade_info r_0 r_1 v_r_0 v_r_1 is_eq is_same_order;
+      match data with 
+      | ReserveData r_in r_out v_r_in v_r_out =>
+        VerifySufficientLiquidity r_in r_out zero_amount zero_amount;
+
+        amount_out = get_amount_out amount_in r_in r_out v_r_in v_r_out fee_in_precision;
+        amt_out := amount_out;
+
+        is_valid_reserve_out = uint128_gt r_out amount_out;
+        match is_valid_reserve_out with 
+        | True => | False => 
+          err = CodeInsufficientLiquidity;
+          ThrowError err
+        end
+      end
+    end
+  end
+end
+
+(* @dev: Calculates the amount_in and assigns to amt_in *)
+(* @solidity DMMLibrary.sol:
+  amounts = new [](path.length);
+  amounts[amounts.length - 1] = amountOut;
+  for ( i = path.length - 1; i > 0; i--) {
+    (reserveIn, reserveOut, vReserveIn, vReserveOut, feeInPrecision) = getTradeInfo(poolsPath[i - 1], path[i - 1], path[i]);
+    amounts[i - 1] = getAmountIn(amounts[i], reserveIn, reserveOut, vReserveIn, vReserveOut, feeInPrecision);
+  }
+*)
+procedure GetAmountIn(
+  amount_out: Uint128,
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field short_ema : Uint256,
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
+  end,
+  path: Pair ByStr20 ByStr20,
+  deadline_block: BNum
+)
+  VerifyBlock deadline_block;
+  is_valid_amount_out = uint128_gt amount_out zero_amount;
+  match is_valid_amount_out with
+  | True =>
+  | False =>
+    err = CodeInsufficientOutputAmt;
+    ThrowError err
+  end;
+
+  match path with
+  | Pair token_in token_out => 
+    init_token_pair = sort_token path;
+    match init_token_pair with
+    | Pair init_token0 init_token1 =>
+      VerifyPoolAddress init_token0 init_token1 pool;
+
+      r_0 <- & pool.reserve0;
+      r_1 <- & pool.reserve1;
+      v_r_0 <- & pool.v_reserve0;
+      v_r_1 <- & pool.v_reserve1;
+
+      amp <- & pool.amp_bps;
+      short_ema <- & pool.short_ema;
+      long_ema <- & pool.long_ema;
+      current_block_volume <- & pool.current_block_volume;
+      current_block <- & BLOCKNUMBER;
+
+      last <- & pool.last_trade_block;
+      is_first_trade = builtin eq last zero_block;
+      last_block = match is_first_trade with
+      | True => current_block
+      | False => last
+      end;
+
+      r_factor_in_precision = get_r_factor current_block last_block current_block_volume short_ema long_ema;
+      intermediate_fee = get_fee r_factor_in_precision;
+      fee_in_precision = get_final_fee intermediate_fee amp;
+
+      is_eq = builtin eq amp bps;
+      is_same_order = builtin eq token_in init_token0;
+
+      data = get_trade_info r_0 r_1 v_r_0 v_r_1 is_eq is_same_order;
+      match data with 
+      | ReserveData r_in r_out v_r_in v_r_out =>
+        VerifySufficientLiquidity r_in r_out zero_amount amount_out;
+
+        amount_in = get_amount_in amount_out r_in r_out v_r_in v_r_out fee_in_precision;
+        amt_in := amount_in
       end
     end
   end
@@ -674,6 +1050,18 @@ end
 
 (* @dev: Swaps ZRC2 for ZRC2 in one pool *)
 (* @param path: token_in token_out *)
+(* @solidity DMMRouter02.sol:
+  for (uint256 i; i < path.length - 1; i++) {
+    (IERC20 input, IERC20 output) = (path[i], path[i + 1]);
+    (IERC20 token0, ) = DMMLibrary.sortTokens(input, output);
+    uint256 amountOut = amounts[i + 1];
+    (uint256 amount0Out, uint256 amount1Out) = input == token0
+        ? (uint256(0), amountOut)
+        : (amountOut, uint256(0));
+    address to = i < path.length - 2 ? poolsPath[i + 1] : _to;
+    IDMMPool(poolsPath[i]).swap(amount0Out, amount1Out, to, new bytes(0));
+  }
+*)
 procedure SwapZRC2Once(
   pool: ByStr20,
   path: Pair ByStr20 ByStr20, 
@@ -755,7 +1143,7 @@ transition AddPool(
   f <- & pool.factory;
   IsSelf f;
 
-(* IsValidPoolContract pool;*)
+  IsValidPoolContract pool;
 
   (* TODO: not possible now as init var cannot be fetched *)
   (* validate name and symbol *)
@@ -849,8 +1237,37 @@ end
 
 (*** LIQUIDITY ***)
 
-(* @params: tokenA < tokenB (ie tokenA == token0, tokenB == token1 on Pool) *)
-(* @params: v_reserve_ratio_bounds only applies for amp_pool *)
+(* @param: Order of tokens does not matter*)
+(* @param: But ideally, tokenA < tokenB (ie tokenA == token0, tokenB == token1 on Pool) *)
+(* @param: v_reserve_ratio_bounds only applies for amp_pool *)
+(* @solidity addLiquidity DMMRouter02.sol:
+  verifyPoolAddress(tokenA, tokenB, pool);
+  (amountA, amountB) = _addLiquidity(tokenA, tokenB, pool, amountADesired, amountBDesired, amountAMin, amountBMin, vReserveRatioBounds);
+  // using tokenA.safeTransferFrom will get "Stack too deep"
+  SafeERC20.safeTransferFrom(tokenA, msg.sender, pool, amountA);
+  SafeERC20.safeTransferFrom(tokenB, msg.sender, pool, amountB);
+  liquidity = IDMMPool(pool).mint(to);
+*)
+(* @solidity _addLiquidity DMMRouter02.sol:
+  (reserveA, reserveB, vReserveA, vReserveB, ) = DMMLibrary.getTradeInfo(pool, tokenA, tokenB);
+  if (reserveA == 0 && reserveB == 0) { (amountA, amountB) = (amountADesired, amountBDesired); } 
+  else {
+    amountBOptimal = DMMLibrary.quote(amountADesired, reserveA, reserveB);
+    if (amountBOptimal <= amountBDesired) {
+      require(amountBOptimal >= amountBMin, "DMMRouter: INSUFFICIENT_B_AMOUNT");
+      (amountA, amountB) = (amountADesired, amountBOptimal);
+    } else {
+      amountAOptimal = DMMLibrary.quote(amountBDesired, reserveB, reserveA);
+      assert(amountAOptimal <= amountADesired);
+      require(amountAOptimal >= amountAMin, "DMMRouter: INSUFFICIENT_A_AMOUNT");
+      (amountA, amountB) = (amountAOptimal, amountBDesired);
+    }
+    currentRate = (vReserveB * Q112) / vReserveA;
+    require( currentRate >= vReserveRatioBounds[0] && currentRate <= vReserveRatioBounds[1],
+        "DMMRouter: OUT_OF_BOUNDS_VRESERVE"
+    );
+  }
+*)
 transition AddLiquidity(
   tokenA : ByStr20,
   tokenB : ByStr20,
@@ -963,6 +1380,18 @@ transition AddLiquidity(
   send msg
 end
 
+(* @solidity DMMRouter02.sol:
+  verifyPoolAddress(token, weth, pool);
+  (amountToken, amountETH) = _addLiquidity(token, weth, pool, amountTokenDesired, msg.value, amountTokenMin, amountETHMin, vReserveRatioBounds);
+  token.safeTransferFrom(msg.sender, pool, amountToken);
+  weth.deposit{value: amountETH}();
+  weth.safeTransfer(pool, amountETH);
+  liquidity = IDMMPool(pool).mint(to);
+  // refund dust eth, if any
+  if (msg.value > amountETH) {
+      TransferHelper.safeTransferETH(msg.sender, msg.value - amountETH);
+  }
+*)
 transition AddLiquidityZIL(
   token : ByStr20,
   pool: ByStr20 with contract
@@ -1098,7 +1527,17 @@ end
 
 (* // **** REMOVE LIQUIDITY **** *)
 
-(* @params: tokenA < tokenB (ie tokenA == token0, tokenB == token1 on Pool) *)
+(* @param: Order of tokens does not matter*)
+(* @param: But ideally, tokenA < tokenB (ie tokenA == token0, tokenB == token1 on Pool) *)
+(* @solidity DMMRouter02.sol:
+  verifyPoolAddress(tokenA, tokenB, pool);
+  IERC20(pool).safeTransferFrom(msg.sender, pool, liquidity); // send liquidity to pool
+  (uint256 amount0, uint256 amount1) = IDMMPool(pool).burn(to);
+  (IERC20 token0, ) = DMMLibrary.sortTokens(tokenA, tokenB);
+  (amountA, amountB) = tokenA == token0 ? (amount0, amount1) : (amount1, amount0);
+  require(amountA >= amountAMin, "DMMRouter: INSUFFICIENT_A_AMOUNT");
+  require(amountB >= amountBMin, "DMMRouter: INSUFFICIENT_B_AMOUNT");
+*)
 transition RemoveLiquidity(
   tokenA : ByStr20 with contract
     field balances: Map ByStr20 Uint128
@@ -1144,6 +1583,12 @@ transition RemoveLiquidity(
   send msgs
 end
 
+(* @solidity DMMRouter.sol:
+  (amountToken, amountETH) = removeLiquidity(token, weth, pool, liquidity, amountTokenMin, amountETHMin, address(this), deadline);
+  token.safeTransfer(to, amountToken);
+  IWETH(weth).withdraw(amountETH);
+  TransferHelper.safeTransferETH(to, amountETH); 
+*)
 transition RemoveLiquidityZIL(
   token: ByStr20 with contract
     field balances: Map ByStr20 Uint128
@@ -1199,6 +1644,13 @@ end
 (*** SWAP ***)
 
 (* @param path: token_in token_out *)
+(* @solidity DMMRouter02.sol:
+  verifyPoolsPathSwap(poolsPath, path);
+  amounts = DMMLibrary.getAmountsOut(amountIn, poolsPath, path);
+  require(amounts[amounts.length - 1] >= amountOutMin, "DMMRouter: INSUFFICIENT_OUTPUT_AMOUNT");
+  IERC20(path[0]).safeTransferFrom(msg.sender, poolsPath[0], amounts[0]);
+  _swap(amounts, poolsPath, path, to);
+*)
 transition SwapExactTokensForTokensOnce(
   amount_in: Uint128,
   amount_out_min: Uint128,
@@ -1209,7 +1661,9 @@ transition SwapExactTokensForTokensOnce(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
@@ -1239,7 +1693,8 @@ transition SwapExactTokensForTokensOnce(
   amt_out := zero_amount (* Reassign back to 0 *)
 end
 
-(* @dev: amount_in -> pool1 -> intermediate_amount_out === intermediate_amount_in -> pool2 -> final_amount_out *)
+(* @dev: amount_in -> pool1 -> intermediate_amount_out *)
+(* @dev: intermediate_amount_out -> pool2 -> final_amount_out *)
 (* @param path: token_in token_out *)
 transition SwapExactTokensForTokensTwice(
   amount_in: Uint128,
@@ -1251,7 +1706,9 @@ transition SwapExactTokensForTokensTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1260,7 +1717,9 @@ transition SwapExactTokensForTokensTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -1298,9 +1757,9 @@ transition SwapExactTokensForTokensTwice(
   amt_out := zero_amount (* Reassign back to 0 *)
 end
 
-(* @dev: amount_in -> pool1 -> first_intermediate_amount_out === first_intermediate_amount_in *)
-(* @dev: first_intermediate_amount_in -> pool2 -> second_intermediate_amount_out === second_intermediate_amount_in *)
-(* @dev: second_intermediate_amount_in -> pool3 -> final_amount_out *)
+(* @dev: amount_in -> pool1 -> first_intermediate_amount_out *)
+(* @dev: first_intermediate_amount_out -> pool2 -> second_intermediate_amount_out *)
+(* @dev: second_intermediate_amount_out -> pool3 -> final_amount_out *)
 (* @param path: token_in token_out *)
 transition SwapExactTokensForTokensThrice(
   amount_in: Uint128,
@@ -1312,7 +1771,9 @@ transition SwapExactTokensForTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1321,7 +1782,9 @@ transition SwapExactTokensForTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool3: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1330,7 +1793,9 @@ transition SwapExactTokensForTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -1375,8 +1840,15 @@ transition SwapExactTokensForTokensThrice(
   amt_out := zero_amount (* Reassign back to 0 *)
 end
 
-(* @dev: init_amt_in -> pool1 -> intermediate_amount_out === intermediate_amount_in -> pool2 -> amount_out *)
+(* @dev: init_amt_in -> pool -> amount_out *)
 (* @param path: token_in token_out *)
+(* @solidity DMMRouter02.sol:
+  verifyPoolsPathSwap(poolsPath, path);
+  amounts = DMMLibrary.getAmountsIn(amountOut, poolsPath, path);
+  require(amounts[0] <= amountInMax, "DMMRouter: EXCESSIVE_INPUT_AMOUNT");
+  path[0].safeTransferFrom(msg.sender, poolsPath[0], amounts[0]);
+  _swap(amounts, poolsPath, path, to);
+*)
 transition SwapTokensForExactTokensOnce(
   amount_out: Uint128,
   amount_in_max: Uint128,
@@ -1387,7 +1859,9 @@ transition SwapTokensForExactTokensOnce(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
@@ -1419,6 +1893,9 @@ transition SwapTokensForExactTokensOnce(
   amt_in := zero_amount (* Reassign back to 0 *)
 end
 
+(* @dev: init_amt_in -> pool1 -> intermediate_amt_in *)
+(* @dev: intermediate_amt_in -> pool2 -> amount_out *)
+(* @param path: token_in token_out *)
 transition SwapTokensForExactTokensTwice(
   amount_out: Uint128,
   amount_in_max: Uint128,
@@ -1429,7 +1906,9 @@ transition SwapTokensForExactTokensTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1438,7 +1917,9 @@ transition SwapTokensForExactTokensTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -1478,8 +1959,8 @@ transition SwapTokensForExactTokensTwice(
   amt_in := zero_amount (* Reassign back to 0 *)
 end
 
-(* @dev: init_amount_in -> pool1 -> first_intermediate_amount_out === first_intermediate_amount_in *)
-(* @dev: first_intermediate_amount_in -> pool2 -> second_intermediate_amount_out === second_intermediate_amount_in *)
+(* @dev: init_amount_in -> pool1 -> first_intermediate_amount_in *)
+(* @dev: first_intermediate_amount_in -> pool2 -> second_intermediate_amount_in *)
 (* @dev: second_intermediate_amount_in -> pool3 -> amount_out *)
 (* @param path: token_in token_out *)
 transition SwapTokensForExactTokensThrice(
@@ -1492,7 +1973,9 @@ transition SwapTokensForExactTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1501,7 +1984,9 @@ transition SwapTokensForExactTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool3: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1510,7 +1995,9 @@ transition SwapTokensForExactTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -1557,6 +2044,15 @@ transition SwapTokensForExactTokensThrice(
   amt_in := zero_amount (* Reassign back to 0 *)
 end
 
+(* @solidity DMMRouter02.sol:
+  require(path[0] == weth, "DMMRouter: INVALID_PATH");
+  verifyPoolsPathSwap(poolsPath, path);
+  amounts = DMMLibrary.getAmountsOut(msg.value, poolsPath, path);
+  require(amounts[amounts.length - 1] >= amountOutMin, "DMMRouter: INSUFFICIENT_OUTPUT_AMOUNT");
+  IWETH(weth).deposit{value: amounts[0]}();
+  weth.safeTransfer(poolsPath[0], amounts[0]);
+  _swap(amounts, poolsPath, path, to);
+*)
 transition SwapExactZILForTokensOnce(
   amount_out_min: Uint128,
   pool: ByStr20 with contract
@@ -1566,7 +2062,9 @@ transition SwapExactZILForTokensOnce(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
@@ -1614,7 +2112,9 @@ transition SwapExactZILForTokensTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1623,7 +2123,9 @@ transition SwapExactZILForTokensTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -1678,7 +2180,9 @@ transition SwapExactZILForTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1687,7 +2191,9 @@ transition SwapExactZILForTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool3: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1696,7 +2202,9 @@ transition SwapExactZILForTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -1749,6 +2257,7 @@ transition SwapExactZILForTokensThrice(
   amt_out := zero_amount (* Reassign back to 0 *)
 end
 
+(* @dev: Hits the max depth error *)
 transition SwapExactZILForTokensQuad(
   amount_out_min: Uint128,
   pool1: ByStr20 with contract
@@ -1758,7 +2267,9 @@ transition SwapExactZILForTokensQuad(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1767,7 +2278,9 @@ transition SwapExactZILForTokensQuad(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool3: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1776,7 +2289,9 @@ transition SwapExactZILForTokensQuad(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool4: ByStr20 with contract
   field reserve0 : Uint128,
@@ -1785,7 +2300,9 @@ transition SwapExactZILForTokensQuad(
   field v_reserve0 : Uint128,
   field v_reserve1 : Uint128,
   field short_ema : Uint256,
-  field long_ema : Uint256
+  field long_ema : Uint256,
+  field current_block_volume : Uint128,
+  field last_trade_block : BNum
 end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -1845,6 +2362,16 @@ end,
   amt_out := zero_amount (* Reassign back to 0 *)
 end
 
+(* @solidity DMMRouter02.sol:
+  require(path[path.length - 1] == weth, "DMMRouter: INVALID_PATH");
+  verifyPoolsPathSwap(poolsPath, path);
+  amounts = DMMLibrary.getAmountsIn(amountOut, poolsPath, path);
+  require(amounts[0] <= amountInMax, "DMMRouter: EXCESSIVE_INPUT_AMOUNT");
+  path[0].safeTransferFrom(msg.sender, poolsPath[0], amounts[0]);
+  _swap(amounts, poolsPath, path, address(this));
+  IWETH(weth).withdraw(amounts[amounts.length - 1]);
+  TransferHelper.safeTransferETH(to, amounts[amounts.length - 1]);
+*)
 transition SwapTokensForExactZILOnce(
   amount_out: Uint128,
   amount_in_max: Uint128,
@@ -1855,7 +2382,9 @@ transition SwapTokensForExactZILOnce(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
@@ -1903,7 +2432,9 @@ transition SwapTokensForExactZILTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1912,7 +2443,9 @@ transition SwapTokensForExactZILTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -1967,7 +2500,9 @@ transition SwapTokensForExactZILThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1976,7 +2511,9 @@ transition SwapTokensForExactZILThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool3: ByStr20 with contract
     field reserve0 : Uint128,
@@ -1985,7 +2522,9 @@ transition SwapTokensForExactZILThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -2037,6 +2576,16 @@ transition SwapTokensForExactZILThrice(
   amt_in := zero_amount (* Reassign back to 0 *)
 end
 
+(* @solidity DMMRouter02.sol:
+  require(path[path.length - 1] == weth, "DMMRouter: INVALID_PATH");
+  verifyPoolsPathSwap(poolsPath, path);
+  amounts = DMMLibrary.getAmountsOut(amountIn, poolsPath, path);
+  require(amounts[amounts.length - 1] >= amountOutMin,"DMMRouter: INSUFFICIENT_OUTPUT_AMOUNT");
+  path[0].safeTransferFrom(msg.sender, poolsPath[0], amounts[0]);
+  _swap(amounts, poolsPath, path, address(this));
+  IWETH(weth).withdraw(amounts[amounts.length - 1]);
+  TransferHelper.safeTransferETH(to, amounts[amounts.length - 1]);
+*)
 transition SwapExactTokensForZILOnce(
   amount_in: Uint128,
   amount_out_min: Uint128,
@@ -2047,7 +2596,9 @@ transition SwapExactTokensForZILOnce(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
@@ -2093,7 +2644,9 @@ transition SwapExactTokensForZILTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -2102,7 +2655,9 @@ transition SwapExactTokensForZILTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -2155,7 +2710,9 @@ transition SwapExactTokensForZILThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -2164,7 +2721,9 @@ transition SwapExactTokensForZILThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool3: ByStr20 with contract
     field reserve0 : Uint128,
@@ -2173,7 +2732,9 @@ transition SwapExactTokensForZILThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -2223,6 +2784,17 @@ transition SwapExactTokensForZILThrice(
   amt_out := zero_amount (* Reassign back to 0 *)
 end
 
+(* @solidity:
+  require(path[0] == weth, "DMMRouter: INVALID_PATH");
+  verifyPoolsPathSwap(poolsPath, path);
+  amounts = DMMLibrary.getAmountsIn(amountOut, poolsPath, path);
+  require(amounts[0] <= msg.value, "DMMRouter: EXCESSIVE_INPUT_AMOUNT");
+  IWETH(weth).deposit{value: amounts[0]}();
+  weth.safeTransfer(poolsPath[0], amounts[0]);
+  _swap(amounts, poolsPath, path, to);
+  // refund dust eth, if any
+  if (msg.value > amounts[0]) { TransferHelper.safeTransferETH(msg.sender, msg.value - amounts[0]); }
+*)
 transition SwapZILForExactTokensOnce(
   amount_out: Uint128,
   pool: ByStr20 with contract
@@ -2232,7 +2804,9 @@ transition SwapZILForExactTokensOnce(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
@@ -2286,7 +2860,9 @@ transition SwapZILForExactTokensTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -2295,7 +2871,9 @@ transition SwapZILForExactTokensTwice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,
@@ -2356,7 +2934,9 @@ transition SwapZILForExactTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool2: ByStr20 with contract
     field reserve0 : Uint128,
@@ -2365,7 +2945,9 @@ transition SwapZILForExactTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   pool3: ByStr20 with contract
     field reserve0 : Uint128,
@@ -2374,7 +2956,9 @@ transition SwapZILForExactTokensThrice(
     field v_reserve0 : Uint128,
     field v_reserve1 : Uint128,
     field short_ema : Uint256,
-    field long_ema : Uint256
+    field long_ema : Uint256,
+    field current_block_volume : Uint128,
+    field last_trade_block : BNum
   end,
   path1: Pair ByStr20 ByStr20,
   path2: Pair ByStr20 ByStr20,

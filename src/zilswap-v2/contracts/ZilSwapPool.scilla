@@ -13,12 +13,34 @@ let zero_block = BNum 0
 let minimum_liquidity = Uint128 1000
 let bps = Uint128 10000
 let half_bps = Uint128 5000
-let zero_u256 = Uint256 0
-let one_u256 = Uint256 1
-let two_u256 = Uint256 2
 let precision = Uint256 1000000000000000000 (* for decimal calculations (18dp precision) *)
 let short_alpha = Uint256 370301795963710 (* 2 * precision / 5401 *)
 let long_alpha = Uint256 185168039996296 (* (2 * precision) / 10801 *)
+
+(* constants used for get_fee *)
+let zero_u256 = Uint256 0
+let one_u256 = Uint256 1
+let two_u256 = Uint256 2
+let three_u256 = Uint256 3
+let four_u256 = Uint256 4
+let five_u256 = Uint256 5 
+let nine_u256 = Uint256 9
+let ten_u256 = Uint256 10
+let twenty_u256 = Uint256 20
+let twenty_seven_u256 = Uint256 27
+let thirty_u256 = Uint256 30
+let sixty_u256 = Uint256 60
+let one_hundred_u256 = Uint256 100
+let one_hundred_twenty_u256 = Uint256 120
+let two_hundred_fifty_u256 = Uint256 250
+let eight_hundred_thirty_six_u256 = Uint256 836
+let nine_hundred_eighty_five_u256 = Uint256 985
+let one_thousand_u256 = Uint256 1000
+let ten_thousand_u256 = Uint256 10000
+let twenty_thousand_u256 = Uint256 20000
+let fifty_thousand_u256 = Uint256 50000
+let two_hundred_thousand_u256 = Uint256 200000
+
 
 (* returns True if all items in the list is True *)
 let all_true =
@@ -104,7 +126,7 @@ let reduce =
     | None => let one = Uint128 1 in builtin sub zero_amount one (* throw on overflow *)
     end
     
-(* @dev: (x * y) / z *)
+(* @dev: Returns (x * y) / z in Uint128 *)
 let frac =
   fun (x : Uint128) =>
   fun (y : Uint128) =>
@@ -116,6 +138,15 @@ let frac =
     let ans_u256 = builtin div xy_u256 z_u256 in
     reduce ans_u256
 
+(* @dev: (x * y) / z in Uint256 *)
+let frac_u256 =
+  fun (x_u256: Uint256) => 
+  fun (y_u256: Uint256) => 
+  fun (z_u256: Uint256) => 
+    let xy_u256 = builtin mul x_u256 y_u256 in
+    builtin div xy_u256 z_u256
+
+(* @dev: Converts 2 Uint128 numbers to Uint256 and returns the product in Uint256 *)
 let u128_mul_grow =
   fun (x: Uint128) =>
   fun (y: Uint128) =>
@@ -124,23 +155,25 @@ let u128_mul_grow =
     builtin mul x_u256 y_u256
 
 (* @dev Returns x*y in precision *)
-(* function mulInPrecision(uint256 x, uint256 y) internal pure returns (uint256) {
-    return x.mul(y) / PRECISION;
-} *)
+(* @solidity MathExt.sol: 
+  return x.mul(y) / PRECISION;
+*)
 let mul_in_precision =
   fun (x : Uint256) =>
   fun (y : Uint256) =>
     let xy = builtin mul x y in
     builtin div xy precision
 
+(* @dev: Used in unsafe_pow_in_precision *)
+(* @solidity MathExt.sol: 
+  zInPrecision = k % 2 != 0 ? xInPrecision : PRECISION; 
+*)
 let get_z_in_precision = 
   fun (x_in_precision: Uint256) =>
   fun (k: Uint256)=> 
-    let zero = Uint256 0 in
-    let two = Uint256 2 in
-    let remainder = builtin rem k two in
-    let equal = builtin eq remainder zero in
-    match equal with 
+    let remainder = builtin rem k two_u256 in
+    let is_zero = builtin eq remainder zero_u256 in
+    match is_zero with 
     | True => precision
     | False =>  x_in_precision
     end
@@ -153,6 +186,25 @@ let u32_to_nat_or_zero =
     | Some r => r
     end
 
+(* @dev: Gets z_in_precision from the pair output of unsafe_pow_in_precision *)
+(* @param: k (Pair x_in_precision z_in_precision) *)
+let get_z_from_unsafe_pow_in_precision =
+  fun (pair: Pair Uint256 (Pair Uint256 Uint256)) =>
+  match pair with
+  | Pair k xz_pair =>
+    match xz_pair with
+    | Pair x_in_precision z_in_precision => z_in_precision
+    end
+  end
+
+(* @solidity MathExt.sol:
+  zInPrecision = k % 2 != 0 ? xInPrecision : PRECISION;
+  for (k /= 2; k != 0; k /= 2) {
+      xInPrecision = (xInPrecision * xInPrecision) / PRECISION;
+      if (k % 2 != 0) { zInPrecision = (zInPrecision * xInPrecision) / PRECISION; }
+  } 
+  return zInPrecision;
+*)
 let unsafe_pow_in_precision = 
   fun (x_in_precision: Uint256) =>
   fun (k: Uint256) =>
@@ -180,7 +232,7 @@ let unsafe_pow_in_precision =
               let new_k = builtin div k two_u256 in
               let inter_x_in_precision = builtin mul x_in_precision x_in_precision in
               let new_x_in_precision = builtin div inter_x_in_precision precision in
-              let mod = builtin rem k two_u256 in
+              let mod = builtin rem new_k two_u256 in
               let is_odd = builtin eq mod one_u256 in
               match is_odd with
               | False =>
@@ -201,7 +253,9 @@ let unsafe_pow_in_precision =
       in
     foldk iter init_pair m_nat
 
-(* @dev: ((precision - alpha) * ema + alpha * value) / precision; *)
+(* @solidity VolumeTrendRecorder.sol: 
+  return ((precision - alpha) * ema + alpha * value) / precision; 
+*)
 let get_ema =
   fun (ema : Uint256) =>
   fun (alpha : Uint256) =>
@@ -209,50 +263,145 @@ let get_ema =
     let v = grow value in
     let i_a = builtin sub precision alpha in
     let a = builtin mul i_a ema in
-    let b = builtin mul a v in
+    let b = builtin mul alpha v in
     let n = builtin add a b in
     builtin div n precision
 
 (* @dev: Returns r_factor_in_precision in Uint256 from short_ema and long_ema *)
+(* @solidity VolumeTrendRecorder.sol: 
+  if (_longEMA == 0) { return 0; }
+  return (_shortEMA * MathExt.PRECISION) / _longEMA; 
+*)
 let calculate_r_factor = 
   fun (short_ema : Uint256) =>
   fun (long_ema : Uint256) =>
-    let zero_amount = Uint256 0 in 
-    let is_eq = builtin eq long_ema zero_amount in 
-    match is_eq with
-    | True => zero_amount
+    let is_zero = builtin eq long_ema zero_u256 in 
+    match is_zero with
+    | True => zero_u256
     | False =>
-      let s_e = builtin mul short_ema precision in 
-      builtin div s_e long_ema
+      frac_u256 short_ema precision long_ema
     end
 
-(* @dev: Returns final_fee in Uint128*)
+(* @dev: Calculates fee in Uint256 from r_factor_in_precision *)
+(* @solidity FeeFormula.sol:
+  if (rFactorInPrecision >= R0) { return C0; } 
+  else if (rFactorInPrecision >= PRECISION) {
+    // C1 + A * (r-U)^3 + b * (r -U)
+    if (rFactorInPrecision > U) {
+      tmp = rFactorInPrecision - U;
+      tmp3 = tmp.unsafePowInPrecision(3);
+      return (C1.add(A.mulInPrecision(tmp3)).add(B.mulInPrecision(tmp))) / 10000;
+    } else {
+      tmp = U - rFactorInPrecision;
+      tmp3 = tmp.unsafePowInPrecision(3);
+      return C1.sub(A.mulInPrecision(tmp3)).sub(B.mulInPrecision(tmp)) / 10000;
+    }
+  } else {
+    // [ C2 + sign(r - G) *  F * (r-G) ^2 / (L + (r-G) ^2) ] / 10000
+    tmp = (rFactorInPrecision > G ? (rFactorInPrecision - G) : (G - rFactorInPrecision));
+    tmp = tmp.unsafePowInPrecision(2);
+    tmp2 = F.mul(tmp).div(tmp.add(L));
+    if (rFactorInPrecision > G) { return C2.add(tmp2) / 10000; }
+    else { return C2.sub(tmp2) / 10000; }
+  }
+*)
+let get_fee = 
+  fun (r_factor_in_precision: Uint256) => 
+    let r0 = Uint256 1477405064814996100 in
+    let c2 = Uint256 20036905816356657810 in
+    let c0 = frac_u256 sixty_u256 precision ten_thousand_u256 in
+    let a = frac_u256 twenty_thousand_u256 precision twenty_seven_u256 in
+    let b = frac_u256 two_hundred_fifty_u256 precision nine_u256 in
+    let c1 = frac_u256 nine_hundred_eighty_five_u256 precision twenty_seven_u256 in
+    let u = frac_u256 one_hundred_twenty_u256 precision one_hundred_u256 in
+    let g = frac_u256 eight_hundred_thirty_six_u256 precision one_thousand_u256 in
+    let f = builtin mul five_u256 precision in
+    let l = frac_u256 two_u256 precision ten_thousand_u256 in
+    let is_ge_r0 = uint256_ge r_factor_in_precision r0 in
+    match is_ge_r0 with 
+    | True => c0
+    | False => 
+      let is_ge_precision = uint256_ge r_factor_in_precision precision in
+      match is_ge_precision with
+      | True =>
+        (* C1 + A * (r-U)^3 + b * (r -U) *)
+        let is_gt_u = uint256_gt r_factor_in_precision u in
+        match is_gt_u with
+        | True =>
+          let tmp = builtin sub r_factor_in_precision u in
+          let tmp3 = 
+            let pair = unsafe_pow_in_precision tmp three_u256 in
+            get_z_from_unsafe_pow_in_precision pair
+          in
+          let a_tmp3 = mul_in_precision a tmp3 in
+          let b_tmp = mul_in_precision b tmp in
+          let c1_add_a = builtin add c1 a_tmp3 in
+          let c1_add_a_add_b = builtin add c1_add_a b_tmp in
+          builtin div c1_add_a_add_b ten_thousand_u256
+        | False =>
+          let tmp = builtin sub u r_factor_in_precision in
+          let tmp3 = 
+            let pair = unsafe_pow_in_precision tmp three_u256 in
+            get_z_from_unsafe_pow_in_precision pair
+          in
+          let a_tmp3 = mul_in_precision a tmp3 in
+          let b_tmp = mul_in_precision b tmp in
+          let c1_sub_a = builtin sub c1 a_tmp3 in
+          let c1_sub_a_sub_b = builtin sub c1_sub_a b_tmp in
+          builtin div c1_sub_a_sub_b ten_thousand_u256
+        end
+      | False =>
+        (* [ C2 + sign(r - G) *  F * (r-G) ^2 / (L + (r-G) ^2) ] / 10000 *)
+        let is_gt_g = uint256_gt r_factor_in_precision g in
+        let tmp = match is_gt_g with
+        | True => 
+          let r_sub_g = builtin sub r_factor_in_precision g in
+          let pair = unsafe_pow_in_precision r_sub_g two_u256 in
+          get_z_from_unsafe_pow_in_precision pair
+        | False => 
+          let g_sub_r = builtin sub g r_factor_in_precision in
+          let pair = unsafe_pow_in_precision g_sub_r two_u256 in 
+          get_z_from_unsafe_pow_in_precision pair
+        end in
+        let tmp_add_l = builtin add tmp l in
+        let tmp2 = frac_u256 f tmp tmp_add_l in
+        match is_gt_g with 
+        | True =>
+          let c2_add_tmp2 = builtin add c2 tmp2 in
+          builtin div c2_add_tmp2 ten_thousand_u256
+        | False =>
+          let c2_sub_tmp2 = builtin sub c2 tmp2 in
+          builtin div c2_sub_tmp2 ten_thousand_u256
+        end
+      end
+    end
+
+(* @dev: Returns final_fee in Uint256 *)
+(* @solidity DMMPool.sol:
+  if (_ampBps <= 20000) { return feeInPrecision; } 
+  else if (_ampBps <= 50000) { return (feeInPrecision * 20) / 30; }
+  else if (_ampBps <= 200000) { return (feeInPrecision * 10) / 30; }
+  else { return (feeInPrecision * 4) / 30; }
+} *)
 let get_final_fee = 
   fun (fee_in_precision : Uint256) =>
   fun (amp_bps : Uint128) =>
-    let fee_in_precision_u128 = reduce fee_in_precision in
-    let four = Uint128 4 in
-    let ten = Uint128 10 in
-    let twenty = Uint128 20 in
-    let thirty = Uint128 30 in
-    let two_bps = Uint128 20000 in
-    let five_bps = Uint128 50000 in
-    let twenty_bps = Uint128 200000 in
-    let le_two_bps = uint128_le amp_bps two_bps in 
-    match le_two_bps with
-    | True => fee_in_precision_u128
+    let amp_bps_u256 = grow amp_bps in
+    let is_le_twenty_thousand = uint256_le amp_bps_u256 twenty_thousand_u256 in 
+    match is_le_twenty_thousand with
+    | True => fee_in_precision
     | False =>
-      let le_five_bps = uint128_le amp_bps five_bps in
-      match le_five_bps with 
+      let is_le_fifty_thousand_u256 = uint256_le amp_bps_u256 fifty_thousand_u256 in
+      match is_le_fifty_thousand_u256 with 
       | True => 
-        frac fee_in_precision_u128 twenty thirty 
+        frac_u256 fee_in_precision twenty_u256 thirty_u256 
       | False =>
-        let le_twenty_bps = uint128_le amp_bps twenty_bps in
-        match le_twenty_bps with
+        let is_le_two_hundred_thousand_u256 = uint256_le amp_bps_u256 two_hundred_thousand_u256 in
+        match is_le_two_hundred_thousand_u256 with
         | True => 
-          frac fee_in_precision_u128 ten thirty
+          frac_u256 fee_in_precision ten_u256 thirty_u256
         | False => 
-          frac fee_in_precision_u128 four thirty
+          frac_u256 fee_in_precision four_u256 thirty_u256
         end
       end
     end
@@ -360,6 +509,7 @@ end = init_token1
 field reserve0 : Uint128 = zero_amount
 field reserve1 : Uint128 = zero_amount
 field amp_bps : Uint128 = init_amp_bps
+field r_factor_in_precision : Uint256 = zero_u256
 
 (* @dev: only used when amp factor > 1 *)
 field v_reserve0 : Uint128 = zero_amount
@@ -466,6 +616,34 @@ procedure IsFactory(address: ByStr20)
 end
 
 (* @dev: If fee is on, mint LP tokens equivalent to configured fee of the growth in sqrt(k)*)
+(* @solidity DMMPool.sol:
+  (address feeTo, uint16 governmentFeeBps) = factory.getFeeConfiguration();
+  feeOn = feeTo != address(0);
+  _kLast = kLast; // gas savings
+  _vReserve0 = isAmpPool ? data.vReserve0 : data.reserve0; // gas savings
+  _vReserve1 = isAmpPool ? data.vReserve1 : data.reserve1; // gas savings
+  if (feeOn) {
+    if (_kLast != 0) {
+      _tmp = _kLast * _vReserve0;
+      if (_tmp / _vReserve0 == _kLast) {
+          collectedFee0 = _vReserve0.sub(MathExt.sqrt(_tmp.div(_vReserve1)));
+      } else {
+          collectedFee0 = _vReserve0.sub(
+              MathExt.sqrt(_kLast.div(_vReserve1).mul(_vReserve0))
+          );
+      }
+      poolValueInToken0 = data.reserve0.add(
+          data.reserve1.mul(_vReserve0).div(_vReserve1)
+      );
+      numerator = totalSupply().mul(collectedFee0).mul(governmentFeeBps);
+      denominator = (poolValueInToken0.sub(collectedFee0)).mul(5000);
+      liquidity = numerator / denominator;
+      if (liquidity > 0) _mint(feeTo, liquidity);
+    }
+  } else if (_kLast != 0) { 
+    kLast = 0; 
+  }
+*)
 procedure MintFee(is_amp_pool: Bool)
   fee_config <- & init_factory.fee_configuration;
   match fee_config with
@@ -597,8 +775,32 @@ procedure UpdateLastK(is_amp_pool: Bool, data: ReserveData)
   end
 end
 
-(* @dev: Updates current_block_volume, last_trade_block, short_ema, long_ema *)
+(* @dev: Updates current_block_volume, last_trade_block, short_ema, long_ema, r_factor_in_precision *)
+(* @solidity VolumeTrendRecorder.sol:
+  skipBlock = blockNumber - lastTradeBlock;
+  if (skipBlock == 0) {
+    currentBlockVolume = safeUint128(uint256(currentBlockVolume).add(value), 
+      "volume exceeds valid range");
+    return calculateRFactor(uint256(shortEMA), uint256(longEMA));
+  }
+  _currentBlockVolume = currentBlockVolume;
+  _shortEMA = newEMA(shortEMA, SHORT_ALPHA, currentBlockVolume);
+  _longEMA = newEMA(longEMA, LONG_ALPHA, currentBlockVolume);
+  _shortEMA = _shortEMA.mulInPrecision(
+    (PRECISION - SHORT_ALPHA).unsafePowInPrecision(skipBlock - 1));
+  _longEMA = _longEMA.mulInPrecision(
+    (PRECISION - LONG_ALPHA).unsafePowInPrecision(skipBlock - 1));
+  shortEMA = safeUint128(_shortEMA);
+  longEMA = safeUint128(_longEMA);
+  currentBlockVolume = safeUint128(value);
+  lastTradeBlock = safeUint128(blockNumber);
+  emit UpdateEMA(_shortEMA, _longEMA, _currentBlockVolume, skipBlock);
+  return calculateRFactor(_shortEMA, _longEMA);
+*)
 procedure RecordVolume(volume: Uint128)
+  (* Set r_factor_in_precision to 0 *)
+  r_factor_in_precision := zero_u256;
+
   current_block <- & BLOCKNUMBER;
   last <- last_trade_block;
   is_first_trade = builtin eq last zero_block;
@@ -610,49 +812,56 @@ procedure RecordVolume(volume: Uint128)
   blocks_skipped_int256 = builtin bsub current_block last_block;
   blocks_skipped_u128 = shrink blocks_skipped_int256;
   blocks_skipped_u256 = grow blocks_skipped_u128;
-  already_updated = builtin eq blocks_skipped_u128 zero_amount;
+  already_updated = builtin eq blocks_skipped_u256 zero_u256;
   match already_updated with
   | True =>
     v <- current_block_volume;
     new_volume = builtin add volume v;
-    current_block_volume := new_volume
+    current_block_volume := new_volume;
+    last_trade_block := last_block;
+
+    old_short_ema <- short_ema;
+    old_long_ema <- long_ema;
+    r_factor = calculate_r_factor old_short_ema old_long_ema;
+    r_factor_in_precision := r_factor
   | False =>
     old_block_volume <- current_block_volume;
-    prev_short_ema <- short_ema;
-    prev_long_ema <- long_ema;
+    old_short_ema <- short_ema;
+    old_long_ema <- long_ema;
 
     blocks_skipped_minus_one = builtin sub blocks_skipped_u256 one_u256;
-    new_short_ema_pair = 
-      let s_e = get_ema prev_short_ema short_alpha old_block_volume in
+
+    new_short_ema = 
+      let s_e = get_ema old_short_ema short_alpha old_block_volume in
       let p_minus_short_alpha = builtin sub precision short_alpha in
       let s_e_ = mul_in_precision s_e p_minus_short_alpha in
-      unsafe_pow_in_precision s_e_ blocks_skipped_minus_one;
-    match new_short_ema_pair with
-    | Pair k xz_pair =>
-      match xz_pair with
-      | Pair x_in_precision z_in_precision =>
-        short_ema := z_in_precision
-      end
-    end;
+      let pair = unsafe_pow_in_precision s_e_ blocks_skipped_minus_one in
+      get_z_from_unsafe_pow_in_precision pair;
+    short_ema := new_short_ema;
 
-    new_long_ema_pair = 
-      let l_e = get_ema prev_long_ema long_alpha old_block_volume in
+    new_long_ema = 
+      let l_e = get_ema old_long_ema long_alpha old_block_volume in
       let p_minus_long_alpha = builtin sub precision long_alpha in
       let l_e_ = mul_in_precision l_e p_minus_long_alpha in
-      unsafe_pow_in_precision l_e_ blocks_skipped_minus_one;
-    match new_long_ema_pair with
-    | Pair k xz_pair =>
-      match xz_pair with
-      | Pair x_in_precision z_in_precision =>
-        long_ema := z_in_precision
-      end
-    end;
+      let pair = unsafe_pow_in_precision l_e_ blocks_skipped_minus_one in
+      get_z_from_unsafe_pow_in_precision pair;
+    long_ema := new_long_ema;
 
+    r_factor = calculate_r_factor new_short_ema new_long_ema;
+    r_factor_in_precision := r_factor;
     current_block_volume := volume;
     last_trade_block := current_block
   end
 end
 
+(* @solidity DMMPool.sol:
+  volume = beforeReserve0.mul(amount1In).div(beforeReserve1).add(amount0In);
+  rFactorInPrecision = recordNewUpdatedVolume(block.number, volume);
+  feeInPrecision = getFinalFee(FeeFomula.getFee(rFactorInPrecision), ampBps);
+  balance0Adjusted = (afterReserve0.mul(PRECISION).sub(amount0In.mul(feeInPrecision))) / PRECISION;
+  balance1Adjusted = afterReserve1.mul(PRECISION).sub(amount1In.mul(feeInPrecision)) / PRECISION;
+  require(balance0Adjusted.mul(balance1Adjusted) >= beforeReserve0.mul(beforeReserve1), "DMM: K" );
+*)
 procedure VerifyBalanceAndUpdateEMA(
   amount0_in: Uint128,
   amount1_in: Uint128,
@@ -666,45 +875,46 @@ procedure VerifyBalanceAndUpdateEMA(
   amp <- amp_bps;
   s_e <- short_ema;
   l_e <- long_ema;
-  r_factor_in_precision = calculate_r_factor s_e l_e;
-  fee_in_precision = get_final_fee r_factor_in_precision amp;
+
+  (* r_factor_in_precision is set in RecordVolume procedure *)
+  r_factor <- r_factor_in_precision;
+  intermediate_fee = get_fee r_factor;
+  fee_in_precision = get_final_fee intermediate_fee amp;
 
   balance_0_adjusted = 
     let after_reserve0_u256 = grow after_reserve0 in 
-    let fee_in_precision_u256 = grow fee_in_precision in 
     let amount0_in_u256 = grow amount0_in in 
     let b0 = builtin mul after_reserve0_u256 precision in 
-    let b0_a = builtin mul amount0_in_u256 fee_in_precision_u256 in 
+    let b0_a = builtin mul amount0_in_u256 fee_in_precision in 
     let b0_b = builtin sub b0 b0_a in 
     builtin div b0_b precision;
   
   balance_1_adjusted = 
     let after_reserve1_u256 = grow after_reserve1 in 
-    let fee_in_precision_u256 = grow fee_in_precision in 
     let amount1_in_u256 = grow amount1_in in 
     let b1 = builtin mul after_reserve1_u256 precision in 
-    let b1_a = builtin mul amount1_in_u256 fee_in_precision_u256 in 
+    let b1_a = builtin mul amount1_in_u256 fee_in_precision in 
     let b1_b = builtin sub b1 b1_a in 
     builtin div b1_b precision;
   
-  before_adjustment = let before_adjustment_128 = builtin mul before_reserve0 before_reserve1 in grow before_adjustment_128;
+  before_adjustment = u128_mul_grow before_reserve0 before_reserve1;
   after_adjustment = builtin mul balance_0_adjusted balance_1_adjusted;
   is_ge = uint256_ge after_adjustment before_adjustment;
   match is_ge with
   | True =>
-      e = {
-        _eventname: "VerifyBalanceAndUpdateEMASuccess"; 
-        amount0_in: amount0_in; 
-        amount1_in: amount1_in;
-        before_reserve0: before_reserve0;
-        before_reserve1: before_reserve1;
-        after_reserve0: after_reserve0;
-        after_reserve1: after_reserve1
-      };
-      event e
+    e = {
+      _eventname: "VerifyBalanceAndUpdateEMASuccess"; 
+      amount0_in: amount0_in; 
+      amount1_in: amount1_in;
+      before_reserve0: before_reserve0;
+      before_reserve1: before_reserve1;
+      after_reserve0: after_reserve0;
+      after_reserve1: after_reserve1
+    };
+    event e
   | False =>
-      err = CodeInvalidBalance;
-      ThrowError err
+    err = CodeInvalidBalance;
+    ThrowError err
   end
 end
 
@@ -814,6 +1024,37 @@ end
 
 (* @dev This low-level function should be called from a contract
    which performs important safety checks *)
+(* @solidity DMMPool.sol:
+  (bool isAmpPool, ReserveData memory data) = getReservesData();
+  ReserveData memory _data;
+  _data.reserve0 = token0.balanceOf(address(this));
+  _data.reserve1 = token1.balanceOf(address(this));
+  amount0 = _data.reserve0.sub(data.reserve0);
+  amount1 = _data.reserve1.sub(data.reserve1);
+  bool feeOn = _mintFee(isAmpPool, data);
+  _totalSupply = totalSupply();
+  if (_totalSupply == 0) {
+    if (isAmpPool) {
+      _ampBps = ampBps;
+      _data.vReserve0 = _data.reserve0.mul(_ampBps) / BPS;
+      _data.vReserve1 = _data.reserve1.mul(_ampBps) / BPS;
+    }
+    liquidity = MathExt.sqrt(amount0.mul(amount1)).sub(MINIMUM_LIQUIDITY);
+    _mint(address(-1), MINIMUM_LIQUIDITY);
+  } else {
+    liquidity = Math.min(amount0.mul(_totalSupply) / data.reserve0,amount1.mul(_totalSupply) / data.reserve1);
+    if (isAmpPool) {
+      b = liquidity.add(_totalSupply);
+      _data.vReserve0 = Math.max(data.vReserve0.mul(b) / _totalSupply, _data.reserve0);
+      _data.vReserve1 = Math.max(data.vReserve1.mul(b) / _totalSupply, _data.reserve1);
+    }
+  }
+  require(liquidity > 0, "DMM: INSUFFICIENT_LIQUIDITY_MINTED");
+  _mint(to, liquidity);
+  _update(isAmpPool, _data);
+  if (feeOn) kLast = getK(isAmpPool, _data);
+  emit Mint(msg.sender, amount0, amount1);
+*)
 transition Mint(to : ByStr20)
   amp <- amp_bps;
   is_amp_pool = let is_eq = builtin eq amp bps in negb is_eq;
@@ -828,6 +1069,7 @@ transition Mint(to : ByStr20)
   m_r1 <- & init_token1.balances[_this_address];
   new_r1 = get_amount_or_zero m_r1;
 
+  (* Amount of zrc2 tokens transferred to pool by liquidity provider *)
   amount0 = builtin sub new_r0 r0;
   amount1 = builtin sub new_r1 r1;
 
@@ -849,6 +1091,7 @@ transition Mint(to : ByStr20)
     let liquidity = let x = builtin mul amount0 amount1 in let y = builtin isqrt x in builtin sub y minimum_liquidity in
     Pair {Uint128 ReserveData} liquidity data
   | False =>
+    (* existing pool *)
     let liquidity =
       let a = frac amount0 supply r0 in
       let b = frac amount1 supply r1 in
@@ -893,6 +1136,39 @@ end
 (* @dev This low-level function should be called from a contract
    which performs important safety checks.
    User must transfer LP token to this contract before call burn *)
+(* @solidity DMMPool.sol:
+  (bool isAmpPool, ReserveData memory data) = getReservesData();
+  IERC20 _token0 = token0;
+  IERC20 _token1 = token1;
+
+  balance0 = _token0.balanceOf(address(this));
+  balance1 = _token1.balanceOf(address(this));
+  require(balance0 >= data.reserve0 && balance1 >= data.reserve1, "DMM: UNSYNC_RESERVES");
+  liquidity = balanceOf(address(this));
+
+  bool feeOn = _mintFee(isAmpPool, data);
+  _totalSupply = totalSupply();
+  amount0 = liquidity.mul(balance0) / _totalSupply;
+  amount1 = liquidity.mul(balance1) / _totalSupply;
+  require(amount0 > 0 && amount1 > 0, "DMM: INSUFFICIENT_LIQUIDITY_BURNED");
+  _burn(address(this), liquidity);
+  _token0.safeTransfer(to, amount0);
+  _token1.safeTransfer(to, amount1);
+  ReserveData memory _data;
+  _data.reserve0 = _token0.balanceOf(address(this));
+  _data.reserve1 = _token1.balanceOf(address(this));
+  if (isAmpPool) {
+    b = Math.min(
+      _data.reserve0.mul(_totalSupply) / data.reserve0,
+      _data.reserve1.mul(_totalSupply) / data.reserve1
+    );
+    _data.vReserve0 = Math.max(data.vReserve0.mul(b) / _totalSupply, _data.reserve0);
+    _data.vReserve1 = Math.max(data.vReserve1.mul(b) / _totalSupply, _data.reserve1);
+  }
+  _update(isAmpPool, _data);
+  if (feeOn) kLast = getK(isAmpPool, _data); // data are up-to-date
+  emit Burn(msg.sender, amount0, amount1, to);
+*)
 transition Burn()
   amp <- amp_bps;
   is_amp_pool = let is_eq = builtin eq amp bps in negb is_eq;
@@ -924,6 +1200,7 @@ transition Burn()
   m_l <- balances[_this_address];
   liquidity = get_amount_or_zero m_l;
 
+  (* Amount of tokens to transfer to liquidity provider *)
   amount0 = frac liquidity balance0 supply;
   amount1 = frac liquidity balance1 supply;
 
@@ -979,6 +1256,44 @@ end
 
 (* @dev This low-level function should be called from a contract
    which performs important safety checks *)
+(* @solidity DMMPool.sol:
+  require(amount0Out > 0 || amount1Out > 0, "DMM: INSUFFICIENT_OUTPUT_AMOUNT");
+  (bool isAmpPool, ReserveData memory data) = getReservesData(); // gas savings
+  require(amount0Out < data.reserve0 && amount1Out < data.reserve1, "DMM: INSUFFICIENT_LIQUIDITY");
+  ReserveData memory newData;
+  {
+    IERC20 _token0 = token0;
+    IERC20 _token1 = token1;
+    require(to != address(_token0) && to != address(_token1), "DMM: INVALID_TO");
+    if (amount0Out > 0) _token0.safeTransfer(to, amount0Out); // optimistically transfer tokens
+    if (amount1Out > 0) _token1.safeTransfer(to, amount1Out); // optimistically transfer tokens
+    if (callbackData.length > 0)
+      IDMMCallee(to).dmmSwapCall(msg.sender, amount0Out, amount1Out, callbackData);
+    newData.reserve0 = _token0.balanceOf(address(this));
+    newData.reserve1 = _token1.balanceOf(address(this));
+    if (isAmpPool) {
+      newData.vReserve0 = data.vReserve0.add(newData.reserve0).sub(data.reserve0);
+      newData.vReserve1 = data.vReserve1.add(newData.reserve1).sub(data.reserve1);
+    }
+  }
+  uint256 amount0In = newData.reserve0 > data.reserve0 - amount0Out
+      ? newData.reserve0 - (data.reserve0 - amount0Out)
+      : 0;
+  uint256 amount1In = newData.reserve1 > data.reserve1 - amount1Out
+      ? newData.reserve1 - (data.reserve1 - amount1Out)
+      : 0;
+  require(amount0In > 0 || amount1In > 0, "DMM: INSUFFICIENT_INPUT_AMOUNT");
+  uint256 feeInPrecision = verifyBalanceAndUpdateEma(
+      amount0In,
+      amount1In,
+      isAmpPool ? data.vReserve0 : data.reserve0,
+      isAmpPool ? data.vReserve1 : data.reserve1,
+      isAmpPool ? newData.vReserve0 : newData.reserve0,
+      isAmpPool ? newData.vReserve1 : newData.reserve1
+  )
+  _update(isAmpPool, newData);
+  emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to, feeInPrecision);
+*)
 transition Swap(
   amount0_out: Uint128,
   amount1_out: Uint128,
@@ -1026,7 +1341,7 @@ transition Swap(
     err = CodeInvalidToAddress;
     ThrowError err
   end;
-  
+
   match is_sending_t0 with
   | False =>
   | True =>
@@ -1049,11 +1364,14 @@ transition Swap(
     send msgs
   end;
 
+  (* Pool's new token balances after user transfers token_in to the pool *)
   m_b0 <- & init_token0.balances[_this_address];
   b0 = get_amount_or_zero m_b0;
-  new_r0 = builtin sub b0 amount0_out;
   m_b1 <- & init_token1.balances[_this_address];
   b1 = get_amount_or_zero m_b1;
+  
+  (* Pool's new reserves after Swap transition is completed *)
+  new_r0 = builtin sub b0 amount0_out;
   new_r1 = builtin sub b1 amount1_out;
 
   new_data = match is_amp_pool with
@@ -1066,17 +1384,19 @@ transition Swap(
   end;
 
   amount0_in =
-    let has_input = uint128_gt new_r0 r0 in
+    let r0_sub_amount0_out = builtin sub r0 amount0_out in
+    let has_input = uint128_gt new_r0 r0_sub_amount0_out in
     match has_input with
     | False => zero_amount
-    | True => builtin sub new_r0 r0
+    | True => builtin sub new_r0 r0_sub_amount0_out
     end;
 
   amount1_in =
-    let has_input = uint128_gt new_r1 r1 in
+    let r1_sub_amount1_out = builtin sub r1 amount1_out in
+    let has_input = uint128_gt new_r1 r1_sub_amount1_out in
     match has_input with
     | False => zero_amount
-    | True => builtin sub new_r1 r1
+    | True => builtin sub new_r1 r1_sub_amount1_out
     end;
   
   a0_ok = uint128_gt amount0_in zero_amount;
@@ -1091,7 +1411,7 @@ transition Swap(
   end;
 
   match new_data with
-  | ReserveData _ _ new_v_r0 new_v_r1 =>
+  | ReserveData new_r0 new_r1 new_v_r0 new_v_r1 =>
     before_r0 = get_reserve is_amp_pool v_r0 r0;
     before_r1 = get_reserve is_amp_pool v_r1 r1;
     after_r0 = get_reserve is_amp_pool new_v_r0 new_r0;
@@ -1118,6 +1438,10 @@ transition Swap(
 end
 
 (* @dev: Transfer tokens such that balances match reserves *)
+(* @solidity DMMPool.sol:
+  token0.safeTransfer(to, token0.balanceOf(address(this)).sub(reserve0));
+  token1.safeTransfer(to, token1.balanceOf(address(this)).sub(reserve1));
+*)
 transition Skim(to: ByStr20)
   r_0 <- reserve0;
   r_1 <- reserve1;
@@ -1147,6 +1471,25 @@ transition Skim(to: ByStr20)
 end
 
 (* @dev: Force reserves to match balances *)
+(* @solidity DMMPool.sol:
+  (bool isAmpPool, ReserveData memory data) = getReservesData();
+  bool feeOn = _mintFee(isAmpPool, data);
+  ReserveData memory newData;
+  newData.reserve0 = IERC20(token0).balanceOf(address(this));
+  newData.reserve1 = IERC20(token1).balanceOf(address(this));
+  // update virtual reserves if this is amp pool
+  if (isAmpPool) {
+    uint256 _totalSupply = totalSupply();
+    uint256 b = Math.min(
+        newData.reserve0.mul(_totalSupply) / data.reserve0,
+        newData.reserve1.mul(_totalSupply) / data.reserve1
+    );
+    newData.vReserve0 = Math.max(data.vReserve0.mul(b) / _totalSupply, newData.reserve0);
+    newData.vReserve1 = Math.max(data.vReserve1.mul(b) / _totalSupply, newData.reserve1);
+  }
+  _update(isAmpPool, newData);
+  if (feeOn) kLast = getK(isAmpPool, newData); 
+*)
 transition Sync()
   r0 <- reserve0;
   r1 <- reserve1;

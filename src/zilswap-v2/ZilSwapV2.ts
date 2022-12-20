@@ -11,7 +11,7 @@ import 'isomorphic-fetch'
 import { BatchRequest, sendBatchRequest } from '../batch'
 import { APIS, BASIS, CHAIN_VERSIONS, Network, ZILSWAPV2_CONTRACTS, ZIL_HASH } from '../constants'
 import { isLocalStorageAvailable, toPositiveQa } from '../utils'
-import { compile } from './util'
+import { compile, LONG_ALPHA, PRECISION, SHORT_ALPHA } from './utils'
 export * as Zilo from '../zilo'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
@@ -56,13 +56,25 @@ export type TokenDetails = {
 
 // V2 Pool contract
 export type PoolState = {
+  factory: string
   token0: string
   token1: string
+
   reserve0: string
-  v_reserve0: string
   reserve1: string
-  v_reserve1: string
   amp_bps: string
+  r_factor_in_precision: string
+
+  v_reserve0: string
+  v_reserve1: string
+
+  k_last: string
+  current_block_volume: string
+  short_ema: string
+  long_ema: string
+  last_trade_block: string
+
+  total_supply: string
   balances: { [key in string]?: string }
   allowances: { [key in string]?: { [key2 in string]?: string } }
 }
@@ -95,15 +107,20 @@ export class ZilSwapV2 {
   private routerState?: RouterState
 
   // pool state: Updates when there are new pools/ changes in the state of the pool
+  // If no pools, poolStates = {}
   private poolStates?: { [key in string]?: PoolState } // poolHash : poolState
 
-  // Mapping of tokens in pools to TokenDetails
+  // Mapping of tokens in pools & LP tokens to TokenDetails
+  // If no pools, tokens = {}
   private tokens?: { [key in string]?: TokenDetails } // tokenHash : tokenDetails
 
-  private currentUser?: string | null
+  private currentUser: string | null
+
+  // If currentUser == null, currentNonce == null
   private currentNonce?: number | null
 
   // User's zil balance
+  // If currentUser == null, currentZILBalance == null
   private currentZILBalance?: BigNumber | null
 
   /* Txn observers */
@@ -137,7 +154,7 @@ export class ZilSwapV2 {
   // remember to remove the contractAddress in constructor params
   constructor(readonly network: Network, walletProviderOrKey?: WalletProvider | string, contractAddress: string | null = null, options?: Options) {
 
-    // initialize Internals
+    // Initialize Internals
     this.rpcEndpoint = options?.rpcEndpoint || APIS[network]
     if (typeof walletProviderOrKey === 'string') {
       this.zilliqa = new Zilliqa(this.rpcEndpoint)
@@ -154,6 +171,11 @@ export class ZilSwapV2 {
     this.contract = (this.walletProvider || this.zilliqa).contracts.at(this.contractAddress)
     this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
 
+    // Initialize current user
+    this.currentUser = this.walletProvider
+      ? // ugly hack for zilpay provider
+      this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
+      : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Initialize txParams
     this._txParams.version = CHAIN_VERSIONS[network]
@@ -176,13 +198,6 @@ export class ZilSwapV2 {
    * @param observedTx is the array of txs to observe.
    */
   public async initialize() {
-
-    // Initialize current user
-    // Get user address
-    this.currentUser = this.walletProvider
-      ? // ugly hack for zilpay provider
-      this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
-      : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Update the txParams using chain information
     // Note: javascript constructors cannot contain async tasks
@@ -228,20 +243,25 @@ export class ZilSwapV2 {
 
     // Call deployContract
     const pool = await this.deployContract(file, init)
-    await this.updateAppState()
+
+    // Update app state
+    await this.updateRouterState()
+    await this.updatePoolStates()
+    await this.updateTokens()
+    await this.updateZILBalanceAndNonce()
 
     return pool
   }
 
   // Call AddPool transition on the router
   // To be used together with the DeployPool
-  public async addPool(poolAddress: string): Promise<Transaction> {
+  public async addPool(pool: string): Promise<Transaction> {
     // Check logged in
     this.checkAppLoadedWithUser()
 
     const contract: Contract = this.contract
     const args: any = [
-      this.param('pool', 'ByStr20', poolAddress)
+      this.param('pool', 'ByStr20', pool)
     ]
     const params: CallParams = {
       amount: new BN(0),
@@ -262,12 +282,16 @@ export class ZilSwapV2 {
     await this.observeTx(observeTxn)
 
     // Update relevant app states
-    await this.updateAppState()
+    await this.updateRouterState()
+    await this.updatePoolStates()
+    await this.updateTokens()
+    await this.updateZILBalanceAndNonce()
 
     return addPoolTx
   }
 
   // reserve_ratio_allowance: in percentage
+  // Eg If 5%: input 5
   public async addLiquidity(tokenA: string, tokenB: string, pool: string, amountA_desired: string, amountB_desired: string, amountA_min: string, amountB_min: string, reserve_ratio_allowance: number): Promise<Transaction> {
 
     const poolState = this.poolStates![pool]
@@ -304,10 +328,10 @@ export class ZilSwapV2 {
     }
 
     // Check Balance and Allowance
-    this.checkAllowance(tokenA, amountA)
-    this.checkAllowance(tokenB, amountB)
-    this.checkBalance(tokenA, amountA)
-    this.checkBalance(tokenB, amountB)
+    await this.checkAllowance(tokenA, amountA)
+    await this.checkAllowance(tokenB, amountB)
+    await this.checkBalance(tokenA, amountA)
+    await this.checkBalance(tokenB, amountB)
 
     // Generate contract args
     const ampBps = new BigNumber(poolState!.amp_bps)
@@ -373,12 +397,14 @@ export class ZilSwapV2 {
     await this.observeTx(observeTxn)
 
     // Update relevant app states
-    await this.updateAppState()
+    await this.updateSinglePoolState(pool)
+    await this.updateZILBalanceAndNonce()
 
     return addLiquidityTxn
   }
 
   // reserve_ratio_allowance: in percentage
+  // Eg If 5%: input 5
   public async addLiquidityZIL(token: string, pool: string, amount_token_desired: string, amount_wZIL_desired: string, amount_token_min: string, amount_wZIL_min: string, reserve_ratio_allowance: number) {
 
     const poolState = this.poolStates![pool]
@@ -415,9 +441,9 @@ export class ZilSwapV2 {
     }
 
     // Check Balance and Allowance
-    this.checkAllowance(token, amountToken)
-    this.checkBalance(token, amountToken)
-    this.checkBalance(ZIL_HASH, amountWZIL)
+    await this.checkAllowance(token, amountToken)
+    await this.checkBalance(token, amountToken)
+    await this.checkBalance(ZIL_HASH, amountWZIL)
 
     // Generate contract args
     const ampBps = new BigNumber(poolState!.amp_bps)
@@ -480,7 +506,8 @@ export class ZilSwapV2 {
     await this.observeTx(observeTxn)
 
     // Update relevant app states
-    await this.updateAppState()
+    await this.updateSinglePoolState(pool)
+    await this.updateZILBalanceAndNonce()
 
     return addLiquidityZilTxn
   }
@@ -499,8 +526,8 @@ export class ZilSwapV2 {
     await this.updateBlockHeight()
 
     // Check Balance and Allowance
-    this.checkAllowance(this.contractHash, new BigNumber(liquidity))
-    this.checkBalance(this.contractHash, new BigNumber(liquidity))
+    await this.checkAllowance(pool, new BigNumber(liquidity))
+    await this.checkBalance(pool, new BigNumber(liquidity))
 
     // Generate contract args
     const deadline = this.deadlineBlock()
@@ -533,7 +560,10 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    await this.updatePoolStates() // might want to have a method that only updates the state of one pool
+    // Update relevant app states
+    await this.updateSinglePoolState(pool)
+    await this.updateZILBalanceAndNonce()
+
     return removeLiquidityTxn
   }
 
@@ -551,8 +581,8 @@ export class ZilSwapV2 {
     await this.updateBlockHeight()
 
     // Check Balance and Allowance
-    this.checkAllowance(this.contractHash, new BigNumber(liquidity))
-    this.checkBalance(this.contractHash, new BigNumber(liquidity))
+    await this.checkAllowance(pool, new BigNumber(liquidity))
+    await this.checkBalance(pool, new BigNumber(liquidity))
 
     // Generate contract args
     const deadline = this.deadlineBlock()
@@ -584,9 +614,20 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    await this.updatePoolStates() // might want to have a method that only updates the state of one pool
+    // Update relevant app states
+    await this.updateSinglePoolState(pool)
+    await this.updateZILBalanceAndNonce()
+    
     return removeLiquidityZilTxn
   }
+
+  public async swapExactTokensForTokens(tokenIn: string, tokenOut: string, amountOut: string, amountInMax: string) {
+
+  }
+
+  // public async swapZRC2WithExactOutput(tokenIn: string, tokenOut: string, amountIn: string, amountOutMax: string) {
+
+  // }
 
   /////////////////////// Blockchain Helper functions //////////////////
 
@@ -673,7 +714,6 @@ export class ZilSwapV2 {
   }
 
   // Method created for testing such that the nonce is correct
-  // 
   public async increaseAllowance(contract: Contract, spender: string, allowance: string): Promise<void> {
 
     const args: any = [
@@ -825,7 +865,246 @@ export class ZilSwapV2 {
   }
 
   private quote(amountA: BigNumber, reserveA: BigNumber, reserveB: BigNumber): BigNumber {
-    return new BigNumber(amountA).multipliedBy(reserveB).dividedBy(reserveA)
+    return new BigNumber(amountA).multipliedBy(reserveB).dividedToIntegerBy(reserveA)
+  }
+
+  private getTradeInfo(reserve0: string, reserve1: string, vReserve0: string, vReserve1: string, isNotAmpPool: boolean, isSameOrder: boolean) {
+    if (isNotAmpPool) {
+      if (isSameOrder) {
+        return {
+          reserveIn: reserve0,
+          reserveOut: reserve1,
+          vReserveIn: reserve0,
+          vReserveOut: reserve1
+        }
+      }
+      else {
+        return {
+          reserveIn: reserve1,
+          reserveOut: reserve0,
+          vReserveIn: reserve1,
+          vReserveOut: reserve0
+        }
+      }
+    }
+    else {
+      if (isSameOrder) {
+        return {
+          reserveIn: reserve0,
+          reserveOut: reserve1,
+          vReserveIn: vReserve0,
+          vReserveOut: vReserve1
+        }
+      }
+      else {
+        return {
+          reserveIn: reserve1,
+          reserveOut: reserve0,
+          vReserveIn: vReserve1,
+          vReserveOut: vReserve0
+        }
+      }
+    }
+  }
+
+  // return ((precision - alpha) * ema + alpha * value) / precision; 
+  private getEma(ema: string | number | BigNumber, alpha: string | number | BigNumber, value: string | number | BigNumber) {
+    const a = new BigNumber(PRECISION).minus(alpha).multipliedBy(ema)
+    const b = new BigNumber(alpha).multipliedBy(value)
+    return (a.plus(b)).dividedToIntegerBy(PRECISION)
+  }
+
+  private getRFactor(pool: string) {
+    const currentBlock = new BigNumber(this.getCurrentBlock())
+    const poolState = this.poolStates![pool]
+    const oldShortEMA = new BigNumber(poolState!.short_ema)
+    const oldLongEMA = new BigNumber(poolState!.long_ema)
+    const currentBlockVolume = new BigNumber(poolState!.current_block_volume)
+    const lastTradeBlock = new BigNumber(poolState!.last_trade_block).isZero() ? currentBlock : new BigNumber(poolState!.last_trade_block)
+
+    const skipBlock = currentBlock.minus(lastTradeBlock)
+
+    if (skipBlock.isZero()) {
+      return this.calculateRFactor(oldShortEMA, oldLongEMA)
+    }
+    else {
+      let newShortEMA, newLongEMA;
+      const skipBlockMinusOne = skipBlock.minus(1)
+
+      newShortEMA = this.getEma(oldShortEMA, SHORT_ALPHA, currentBlockVolume)
+      newShortEMA = this.mulInPrecision(newShortEMA, new BigNumber(PRECISION).minus(SHORT_ALPHA))
+      newShortEMA = this.unsafePowInPrecision(newShortEMA, skipBlockMinusOne)
+
+      newLongEMA = this.getEma(oldLongEMA, LONG_ALPHA, currentBlockVolume)
+      newLongEMA = this.mulInPrecision(newLongEMA, new BigNumber(PRECISION).minus(LONG_ALPHA))
+      newLongEMA = this.unsafePowInPrecision(newLongEMA, skipBlockMinusOne)
+
+      return this.calculateRFactor(newShortEMA, newLongEMA)
+    }
+  }
+
+  private calculateRFactor(shortEMA: string | number | BigNumber, longEMA: string | number | BigNumber) {
+    if (new BigNumber(longEMA).isZero()) {
+      return new BigNumber(0)
+    }
+    else {
+      return this.frac(shortEMA, PRECISION, longEMA)
+    }
+  }
+
+  private getFee(rFactorInPrecision: string | number | BigNumber) {
+    const R0 = new BigNumber(1477405064814996100);
+    const C2 = new BigNumber(20036905816356657810);
+    const C0 = this.frac(60, PRECISION, 10000);
+    const A = this.frac(20000, PRECISION, 27);
+    const B = this.frac(250, PRECISION, 9);
+    const C1 = this.frac(985, PRECISION, 27);
+    const U = this.frac(120, PRECISION, 100);
+    const G = this.frac(836, PRECISION, 1000);
+    const F = new BigNumber(5).multipliedBy(PRECISION);
+    const L = this.frac(2, PRECISION, 10000);
+
+    const rFactor = new BigNumber(rFactorInPrecision)
+    let tmp, tmp2, tmp3
+
+    if (rFactor.gte(R0)) {
+      return C0;
+    }
+    else if (rFactor.gte(PRECISION)) {
+      // C1 + A * (r-U)^3 + b * (r -U)
+      if (rFactor.gt(U)) {
+        tmp = rFactor.minus(U)
+        tmp3 = this.unsafePowInPrecision(tmp, 3);
+        return (C1.plus(this.mulInPrecision(A, tmp3)).plus(this.mulInPrecision(B, tmp))).dividedToIntegerBy(10000)
+      } else {
+        tmp = U.minus(rFactor)
+        tmp3 = this.unsafePowInPrecision(tmp, 3)
+        return (C1.minus(this.mulInPrecision(A, tmp3)).minus(this.mulInPrecision(B, tmp))).dividedToIntegerBy(10000)
+      }
+    } else {
+      // [ C2 + sign(r - G) *  F * (r-G) ^2 / (L + (r-G) ^2) ] / 10000
+      tmp = rFactor.gt(G) ? rFactor.minus(G) : G.minus(rFactor)
+      tmp = this.unsafePowInPrecision(tmp, 2)
+      tmp2 = this.frac(F, tmp, tmp.plus(L))
+      if (rFactor.gt(G)) {
+        return C2.plus(tmp2).dividedToIntegerBy(10000)
+      }
+      else {
+        return C2.minus(tmp2).dividedToIntegerBy(10000);
+      }
+    }
+  }
+
+  private getFinalFee(feeInPrecision: string | number | BigNumber, ampBps: string | number | BigNumber) {
+    const amp = new BigNumber(ampBps)
+    if (amp.lte(20000)) {
+      return new BigNumber(feeInPrecision)
+    }
+    else if (amp.lte(50000)) {
+      return this.frac(feeInPrecision, 20, 30)
+    }
+    else if (amp.lte(200000)) {
+      return this.frac(feeInPrecision, 10, 30)
+    }
+    else {
+      return this.frac(feeInPrecision, 4, 30)
+    }
+  }
+
+  private unsafePowInPrecision(xInPrecision: string | number | BigNumber, k: string | number | BigNumber) {
+    let K = new BigNumber(k)
+    let zInPrecision = !(K.mod(2).isZero()) ? new BigNumber(xInPrecision) : new BigNumber(PRECISION)
+
+    for (K = K.dividedToIntegerBy(2); !(K.isZero()); K = K.dividedToIntegerBy(2)) {
+      xInPrecision = this.mulInPrecision(xInPrecision, xInPrecision)
+
+      if (!(K.mod(2).isZero())) {
+        zInPrecision = this.mulInPrecision(zInPrecision, xInPrecision)
+      }
+    }
+    return zInPrecision
+  }
+
+  // return (x*y)/z
+  private frac(x: string | number | BigNumber, y: string | number | BigNumber, z: string | number | BigNumber): BigNumber {
+    return new BigNumber(x).multipliedBy(y).dividedToIntegerBy(z)
+  }
+
+  // return (x*y)/PRECISION
+  private mulInPrecision(x: string | number | BigNumber, y: string | number | BigNumber): BigNumber {
+    return this.frac(x, y, PRECISION)
+  }
+
+  // Used for calculating the output amount for swapping with exact inputs
+  private async getAmountOut(amountIn: string, pool: string, tokenIn: string) {
+    const poolState = this.poolStates![pool]
+
+    if (!poolState) {
+      throw new Error("Pool does not exist")
+    }
+
+    // Update pool state of specified pool
+    await this.updateSinglePoolState(pool)
+
+    // Obtain pool state
+    const token0 = poolState.token0
+    const reserve0 = poolState.reserve0
+    const reserve1 = poolState.reserve1
+    const v_reserve0 = poolState.v_reserve0
+    const v_reserve1 = poolState.v_reserve1
+    const ampBps = poolState.amp_bps
+
+    const isNotAmpPool = !(ampBps === BASIS.toString())
+    const isSameOrder = tokenIn === token0
+
+    // Calculate feeInPrecision
+    const rFactorInPrecision = this.getRFactor(pool)
+    const intermediateFee = this.getFee(rFactorInPrecision)
+    const feeInPrecision = this.getFinalFee(intermediateFee, ampBps)
+    const { reserveIn, reserveOut, vReserveIn, vReserveOut } = this.getTradeInfo(reserve0, reserve1, v_reserve0, v_reserve1, isNotAmpPool, isSameOrder)
+
+    // get_amount_out
+    const precisionMinusFee = new BigNumber(PRECISION).minus(feeInPrecision)
+    const amountInWithFee = this.frac(amountIn, precisionMinusFee, PRECISION)
+    const numerator = amountInWithFee.multipliedBy(vReserveOut)
+    const denominator = amountInWithFee.plus(vReserveIn)
+    return numerator.dividedToIntegerBy(denominator)
+  }
+
+  private async getAmountIn(amountOut: string, pool: string, tokenIn: string) {
+    const poolState = this.poolStates![pool]
+
+    if (!poolState) {
+      throw new Error("Pool does not exist")
+    }
+
+    // Update pool state of specified pool
+    await this.updateSinglePoolState(pool)
+
+    // Obtain pool state
+    const token0 = poolState.token0
+    const reserve0 = poolState.reserve0
+    const reserve1 = poolState.reserve1
+    const v_reserve0 = poolState.v_reserve0
+    const v_reserve1 = poolState.v_reserve1
+    const ampBps = poolState.amp_bps
+
+    const isNotAmpPool = !(ampBps === BASIS.toString())
+    const isSameOrder = tokenIn === token0
+
+    // Calculate feeInPrecision
+    const rFactorInPrecision = this.getRFactor(pool)
+    const intermediateFee = this.getFee(rFactorInPrecision)
+    const feeInPrecision = this.getFinalFee(intermediateFee, ampBps)
+    const { reserveIn, reserveOut, vReserveIn, vReserveOut } = this.getTradeInfo(reserve0, reserve1, v_reserve0, v_reserve1, isNotAmpPool, isSameOrder)
+
+    // get_amount_in
+    let numerator = new BigNumber(vReserveIn).multipliedBy(amountOut)
+    let denominator = new BigNumber(vReserveOut).minus(amountOut)
+    let amountIn = numerator.dividedToIntegerBy(denominator).plus(1)
+    numerator = amountIn.multipliedBy(PRECISION)
+    denominator = new BigNumber(PRECISION).minus(feeInPrecision)
+    return numerator.plus(denominator.minus(1)).dividedToIntegerBy(denominator)
   }
 
   /////////////////////// App Helper functions //////////////////
@@ -867,6 +1146,7 @@ export class ZilSwapV2 {
       // console.log("allPools", allPools)
 
       if (allPools.length === 0) { // If there is no pool
+        this.poolStates = {}
         return
       }
 
@@ -878,48 +1158,41 @@ export class ZilSwapV2 {
         // console.log("poolHash", poolHash)
         const address = poolHash.replace('0x', '')
         // console.log("address", address)
-        requests.push({ id: '1', method: 'GetSmartContractSubState', params: [address, 'token0', []], jsonrpc: '2.0' })
-        requests.push({ id: '2', method: 'GetSmartContractSubState', params: [address, 'token1', []], jsonrpc: '2.0' })
-        requests.push({ id: '3', method: 'GetSmartContractSubState', params: [address, 'reserve0', []], jsonrpc: '2.0' })
-        requests.push({ id: '4', method: 'GetSmartContractSubState', params: [address, 'v_reserve0', []], jsonrpc: '2.0' })
-        requests.push({ id: '5', method: 'GetSmartContractSubState', params: [address, 'reserve1', []], jsonrpc: '2.0' })
-        requests.push({ id: '6', method: 'GetSmartContractSubState', params: [address, 'v_reserve1', []], jsonrpc: '2.0' })
-        requests.push({ id: '7', method: 'GetSmartContractSubState', params: [address, 'amp_bps', []], jsonrpc: '2.0' })
-        requests.push({ id: '8', method: 'GetSmartContractSubState', params: [address, 'balances', []], jsonrpc: '2.0' })
-        requests.push({ id: '9', method: 'GetSmartContractSubState', params: [address, 'allowances', []], jsonrpc: '2.0' })
 
+        requests.push({ id: '1', method: 'GetSmartContractState', params: [address], jsonrpc: '2.0' })
         const result = await sendBatchRequest(this.rpcEndpoint, requests)
         // console.log("result", result)
-        const poolSubState = Object.values(result).reduce((a, i) => ({ ...a, ...i }), {})
-        poolStates[poolHash] = poolSubState;
+        const poolState = Object.values(result).reduce((a, i) => ({ ...a, ...i }), {})
+        poolStates[poolHash] = poolState;
       }
       this.poolStates = poolStates
-      // console.log("poolState", this.poolState)
+      // console.log("poolStates", this.poolStates)
     }
   }
 
   private async updateTokens(): Promise<void> {
-    // Obtain an array of token hashes that are used in the pools
-    if (this.poolStates) {
-      const tokenHash: string[] = []
-      const poolStates = this.poolStates
-      if (poolStates) {
-        if (Object.keys(poolStates).length != 0) { // if there are poolStates
-          Object.keys(poolStates).map((poolAddress) => {
-            const token0 = poolStates[poolAddress]!.token0
-            const token1 = poolStates[poolAddress]!.token1
-            if (!tokenHash.includes(token0)) {
-              tokenHash.push(token0)
-            }
-            if (!tokenHash.includes(token1)) {
-              tokenHash.push(token1)
-            }
-          })
-          // console.log("tokenHash", tokenHash)
-        }
-      }
+    const tokenHash: string[] = []
+    const poolStates = this.poolStates!
 
-      // fetch the token details using the token hash
+    // Obtain an array of token hashes that are used in the pools
+    if (Object.keys(poolStates).length != 0) {
+      Object.keys(poolStates).map((poolAddress) => {
+        // Add LP tokens
+        tokenHash.push(poolAddress)
+
+        // Add zrc2 tokens
+        const token0 = poolStates[poolAddress]!.token0
+        const token1 = poolStates[poolAddress]!.token1
+        if (!tokenHash.includes(token0)) {
+          tokenHash.push(token0)
+        }
+        if (!tokenHash.includes(token1)) {
+          tokenHash.push(token1)
+        }
+      })
+      // console.log("tokenHash", tokenHash)
+
+      // Fetch the token details using the token hash
       const tokens: { [key in string]: TokenDetails } = {} // tokenAddress: tokenDetails
       const promises = tokenHash.map(async (hash) => {
         try {
@@ -939,6 +1212,9 @@ export class ZilSwapV2 {
 
       this.tokens = tokens;
       // console.log("this.tokens", this.tokens)
+    }
+    else {
+      this.tokens = {}
     }
   }
 
@@ -962,9 +1238,29 @@ export class ZilSwapV2 {
           this.currentNonce = 0
         }
       }
-      // console.log("this.currentZILBalance", this.currentZILBalance)
-      // console.log("this.currentNonce", this.currentNonce)
+
     }
+    else {
+      this.currentZILBalance = null
+      this.currentNonce = null
+    }
+    // console.log("this.currentZILBalance", this.currentZILBalance)
+    // console.log("this.currentNonce", this.currentNonce)
+  }
+
+  // Updates the poolState of a single pool
+  // To be used when the state of a single pool has changed
+  private async updateSinglePoolState(poolHash: string) {
+    if (!this.poolStates![poolHash]) {
+      throw new Error("Pool does not exist")
+    }
+
+    const requests: BatchRequest[] = []
+    const address = poolHash.replace('0x', '')
+    requests.push({ id: '1', method: 'GetSmartContractState', params: [address], jsonrpc: '2.0' })
+    const result = await sendBatchRequest(this.rpcEndpoint, requests)
+    const poolState = Object.values(result).reduce((a, i) => ({ ...a, ...i }), {})
+    this.poolStates![poolHash] = poolState;
   }
 
   // Check if the user is loggged in

@@ -1,15 +1,17 @@
 const { getAddressFromPrivateKey, Zilliqa, BN, Long, toBech32Address } = require('@zilliqa-js/zilliqa')
 const { ZilSwapV2 } = require('../src/zilswap-v2/ZilSwapV2')
-const { getContractCodeHash, network, rpc, zilliqa, deployZilswapV2Router, deployWrappedZIL, useFungibleToken, increaseAllowance, setFeeConfig, getAmpBps, addPool, deployZilswapV2Pool } = require('./util')
-const { TransactionError } = require('@zilliqa-js/core')
+const { getContractCodeHash, network, rpc, zilliqa, deployZilswapV2Router, deployWrappedZIL, useFungibleToken, increaseAllowance, setFeeConfig, getAmpBps, addPool, deployZilswapV2Pool } = require('../src/zilswap-v2/utils')
 const { default: BigNumber } = require('bignumber.js')
-const { BASIS } = require('../src/constants')
 require('dotenv').config()
 
 let zilswap, privateKey, owner, tx
 let router, pool, token0, token1, routerState, poolState, tokens
 const codehash = getContractCodeHash("./src/zilswap-v2/contracts/ZilSwapPool.scilla");
 const init_liquidity = 10000
+const amountIn = 100
+const amountInMax = 1000
+const amountOut = 100
+const amountOutMin = 10
 
 describe("test", () => {
   beforeAll(async () => {
@@ -26,7 +28,7 @@ describe("test", () => {
 
   test('deploy amp pool (non-ZIL)', async () => {
     jest.setTimeout(20000)
-    pool = await zilswap.deployZilswapV2Pool(token0.address.toLowerCase(), token1.address.toLowerCase(), 15000)
+    pool = await zilswap.deployZilswapV2Pool(token0.address.toLowerCase(), token1.address.toLowerCase(), getAmpBps(true))
   })
 
   test('add amp pool (non-ZIL)', async () => {
@@ -35,7 +37,7 @@ describe("test", () => {
     expect(tx.status).toEqual(2)
   })
 
-  test('addLiquidity', async () => {
+  test('addLiquidity to amp pool (non-ZIL)', async () => {
     jest.setTimeout(20000)
 
     // Add Liquidity to new pool
@@ -65,8 +67,12 @@ describe("test", () => {
   test('deploy amp pool (ZIL)', async () => {
     jest.setTimeout(20000)
 
-    if (parseInt(token0.address, 16) > parseInt(wZil.address, 16)) [token0, wZil] = [wZil, token0]
-    pool = await zilswap.deployZilswapV2Pool(token0.address.toLowerCase(), wZil.address.toLowerCase(), 15000)
+    if (parseInt(token0.address, 16) > parseInt(wZil.address, 16)) {
+      pool = await zilswap.deployZilswapV2Pool(wZil.address.toLowerCase(), token0.address.toLowerCase(), getAmpBps(true))
+    }
+    else {
+      pool = await zilswap.deployZilswapV2Pool(token0.address.toLowerCase(), wZil.address.toLowerCase(), getAmpBps(true))
+    }
   })
 
   test('add pool (ZIL)', async () => {
@@ -75,7 +81,7 @@ describe("test", () => {
     expect(tx.status).toEqual(2)
   })
 
-  test('addLiquidityZIL', async () => {
+  test('addLiquidityZIL to amp pool (ZIL)', async () => {
     jest.setTimeout(20000)
 
     // Add Liquidity to new pool
