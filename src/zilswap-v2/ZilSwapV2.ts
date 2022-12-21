@@ -315,24 +315,24 @@ export class ZilSwapV2 {
     await this.updateBlockHeight()
 
     // Calculate amount of tokens added
-    const tokenAReserve = new BigNumber(poolState.reserve0, 10)
-    const tokenBReserve = new BigNumber(poolState.reserve1, 10)
+    const tokenAReserve = poolState.reserve0
+    const tokenBReserve = poolState.reserve1
     let amountA, amountB
 
-    if (tokenAReserve.isZero() && tokenBReserve.isZero()) {
-      amountA = new BigNumber(amountA_desired)
-      amountB = new BigNumber(amountB_desired)
+    if (tokenAReserve === '0' && tokenBReserve === '0') {
+      amountA = amountA_desired
+      amountB = amountB_desired
     }
     else {
-      const amountBOptimal = this.quote(new BigNumber(amountA_desired), tokenAReserve, tokenBReserve)
+      const amountBOptimal = this.quote(amountA_desired, tokenAReserve, tokenBReserve)
       if (amountBOptimal.lte(amountB_desired)) {
-        amountA = new BigNumber(amountA_desired)
-        amountB = new BigNumber(amountBOptimal)
+        amountA = amountA_desired
+        amountB = amountBOptimal
       }
       else {
-        const amountAOptimal = this.quote(new BigNumber(amountB_desired), tokenBReserve, tokenAReserve)
-        amountA = new BigNumber(amountAOptimal)
-        amountB = new BigNumber(amountB_desired)
+        const amountAOptimal = this.quote(amountB_desired, tokenBReserve, tokenAReserve)
+        amountA = amountAOptimal
+        amountB = amountB_desired
       }
     }
 
@@ -348,7 +348,7 @@ export class ZilSwapV2 {
 
     let v_reserve_min, v_reserve_max
 
-    if (tokenAReserve.isZero() && tokenBReserve.isZero()) {
+    if (tokenAReserve === '0' && tokenBReserve === '0') {
       v_reserve_min = '0'
       v_reserve_max = '0'
     }
@@ -428,24 +428,24 @@ export class ZilSwapV2 {
     await this.updateBlockHeight()
 
     // Calculate amount of tokens added
-    const tokenAReserve = new BigNumber(poolState.reserve0, 10)
-    const tokenBReserve = new BigNumber(poolState.reserve1, 10)
+    const tokenAReserve = poolState.reserve0
+    const tokenBReserve = poolState.reserve1
     let amountToken, amountWZIL
 
-    if (tokenAReserve.isZero() && tokenBReserve.isZero()) {
-      amountToken = new BigNumber(amount_token_desired)
-      amountWZIL = new BigNumber(amount_wZIL_desired)
+    if (tokenAReserve === '0' && tokenBReserve === '0') {
+      amountToken = amount_token_desired
+      amountWZIL = amount_wZIL_desired
     }
     else {
-      const amountWZILOptimal = await this.quote(new BigNumber(amount_token_desired), tokenAReserve, tokenBReserve)
+      const amountWZILOptimal = await this.quote(amount_token_desired, tokenAReserve, tokenBReserve)
       if (amountWZILOptimal.lte(amount_wZIL_desired)) {
-        amountToken = new BigNumber(amount_token_desired)
-        amountWZIL = new BigNumber(amountWZILOptimal)
+        amountToken = amount_token_desired
+        amountWZIL = amountWZILOptimal
       }
       else {
-        const amountTokenOptimal = await this.quote(new BigNumber(amount_wZIL_desired), tokenBReserve, tokenAReserve)
-        amountToken = new BigNumber(amountTokenOptimal)
-        amountWZIL = new BigNumber(amount_wZIL_desired)
+        const amountTokenOptimal = await this.quote(amount_wZIL_desired, tokenBReserve, tokenAReserve)
+        amountToken = amountTokenOptimal
+        amountWZIL = amount_wZIL_desired
       }
     }
 
@@ -455,12 +455,12 @@ export class ZilSwapV2 {
     await this.checkBalance(ZIL_HASH, amountWZIL)
 
     // Generate contract args
-    const ampBps = new BigNumber(poolState!.amp_bps)
-    const isAmpPool = !ampBps.isEqualTo(BASIS)
+    const ampBps = parseInt(poolState!.amp_bps)
+    const isAmpPool = !(ampBps === BASIS)
 
     let v_reserve_min, v_reserve_max
 
-    if (tokenAReserve.isZero() && tokenBReserve.isZero()) {
+    if (tokenAReserve === '0' && tokenBReserve === '0') {
       v_reserve_min = '0'
       v_reserve_max = '0'
     }
@@ -535,8 +535,8 @@ export class ZilSwapV2 {
     await this.updateBlockHeight()
 
     // Check Balance and Allowance
-    await this.checkAllowance(pool, new BigNumber(liquidity))
-    await this.checkBalance(pool, new BigNumber(liquidity))
+    await this.checkAllowance(pool, liquidity)
+    await this.checkBalance(pool, liquidity)
 
     // Generate contract args
     const deadline = this.deadlineBlock()
@@ -590,8 +590,8 @@ export class ZilSwapV2 {
     await this.updateBlockHeight()
 
     // Check Balance and Allowance
-    await this.checkAllowance(pool, new BigNumber(liquidity))
-    await this.checkBalance(pool, new BigNumber(liquidity))
+    await this.checkAllowance(pool, liquidity)
+    await this.checkBalance(pool, liquidity)
 
     // Generate contract args
     const deadline = this.deadlineBlock()
@@ -652,7 +652,7 @@ export class ZilSwapV2 {
       let pool1 = this.tokenPools![tokenIn]![i]
       let pool1TokenOut = this.getOtherToken(pool1, tokenIn)
       pool1AmtOut = await this.getAmountOut(amountIn, pool1, tokenIn)
-      
+
       // First pool has the desired token pair && amountOutTemp > amountOut
       if (tokenOut === pool1TokenOut && pool1AmtOut.gt(amountOut)) {
         console.log("pool1AmtOut", pool1AmtOut.toString())
@@ -666,7 +666,7 @@ export class ZilSwapV2 {
         let pool2 = this.tokenPools![pool1TokenOut]![j]
         let pool2TokenOut = this.getOtherToken(pool2, pool1TokenOut)
         pool2AmtOut = await this.getAmountOut(pool1AmtOut, pool2, pool1TokenOut)
-        
+
         // Second pool has the desired token pair && current amountOut > previous amountOut
         if (tokenOut === pool2TokenOut && pool2AmtOut.gt(amountOut)) {
           console.log("pool2AmtOut", pool2AmtOut.toString())
@@ -686,7 +686,7 @@ export class ZilSwapV2 {
           // Second pool has the desired token pair && current amountOut > previous amountOut
           if (tokenOut === pool3TokenOut) {
             pool3AmtOut = await this.getAmountOut(pool2AmtOut, pool3, pool2TokenOut)
-            
+
             if (pool3AmtOut.gt(amountOut)) {
               console.log("pool3AmtOut", pool3AmtOut.toString())
               amountOut = pool3AmtOut
@@ -829,7 +829,7 @@ export class ZilSwapV2 {
       let pool3 = this.tokenPools![tokenOut]![i]
       let pool3TokenIn = this.getOtherToken(pool3, tokenOut)
       pool3AmtIn = await this.getAmountIn(amountOut, pool3, pool3TokenIn)
-      
+
       // First pool has the desired token pair && amountOutTemp > amountOut
       if (tokenIn === pool3TokenIn && pool3AmtIn.lt(amountIn)) {
         console.log("pool3AmtIn", pool3AmtIn.toString())
@@ -843,7 +843,7 @@ export class ZilSwapV2 {
         let pool2 = this.tokenPools![pool3TokenIn]![j]
         let pool2TokenIn = this.getOtherToken(pool2, pool3TokenIn)
         pool2AmtIn = await this.getAmountIn(pool3AmtIn, pool2, pool2TokenIn)
-        
+
         // Second pool has the desired token pair && current amountOut > previous amountOut
         if (tokenIn === pool2TokenIn && pool2AmtIn.lt(amountIn)) {
           console.log("pool2AmtIn", pool2AmtIn.toString())
@@ -863,7 +863,7 @@ export class ZilSwapV2 {
           // Second pool has the desired token pair && current amountOut > previous amountOut
           if (tokenIn === pool1TokenIn) {
             pool1AmtIn = await this.getAmountIn(pool2AmtIn, pool1, pool1TokenIn)
-            
+
             if (pool1AmtIn.lt(amountOut)) {
               console.log("pool1AmtIn", pool1AmtIn.toString())
               amountIn = pool1AmtIn
@@ -1007,7 +1007,7 @@ export class ZilSwapV2 {
       let pool1 = this.tokenPools![tokenIn]![i]
       let pool1TokenOut = this.getOtherToken(pool1, tokenIn)
       pool1AmtOut = await this.getAmountOut(amountIn, pool1, tokenIn)
-      
+
       // First pool has the desired token pair && amountOutTemp > amountOut
       if (tokenOut === pool1TokenOut && pool1AmtOut.gt(amountOut)) {
         console.log("pool1AmtOut", pool1AmtOut.toString())
@@ -1021,7 +1021,7 @@ export class ZilSwapV2 {
         let pool2 = this.tokenPools![pool1TokenOut]![j]
         let pool2TokenOut = this.getOtherToken(pool2, pool1TokenOut)
         pool2AmtOut = await this.getAmountOut(pool1AmtOut, pool2, pool1TokenOut)
-        
+
         // Second pool has the desired token pair && current amountOut > previous amountOut
         if (tokenOut === pool2TokenOut && pool2AmtOut.gt(amountOut)) {
           console.log("pool2AmtOut", pool2AmtOut.toString())
@@ -1041,7 +1041,7 @@ export class ZilSwapV2 {
           // Second pool has the desired token pair && current amountOut > previous amountOut
           if (tokenOut === pool3TokenOut) {
             pool3AmtOut = await this.getAmountOut(pool2AmtOut, pool3, pool2TokenOut)
-            
+
             if (pool3AmtOut.gt(amountOut)) {
               console.log("pool3AmtOut", pool3AmtOut.toString())
               amountOut = pool3AmtOut
@@ -1181,7 +1181,7 @@ export class ZilSwapV2 {
       let pool3 = this.tokenPools![tokenOut]![i]
       let pool3TokenIn = this.getOtherToken(pool3, tokenOut)
       pool3AmtIn = await this.getAmountIn(amountOut, pool3, pool3TokenIn)
-      
+
       // First pool has the desired token pair && amountOutTemp > amountOut
       if (tokenIn === pool3TokenIn && pool3AmtIn.lt(amountIn)) {
         console.log("pool3AmtIn", pool3AmtIn.toString())
@@ -1195,7 +1195,7 @@ export class ZilSwapV2 {
         let pool2 = this.tokenPools![pool3TokenIn]![j]
         let pool2TokenIn = this.getOtherToken(pool2, pool3TokenIn)
         pool2AmtIn = await this.getAmountIn(pool3AmtIn, pool2, pool2TokenIn)
-        
+
         // Second pool has the desired token pair && current amountOut > previous amountOut
         if (tokenIn === pool2TokenIn && pool2AmtIn.lt(amountIn)) {
           console.log("pool2AmtIn", pool2AmtIn.toString())
@@ -1215,7 +1215,7 @@ export class ZilSwapV2 {
           // Second pool has the desired token pair && current amountOut > previous amountOut
           if (tokenIn === pool1TokenIn) {
             pool1AmtIn = await this.getAmountIn(pool2AmtIn, pool1, pool1TokenIn)
-            
+
             if (pool1AmtIn.lt(amountOut)) {
               console.log("pool1AmtIn", pool1AmtIn.toString())
               amountIn = pool1AmtIn
@@ -1355,7 +1355,7 @@ export class ZilSwapV2 {
       let pool1 = this.tokenPools![tokenIn]![i]
       let pool1TokenOut = this.getOtherToken(pool1, tokenIn)
       pool1AmtOut = await this.getAmountOut(amountIn, pool1, tokenIn)
-      
+
       // First pool has the desired token pair && amountOutTemp > amountOut
       if (tokenOut === pool1TokenOut && pool1AmtOut.gt(amountOut)) {
         console.log("pool1AmtOut", pool1AmtOut.toString())
@@ -1369,7 +1369,7 @@ export class ZilSwapV2 {
         let pool2 = this.tokenPools![pool1TokenOut]![j]
         let pool2TokenOut = this.getOtherToken(pool2, pool1TokenOut)
         pool2AmtOut = await this.getAmountOut(pool1AmtOut, pool2, pool1TokenOut)
-        
+
         // Second pool has the desired token pair && current amountOut > previous amountOut
         if (tokenOut === pool2TokenOut && pool2AmtOut.gt(amountOut)) {
           console.log("pool2AmtOut", pool2AmtOut.toString())
@@ -1389,7 +1389,7 @@ export class ZilSwapV2 {
           // Second pool has the desired token pair && current amountOut > previous amountOut
           if (tokenOut === pool3TokenOut) {
             pool3AmtOut = await this.getAmountOut(pool2AmtOut, pool3, pool2TokenOut)
-            
+
             if (pool3AmtOut.gt(amountOut)) {
               console.log("pool3AmtOut", pool3AmtOut.toString())
               amountOut = pool3AmtOut
@@ -1533,7 +1533,7 @@ export class ZilSwapV2 {
       let pool3 = this.tokenPools![tokenOut]![i]
       let pool3TokenIn = this.getOtherToken(pool3, tokenOut)
       pool3AmtIn = await this.getAmountIn(amountOut, pool3, pool3TokenIn)
-      
+
       // First pool has the desired token pair && amountOutTemp > amountOut
       if (tokenIn === pool3TokenIn && pool3AmtIn.lt(amountIn)) {
         console.log("pool3AmtIn", pool3AmtIn.toString())
@@ -1547,7 +1547,7 @@ export class ZilSwapV2 {
         let pool2 = this.tokenPools![pool3TokenIn]![j]
         let pool2TokenIn = this.getOtherToken(pool2, pool3TokenIn)
         pool2AmtIn = await this.getAmountIn(pool3AmtIn, pool2, pool2TokenIn)
-        
+
         // Second pool has the desired token pair && current amountOut > previous amountOut
         if (tokenIn === pool2TokenIn && pool2AmtIn.lt(amountIn)) {
           console.log("pool2AmtIn", pool2AmtIn.toString())
@@ -1567,7 +1567,7 @@ export class ZilSwapV2 {
           // Second pool has the desired token pair && current amountOut > previous amountOut
           if (tokenIn === pool1TokenIn) {
             pool1AmtIn = await this.getAmountIn(pool2AmtIn, pool1, pool1TokenIn)
-            
+
             if (pool1AmtIn.lt(amountOut)) {
               console.log("pool1AmtIn", pool1AmtIn.toString())
               amountIn = pool1AmtIn
@@ -1941,7 +1941,7 @@ export class ZilSwapV2 {
     }
   }
 
-  private quote(amountA: BigNumber, reserveA: BigNumber, reserveB: BigNumber): BigNumber {
+  private quote(amountA: string | number | BigNumber, reserveA: string | number | BigNumber, reserveB: string | number | BigNumber): BigNumber {
     return new BigNumber(amountA).multipliedBy(reserveB).dividedToIntegerBy(reserveA)
   }
 
