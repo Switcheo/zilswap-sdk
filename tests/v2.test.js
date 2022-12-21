@@ -197,6 +197,18 @@ describe("test", () => {
     expect(txn.status).toEqual(2)
     // console.log(txn)
   })
+
+  test('swap exact tokens for zil', async () => {
+    const txn = await zilswap.swapExactTokensForZIL(token1.address.toLowerCase(), wZil.address.toLowerCase(), amountIn, amountOutMin)
+    expect(txn.status).toEqual(2)
+    // console.log(txn)
+  })
+
+  test('swap tokens for exact zil', async () => {
+    const txn = await zilswap.swapTokensForExactZIL(token1.address.toLowerCase(), wZil.address.toLowerCase(), amountInMax, amountOut)
+    expect(txn.status).toEqual(2)
+    // console.log(txn)
+  })
 })
 
 // Helper Functions
