@@ -27,13 +27,19 @@ export const ZILSWAPV1_CONTRACTS: { [key in Networks]: string } = {
 
 export const ZILSWAPV2_CONTRACTS: { [key in Networks]: string } = {
   [Network.MainNet]: '',
-  [Network.TestNet]: '',
+  [Network.TestNet]: 'zil1uakhf9d42uccydm5g54dffr0lsr3asj8n5vemn', // IsValidPoolContract commented out
   [Network.LocalHost]: '',
 }
 
 export const ARK_CONTRACTS: { [key in Networks]: string } = {
   [Network.MainNet]: '',
   [Network.TestNet]: 'zil1sgf3zpgt6qeflg053pxjwx9s9pxclx3p7s06gp',
+  [Network.LocalHost]: '',
+}
+
+export const WZIL_CONTRACTS: { [key in Networks]: string } = {
+  [Network.MainNet]: 'zil1gvr0jgwfsfmxsyx0xsnhtlte4gks6r3yk8x5fn',
+  [Network.TestNet]: 'zil19hektxuaehcz50a9yhr4c9n78mfxfqxm9qa58z',
   [Network.LocalHost]: '',
 }
 

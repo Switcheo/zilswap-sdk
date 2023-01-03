@@ -21,48 +21,47 @@ describe("test", () => {
     await setup()
   })
 
-  // afterAll(async () => {
-  //   zrc2Pool1State = await zrc2Pool1.getState()
-  //   tx = await zilswap.increaseAllowance(zrc2Pool1, router.address.toLowerCase(), zrc2Pool1State.balances[owner])
-  //   expect(tx.status).toEqual(2)
-  //   tx = await zilswap.removeLiquidity(token0.address.toLowerCase(), token1.address.toLowerCase(), zrc2Pool1.address.toLowerCase(), zrc2Pool1State.balances[owner], '0', '0')
-  //   expect(tx.status).toEqual(2)
+  afterAll(async () => {
+    zrc2Pool1State = await zrc2Pool1.getState()
+    tx = await zilswap.increaseAllowance(zrc2Pool1.address.toLowerCase(), zrc2Pool1State.balances[owner], router.address.toLowerCase())
+    expect(tx.status).toEqual(2)
+    tx = await zilswap.removeLiquidity(token0.address.toLowerCase(), token1.address.toLowerCase(), zrc2Pool1.address.toLowerCase(), zrc2Pool1State.balances[owner], '0', '0')
+    expect(tx.status).toEqual(2)
 
-  //   zrc2Pool2State = await zrc2Pool2.getState()
-  //   tx = await zilswap.increaseAllowance(zrc2Pool2, router.address.toLowerCase(), zrc2Pool2State.balances[owner])
-  //   expect(tx.status).toEqual(2)
-  //   tx = await zilswap.removeLiquidity(token1.address.toLowerCase(), token2.address.toLowerCase(), zrc2Pool2.address.toLowerCase(), zrc2Pool2State.balances[owner], '0', '0')
-  //   expect(tx.status).toEqual(2)
+    zrc2Pool2State = await zrc2Pool2.getState()
+    tx = await zilswap.increaseAllowance(zrc2Pool2.address.toLowerCase(), zrc2Pool2State.balances[owner], router.address.toLowerCase())
+    expect(tx.status).toEqual(2)
+    tx = await zilswap.removeLiquidity(token1.address.toLowerCase(), token2.address.toLowerCase(), zrc2Pool2.address.toLowerCase(), zrc2Pool2State.balances[owner], '0', '0')
+    expect(tx.status).toEqual(2)
 
-  //   zilPool1State = await zilPool1.getState()
-  //   await zilswap.increaseAllowance(zilPool1, router.address.toLowerCase(), zilPool1State.balances[owner])
-  //   tx = await zilswap.removeLiquidityZIL(token0.address.toLowerCase(), zilPool1.address.toLowerCase(), zilPool1State.balances[owner], '0', '0')
-  //   expect(tx.status).toEqual(2)
+    zilPool1State = await zilPool1.getState()
+    await zilswap.increaseAllowance(zilPool1.address.toLowerCase(), zilPool1State.balances[owner], router.address.toLowerCase())
+    tx = await zilswap.removeLiquidityZIL(token0.address.toLowerCase(), zilPool1.address.toLowerCase(), zilPool1State.balances[owner], '0', '0')
+    expect(tx.status).toEqual(2)
 
-  //   zilPool2State = await zilPool2.getState()
-  //   await zilswap.increaseAllowance(zilPool2, router.address.toLowerCase(), zilPool2State.balances[owner])
-  //   tx = await zilswap.removeLiquidityZIL(token1.address.toLowerCase(), zilPool2.address.toLowerCase(), zilPool2State.balances[owner], '0', '0')
-  //   expect(tx.status).toEqual(2)
+    zilPool2State = await zilPool2.getState()
+    await zilswap.increaseAllowance(zilPool2.address.toLowerCase(), zilPool2State.balances[owner], router.address.toLowerCase())
+    tx = await zilswap.removeLiquidityZIL(token1.address.toLowerCase(), zilPool2.address.toLowerCase(), zilPool2State.balances[owner], '0', '0')
+    expect(tx.status).toEqual(2)
 
-  //   zilPool3State = await zilPool3.getState()
-  //   await zilswap.increaseAllowance(zilPool3, router.address.toLowerCase(), zilPool3State.balances[owner])
-  //   tx = await zilswap.removeLiquidityZIL(token2.address.toLowerCase(), zilPool3.address.toLowerCase(), zilPool3State.balances[owner], '0', '0')
-  //   expect(tx.status).toEqual(2)
-  // })
+    zilPool3State = await zilPool3.getState()
+    await zilswap.increaseAllowance(zilPool3.address.toLowerCase(), zilPool3State.balances[owner], router.address.toLowerCase())
+    tx = await zilswap.removeLiquidityZIL(token2.address.toLowerCase(), zilPool3.address.toLowerCase(), zilPool3State.balances[owner], '0', '0')
+    expect(tx.status).toEqual(2)
+  })
 
   test('initialize zilswap object', async () => {
-    const routerHash = toBech32Address(router.address.toLowerCase())
-    zilswap = new ZilSwapV2(network, privateKey, routerHash)
+    const routerAddress = toBech32Address(router.address.toLowerCase())
+    zilswap = new ZilSwapV2(network, privateKey, routerAddress)
     await zilswap.initialize()
     zilswap.setDeadlineBlocks(10)
+
+    await zilswap.increaseAllowance(wZil.address.toLowerCase(), '100000000000000000000000000000000000000', router.address.toLowerCase(),)
   })
 
   test('deploy and add zrc2Pool1', async () => {
     // Deploy pool
-    zrc2Pool1 = await zilswap.deployZilswapV2Pool(token0.address.toLowerCase(), token1.address.toLowerCase(), getAmpBps(true))
-
-    // Add pool
-    tx = await zilswap.addPool(zrc2Pool1.address.toLowerCase())
+    [zrc2Pool1, tx] = await zilswap.deployAndAddPool(token0.address.toLowerCase(), token1.address.toLowerCase(), getAmpBps(true))
     expect(tx.status).toEqual(2)
 
     // Add Liquidity to new pool
@@ -76,10 +75,7 @@ describe("test", () => {
 
   test('deploy and add zrc2Pool2', async () => {
     // Deploy pool
-    zrc2Pool2 = await zilswap.deployZilswapV2Pool(token1.address.toLowerCase(), token2.address.toLowerCase(), getAmpBps(true))
-
-    // Add pool
-    tx = await zilswap.addPool(zrc2Pool2.address.toLowerCase())
+    [zrc2Pool2, tx] = await zilswap.deployAndAddPool(token1.address.toLowerCase(), token2.address.toLowerCase(), getAmpBps(true))
     expect(tx.status).toEqual(2)
 
     // Add Liquidity to new pool
@@ -94,14 +90,11 @@ describe("test", () => {
   test('deploy and add zilPool1', async () => {
     // Deploy pool
     if (parseInt(token0.address, 16) > parseInt(wZil.address, 16)) {
-      zilPool1 = await zilswap.deployZilswapV2Pool(wZil.address.toLowerCase(), token0.address.toLowerCase(), getAmpBps(true))
+      [zilPool1, tx] = await zilswap.deployAndAddPool(wZil.address.toLowerCase(), token0.address.toLowerCase(), getAmpBps(true))
     }
     else {
-      zilPool1 = await zilswap.deployZilswapV2Pool(token0.address.toLowerCase(), wZil.address.toLowerCase(), getAmpBps(true))
+      [zilPool1, tx] = await zilswap.deployAndAddPool(token0.address.toLowerCase(), wZil.address.toLowerCase(), getAmpBps(true))
     }
-
-    // Add pool
-    tx = await zilswap.addPool(zilPool1.address.toLowerCase())
     expect(tx.status).toEqual(2)
 
     // Add Liquidity to new pool
@@ -116,14 +109,11 @@ describe("test", () => {
   test('deploy and add zilPool2', async () => {
     // Deploy pool
     if (parseInt(token1.address, 16) > parseInt(wZil.address, 16)) {
-      zilPool2 = await zilswap.deployZilswapV2Pool(wZil.address.toLowerCase(), token1.address.toLowerCase(), getAmpBps(true))
+      [zilPool2, tx] = await zilswap.deployAndAddPool(wZil.address.toLowerCase(), token1.address.toLowerCase(), getAmpBps(true))
     }
     else {
-      zilPool2 = await zilswap.deployZilswapV2Pool(token1.address.toLowerCase(), wZil.address.toLowerCase(), getAmpBps(true))
+      [zilPool2, tx] = await zilswap.deployAndAddPool(token1.address.toLowerCase(), wZil.address.toLowerCase(), getAmpBps(true))
     }
-
-    // Add pool
-    tx = await zilswap.addPool(zilPool2.address.toLowerCase())
     expect(tx.status).toEqual(2)
 
     // Add Liquidity to new pool
@@ -138,14 +128,11 @@ describe("test", () => {
   test('deploy and add zilPool3', async () => {
     // Deploy pool
     if (parseInt(token2.address, 16) > parseInt(wZil.address, 16)) {
-      zilPool3 = await zilswap.deployZilswapV2Pool(wZil.address.toLowerCase(), token2.address.toLowerCase(), getAmpBps(true))
+      [zilPool3, tx] = await zilswap.deployAndAddPool(wZil.address.toLowerCase(), token2.address.toLowerCase(), getAmpBps(true))
     }
     else {
-      zilPool3 = await zilswap.deployZilswapV2Pool(token2.address.toLowerCase(), wZil.address.toLowerCase(), getAmpBps(true))
+      [zilPool3, tx] = await zilswap.deployAndAddPool(token2.address.toLowerCase(), wZil.address.toLowerCase(), getAmpBps(true))
     }
-
-    // Add pool
-    tx = await zilswap.addPool(zilPool3.address.toLowerCase())
     expect(tx.status).toEqual(2)
 
     // Add Liquidity to new pool
@@ -163,9 +150,9 @@ describe("test", () => {
     tokens = zilswap.getTokens()
     tokenPools = zilswap.getTokenPools()
 
-    // console.log("routerState", routerState)
-    // console.log("poolState", poolState)
-    // console.log("tokens", tokens)
+    console.log("routerState", routerState)
+    console.log("poolState", poolState)
+    console.log("tokens", tokens)
 
     console.log("token0.address.toLowerCase()", token0.address.toLowerCase())
     console.log("token1.address.toLowerCase()", token1.address.toLowerCase())
@@ -175,37 +162,37 @@ describe("test", () => {
   })
 
   test('swap exact tokens for tokens', async () => {
-    const txn = await zilswap.swapExactTokensForTokens(token0.address.toLowerCase(), wZil.address.toLowerCase(), amountIn, amountOutMin)
+    const txn = await zilswap.swapExactTokensForTokens(token0.address.toLowerCase(), wZil.address.toLowerCase(), new BigNumber(amountIn).shiftedBy(12).toString(), new BigNumber(amountOutMin).shiftedBy(12).toString())
     expect(txn.status).toEqual(2)
     // console.log(txn)
   })
 
   test('swap tokens for exact tokens', async () => {
-    const txn = await zilswap.swapTokensForExactTokens(wZil.address.toLowerCase(), token0.address.toLowerCase(), amountInMax, amountOut)
+    const txn = await zilswap.swapTokensForExactTokens(wZil.address.toLowerCase(), token0.address.toLowerCase(), new BigNumber(amountInMax).shiftedBy(12).toString(), new BigNumber(amountOut).shiftedBy(12).toString())
     expect(txn.status).toEqual(2)
     // console.log(txn)
   })
 
   test('swap exact zil for tokens', async () => {
-    const txn = await zilswap.swapExactZILForTokens(wZil.address.toLowerCase(), token2.address.toLowerCase(), amountIn, amountOutMin)
+    const txn = await zilswap.swapExactZILForTokens(wZil.address.toLowerCase(), token2.address.toLowerCase(), new BigNumber(amountIn).shiftedBy(12).toString(), new BigNumber(amountOutMin).shiftedBy(12).toString())
     expect(txn.status).toEqual(2)
     // console.log(txn)
   })
 
   test('swap zil for exact tokens', async () => {
-    const txn = await zilswap.swapZILForExactTokens(wZil.address.toLowerCase(), token2.address.toLowerCase(), amountInMax, amountOut)
+    const txn = await zilswap.swapZILForExactTokens(wZil.address.toLowerCase(), token2.address.toLowerCase(), new BigNumber(amountInMax).shiftedBy(12).toString(), new BigNumber(amountOut).shiftedBy(12).toString())
     expect(txn.status).toEqual(2)
     // console.log(txn)
   })
 
   test('swap exact tokens for zil', async () => {
-    const txn = await zilswap.swapExactTokensForZIL(token1.address.toLowerCase(), wZil.address.toLowerCase(), amountIn, amountOutMin)
+    const txn = await zilswap.swapExactTokensForZIL(token1.address.toLowerCase(), wZil.address.toLowerCase(), new BigNumber(amountIn).shiftedBy(12).toString(), new BigNumber(amountOutMin).shiftedBy(12).toString())
     expect(txn.status).toEqual(2)
     // console.log(txn)
   })
 
   test('swap tokens for exact zil', async () => {
-    const txn = await zilswap.swapTokensForExactZIL(token1.address.toLowerCase(), wZil.address.toLowerCase(), amountInMax, amountOut)
+    const txn = await zilswap.swapTokensForExactZIL(token1.address.toLowerCase(), wZil.address.toLowerCase(), new BigNumber(amountInMax).toString(), new BigNumber(amountOut).toString())
     expect(txn.status).toEqual(2)
     // console.log(txn)
   })
@@ -231,6 +218,6 @@ async function setup() {
   if (parseInt(token1.address, 16) > parseInt(token2.address, 16)) [token0, token1, token2] = [token0, token2, token1]
   if (parseInt(token0.address, 16) > parseInt(token1.address, 16)) [token0, token1, token2] = [token1, token0, token2]
 
-  await increaseAllowance(privateKey, wZil, router.address.toLowerCase())
+  // await increaseAllowance(privateKey, wZil, router.address.toLowerCase())
   await setFeeConfig(privateKey, router, owner.toLowerCase())
 }

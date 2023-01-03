@@ -12,6 +12,7 @@ let zero_block = BNum 0
 let bps = Uint128 10000
 let none = None {ByStr20}
 let bps = Uint128 10000
+let half_bps = Uint128 5000
 let precision = Uint256 1000000000000000000 (* for decimal calculations (18dp precision) *)
 let short_alpha = Uint256 370301795963710 (* 2 * precision / 5401 *)
 let long_alpha = Uint256 185168039996296 (* (2 * precision) / 10801 *)
@@ -22,7 +23,7 @@ let one_u256 = Uint256 1
 let two_u256 = Uint256 2
 let three_u256 = Uint256 3
 let four_u256 = Uint256 4
-let five_u256 = Uint256 5 
+let five_u256 = Uint256 5
 let nine_u256 = Uint256 9
 let ten_u256 = Uint256 10
 let twenty_u256 = Uint256 20
@@ -70,7 +71,6 @@ let get_amount_or_zero =
     | None => zero_amount
     end
 
-(* @dev: Convert Uint128 to Uint256 *)
 let grow =
   fun (var : Uint128) =>
     let maybe_big = builtin to_uint256 var in
@@ -79,7 +79,6 @@ let grow =
     | None => Uint256 0 (* should never happen *)
     end
 
-(* @dev: Convert Int256 to Uint128 *)
 let shrink =
   fun (var : Int256) =>
     let maybe_small = builtin to_uint128 var in
@@ -88,7 +87,6 @@ let shrink =
     | None => let one = Uint128 1 in builtin sub zero_amount one (* throw on overflow *)
     end
 
-(* @dev: Convert Uint256 to Uint128 *)
 let reduce =
   fun (var : Uint256) =>
     let maybe_small = builtin to_uint128 var in
@@ -109,7 +107,6 @@ let frac =
     let ans_u256 = builtin div xy_u256 z_u256 in
     reduce ans_u256
 
-(* @dev: (x * y) / z in Uint256 *)
 let frac_u256 =
   fun (x_u256: Uint256) => 
   fun (y_u256: Uint256) => 
@@ -117,10 +114,14 @@ let frac_u256 =
     let xy_u256 = builtin mul x_u256 y_u256 in
     builtin div xy_u256 z_u256
 
+let u128_mul_grow =
+  fun (x: Uint128) =>
+  fun (y: Uint128) =>
+    let x_u256 = grow x in
+    let y_u256 = grow y in
+    builtin mul x_u256 y_u256
+
 (* @dev: Given an amount of one token and pool reserves, return an equivalent amount of the tokenB *)
-(* @solidity DMMLibrary.sol: 
-  amountB = amountA.mul(reserveB) / reserveA 
-*)
 let quote =
   fun (amountA : Uint128) =>
   fun (reserveA : Uint128) =>
@@ -155,9 +156,6 @@ let pool_exists =
     end
 
 (* @dev: Returns init_token pair *)
-(* @solidity DMMLibrary.sol:
-  (token0, token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
-*)
 let sort_token = 
   fun (path: Pair ByStr20 ByStr20 ) =>
   match path with
@@ -172,12 +170,6 @@ let sort_token =
   end
 
 (* @dev: Returns reserves and vReserves in the correct order *)
-(* @solidity DMMLibrary.sol: 
-  (reserve0, reserve1, vReserve0, vReserve1, feeInPrecision) = IDMMPool(pool).getTradeInfo();
-  (reserveA, reserveB, vReserveA, vReserveB) = tokenA == token0
-    ? (reserve0, reserve1, vReserve0, vReserve1)
-    : (reserve1, reserve0, vReserve1, vReserve0); 
-*)
 let get_trade_info = 
   fun (r_0: Uint128) =>
   fun (r_1: Uint128) =>
@@ -202,10 +194,6 @@ let get_trade_info =
     end
   end
 
-(* @dev: Returns x*y in precision *)
-(* @solidity MathExt.sol: 
-  return x.mul(y) / PRECISION;
-*)
 let mul_in_precision =
   fun (x : Uint256) =>
   fun (y : Uint256) =>
@@ -213,9 +201,6 @@ let mul_in_precision =
     builtin div xy precision
 
 (* @dev: Used in unsafe_pow_in_precision *)
-(* @solidity MathExt.sol: 
-  zInPrecision = k % 2 != 0 ? xInPrecision : PRECISION; 
-*)
 let get_z_in_precision = 
   fun (x_in_precision: Uint256) =>
   fun (k: Uint256)=> 
@@ -245,14 +230,6 @@ let get_z_from_unsafe_pow_in_precision =
     end
   end
 
-(* @solidity MathExt.sol:
-  zInPrecision = k % 2 != 0 ? xInPrecision : PRECISION;
-  for (k /= 2; k != 0; k /= 2) {
-      xInPrecision = (xInPrecision * xInPrecision) / PRECISION;
-      if (k % 2 != 0) { zInPrecision = (zInPrecision * xInPrecision) / PRECISION; }
-  } 
-  return zInPrecision;
-*)
 let unsafe_pow_in_precision = 
   fun (x_in_precision: Uint256) =>
   fun (k: Uint256) =>
@@ -301,9 +278,6 @@ let unsafe_pow_in_precision =
       in
     foldk iter init_pair m_nat
 
-(* @solidity VolumeTrendRecorder.sol: 
-  return ((precision - alpha) * ema + alpha * value) / precision; 
-*)
 let get_ema =
   fun (ema : Uint256) =>
   fun (alpha : Uint256) =>
@@ -316,10 +290,6 @@ let get_ema =
     builtin div n precision
 
 (* @dev: Returns r_factor_in_precision in Uint256 from short_ema and long_ema *)
-(* @solidity VolumeTrendRecorder.sol: 
-  if (_longEMA == 0) { return 0; }
-  return (_shortEMA * MathExt.PRECISION) / _longEMA; 
-*)
 let calculate_r_factor = 
   fun (short_ema : Uint256) =>
   fun (long_ema : Uint256) =>
@@ -331,17 +301,6 @@ let calculate_r_factor =
     end
 
 (* @dev: Returns rFactor in Precision for this trade *)
-(* @solidity VolumeTrendRecorder.sol:
-  skipBlock = blockNumber - lastTradeBlock;
-  if (skipBlock == 0) { return calculateRFactor(shortEMA, longEMA); }
-
-  _shortEMA = (newEMA(shortEMA, SHORT_ALPHA, currentBlockVolume)).mulInPrecision(
-      (PRECISION - SHORT_ALPHA).unsafePowInPrecision(skipBlock - 1));
-
-  _longEMA = (newEMA(longEMA, LONG_ALPHA, currentBlockVolume)).mulInPrecision(
-      (PRECISION - LONG_ALPHA).unsafePowInPrecision(skipBlock - 1));
-  return calculateRFactor(_shortEMA, _longEMA);}
-*)
 let get_r_factor = 
   fun (current_block: BNum) =>
   fun (last_trade_block: BNum) =>
@@ -374,28 +333,6 @@ let get_r_factor =
     end
 
 (* @dev: Calculates fee in Uint256 from r_factor_in_precision *)
-(* @solidity FeeFormula.sol:
-  if (rFactorInPrecision >= R0) { return C0; } 
-  else if (rFactorInPrecision >= PRECISION) {
-    // C1 + A * (r-U)^3 + b * (r -U)
-    if (rFactorInPrecision > U) {
-      tmp = rFactorInPrecision - U;
-      tmp3 = tmp.unsafePowInPrecision(3);
-      return (C1.add(A.mulInPrecision(tmp3)).add(B.mulInPrecision(tmp))) / 10000;
-    } else {
-      tmp = U - rFactorInPrecision;
-      tmp3 = tmp.unsafePowInPrecision(3);
-      return C1.sub(A.mulInPrecision(tmp3)).sub(B.mulInPrecision(tmp)) / 10000;
-    }
-  } else {
-    // [ C2 + sign(r - G) *  F * (r-G) ^2 / (L + (r-G) ^2) ] / 10000
-    tmp = (rFactorInPrecision > G ? (rFactorInPrecision - G) : (G - rFactorInPrecision));
-    tmp = tmp.unsafePowInPrecision(2);
-    tmp2 = F.mul(tmp).div(tmp.add(L));
-    if (rFactorInPrecision > G) { return C2.add(tmp2) / 10000; }
-    else { return C2.sub(tmp2) / 10000; }
-  }
-*)
 let get_fee = 
   fun (r_factor_in_precision: Uint256) => 
     let r0 = Uint256 1477405064814996100 in
@@ -468,12 +405,6 @@ let get_fee =
     end
 
 (* @dev: Returns final_fee in Uint256 *)
-(* @solidity DMMPool.sol:
-  if (_ampBps <= 20000) { return feeInPrecision; } 
-  else if (_ampBps <= 50000) { return (feeInPrecision * 20) / 30; }
-  else if (_ampBps <= 200000) { return (feeInPrecision * 10) / 30; }
-  else { return (feeInPrecision * 4) / 30; }
-} *)
 let get_final_fee = 
   fun (fee_in_precision : Uint256) =>
   fun (amp_bps : Uint128) =>
@@ -498,15 +429,6 @@ let get_final_fee =
     end
 
 (* @dev: Calculates amount_out *)
-(* @solidity DMMLibrary.sol:
-  require(amountIn > 0, "DMMLibrary: INSUFFICIENT_INPUT_AMOUNT");
-  require(reserveIn > 0 && reserveOut > 0, "DMMLibrary: INSUFFICIENT_LIQUIDITY");
-  amountInWithFee = amountIn.mul(PRECISION.sub(feeInPrecision)).div(PRECISION);
-  numerator = amountInWithFee.mul(vReserveOut);
-  denominator = vReserveIn.add(amountInWithFee);
-  amountOut = numerator.div(denominator);
-  require(reserveOut > amountOut, "DMMLibrary: INSUFFICIENT_LIQUIDITY");
-} *)
 let get_amount_out = 
   fun (amount_in: Uint128) =>
   fun (v_reserve_in: Uint128) =>
@@ -521,17 +443,6 @@ let get_amount_out =
     builtin div numerator denominator
 
 (* @dev: Calculates amount_in *)
-(* @solidity DMMLibrary.sol:
-  require(amountOut > 0, "DMMLibrary: INSUFFICIENT_OUTPUT_AMOUNT");
-  require(reserveIn > 0 && reserveOut > amountOut, "DMMLibrary: INSUFFICIENT_LIQUIDITY");
-  numerator = vReserveIn.mul(amountOut);
-  denominator = vReserveOut.sub(amountOut);
-  amountIn = numerator.div(denominator).add(1);
-  // amountIn = floor(amountIN *PRECISION / (PRECISION - feeInPrecision));
-  numerator = amountIn.mul(PRECISION);
-  denominator = PRECISION.sub(feeInPrecision);
-  amountIn = numerator.add(denominator - 1).div(denominator); 
-*)
 let get_amount_in = 
   fun (amount_out: Uint128) =>
   fun (v_reserve_in: Uint128) =>
@@ -557,14 +468,16 @@ type Error =
 | CodeNotPendingGovernor
 | CodeDuplicateUnamplifiedPool
 | CodeInvalidPool
+| CodeSamePools
+| CodeInvalidPaths
 | CodeInvalidWZIL
 | CodeInsufficientAmount
 | CodeInsufficientLiquidity
 | CodeBlockExpired
 | CodeOutOfBoundVReserve
-| CodeInsufficientInputAmt
-| CodeInsufficientOutputAmt
 | CodeExcessiveInputAmt
+| CodeInsufficientOutputAmt
+| CodeInvalidSwapAmt
 
 let make_error =
   fun (result : Error) =>
@@ -575,14 +488,16 @@ let make_error =
       | CodeNotPendingGovernor        => Int32 -3
       | CodeDuplicateUnamplifiedPool  => Int32 -4
       | CodeInvalidPool               => Int32 -5
-      | CodeInvalidWZIL               => Int32 -6
-      | CodeInsufficientAmount        => Int32 -7
-      | CodeInsufficientLiquidity     => Int32 -8
-      | CodeBlockExpired              => Int32 -9
-      | CodeOutOfBoundVReserve        => Int32 -10
-      | CodeInsufficientInputAmt      => Int32 -11
-      | CodeInsufficientOutputAmt     => Int32 -12
+      | CodeSamePools                 => Int32 -6
+      | CodeInvalidPaths              => Int32 -7
+      | CodeInvalidWZIL               => Int32 -8
+      | CodeInsufficientAmount        => Int32 -9
+      | CodeInsufficientLiquidity     => Int32 -10
+      | CodeBlockExpired              => Int32 -11
+      | CodeOutOfBoundVReserve        => Int32 -12
       | CodeExcessiveInputAmt         => Int32 -13
+      | CodeInsufficientOutputAmt     => Int32 -14
+      | CodeInvalidSwapAmt            => Int32 -15
       end
     in
     { _exception : "Error"; code : result_code }
@@ -606,6 +521,7 @@ field unamplified_pools : Map ByStr20 (Map ByStr20 ByStr20) = Emp ByStr20 (Map B
 
 field amt_out : Uint128 = zero_amount
 field amt_in : Uint128 = zero_amount
+field minted_fee: Uint128 = zero_amount
 
 (**************************************)
 (*             Procedures             *)
@@ -680,11 +596,6 @@ procedure VerifyWZILAddress(address: ByStr20)
 end
 
 (* @dev: Validates that the tokenAmount and the pool reserves are more than 0 *)
-(* @solidity DMMLibrary.sol:
-  require(amountA > 0, "DMMLibrary: INSUFFICIENT_AMOUNT");
-  require(reserveA > 0 && reserveB > 0, "DMMLibrary: INSUFFICIENT_LIQUIDITY");
-  amountB = amountA.mul(reserveB) / reserveA;
-*)
 procedure Quote(amountA : Uint128, reserveA : Uint128, reserveB : Uint128)
   is_sufficient_amt = uint128_gt amountA zero_amount;
   match is_sufficient_amt with
@@ -743,11 +654,12 @@ procedure VerifySufficientLiquidity(r_in: Uint128, r_out: Uint128, amount_in: Ui
 end
 
 (* @dev: Checks if amount in more than 0 *)
-procedure VerifyValidAmountIn(amount_in: Uint128)
-  is_valid_amount_in = let a = builtin eq amount_in zero_amount in negb a;
-  match is_valid_amount_in with
-  | True => | False =>
-    err = CodeInsufficientInputAmt;
+procedure VerifyValidSwapAmt(amount: Uint128)
+  is_valid_swap_amount = uint128_gt amount zero_amount;
+  match is_valid_swap_amount with
+  | True => 
+  | False =>
+    err = CodeInvalidSwapAmt;
     ThrowError err
   end
 end
@@ -881,14 +793,6 @@ end
 (*** Swaps ***)
 
 (* @dev: Calculates the amount_out and assigns to amt_out *)
-(* @solidity DMMLibrary.sol:
-  amounts = new uint256[](path.length);
-  amounts[0] = amountIn;
-  for (i; i < path.length - 1; i++) {
-    (reserveIn, reserveOut, vReserveIn, vReserveOut, feeInPrecision) = getTradeInfo(poolsPath[i], path[i], path[i + 1]);
-    amounts[i + 1] = getAmountOut(amounts[i], reserveIn, reserveOut, vReserveIn, vReserveOut, feeInPrecision);
-  }
-*)
 procedure GetAmountOut(
   amount_in: Uint128,
   pool: ByStr20 with contract
@@ -907,13 +811,7 @@ procedure GetAmountOut(
   deadline_block: BNum
 )
   VerifyBlock deadline_block;
-  is_valid_amount_in = uint128_gt amount_in zero_amount;
-  match is_valid_amount_in with
-  | True =>
-  | False =>
-    err = CodeInsufficientInputAmt;
-    ThrowError err
-  end;
+  VerifyValidSwapAmt amount_in;
 
   match path with 
   | Pair token_in token_out =>
@@ -953,11 +851,13 @@ procedure GetAmountOut(
         VerifySufficientLiquidity r_in r_out zero_amount zero_amount;
 
         amount_out = get_amount_out amount_in v_r_in v_r_out fee_in_precision;
-        amt_out := amount_out;
+        VerifyValidSwapAmt amount_out;
 
         is_valid_reserve_out = uint128_gt r_out amount_out;
         match is_valid_reserve_out with 
-        | True => | False => 
+        | True => 
+          amt_out := amount_out
+        | False => 
           err = CodeInsufficientLiquidity;
           ThrowError err
         end
@@ -967,14 +867,6 @@ procedure GetAmountOut(
 end
 
 (* @dev: Calculates the amount_in and assigns to amt_in *)
-(* @solidity DMMLibrary.sol:
-  amounts = new [](path.length);
-  amounts[amounts.length - 1] = amountOut;
-  for ( i = path.length - 1; i > 0; i--) {
-    (reserveIn, reserveOut, vReserveIn, vReserveOut, feeInPrecision) = getTradeInfo(poolsPath[i - 1], path[i - 1], path[i]);
-    amounts[i - 1] = getAmountIn(amounts[i], reserveIn, reserveOut, vReserveIn, vReserveOut, feeInPrecision);
-  }
-*)
 procedure GetAmountIn(
   amount_out: Uint128,
   pool: ByStr20 with contract
@@ -992,13 +884,7 @@ procedure GetAmountIn(
   deadline_block: BNum
 )
   VerifyBlock deadline_block;
-  is_valid_amount_out = uint128_gt amount_out zero_amount;
-  match is_valid_amount_out with
-  | True =>
-  | False =>
-    err = CodeInsufficientOutputAmt;
-    ThrowError err
-  end;
+  VerifyValidSwapAmt amount_out;
 
   match path with
   | Pair token_in token_out => 
@@ -1038,6 +924,7 @@ procedure GetAmountIn(
         VerifySufficientLiquidity r_in r_out zero_amount amount_out;
 
         amount_in = get_amount_in amount_out v_r_in v_r_out fee_in_precision;
+        VerifyValidSwapAmt amount_in;
         amt_in := amount_in
       end
     end
@@ -1045,19 +932,6 @@ procedure GetAmountIn(
 end
 
 (* @dev: Swaps ZRC2 for ZRC2 in one pool *)
-(* @param path: token_in token_out *)
-(* @solidity DMMRouter02.sol:
-  for (uint256 i; i < path.length - 1; i++) {
-    (IERC20 input, IERC20 output) = (path[i], path[i + 1]);
-    (IERC20 token0, ) = DMMLibrary.sortTokens(input, output);
-    uint256 amountOut = amounts[i + 1];
-    (uint256 amount0Out, uint256 amount1Out) = input == token0
-        ? (uint256(0), amountOut)
-        : (amountOut, uint256(0));
-    address to = i < path.length - 2 ? poolsPath[i + 1] : _to;
-    IDMMPool(poolsPath[i]).swap(amount0Out, amount1Out, to, new bytes(0));
-  }
-*)
 procedure SwapZRC2Once(
   pool: ByStr20,
   path: Pair ByStr20 ByStr20, 
@@ -1089,6 +963,80 @@ procedure SwapZRC2Once(
                       amount0_out: amount0_out; amount1_out: amount1_out; to: to};
         msgs = one_msg msg_to_pool;
         send msgs
+      end
+    end
+  end
+end
+
+(*** Add/ Remove Liquidity ***)
+
+(* @dev: Calculates the amount of LP tokens minted as fees. Used in RemoveLiquidity and RemoveLiquidityZIL *)
+procedure MintFee(
+  pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field k_last : Uint128,
+    field total_supply: Uint128
+  end
+)
+  minted_fee := zero_amount;
+  fee_config <- fee_configuration;
+  match fee_config with
+  | Pair fee_to fee_bps =>
+    is_fee_on = let is_zero_addr = builtin eq fee_to zero_address in negb is_zero_addr;
+    kl <- & pool.k_last;
+    v_r0_ <- & pool.v_reserve0;
+    v_r1_ <- & pool.v_reserve1;
+    r0_ <- & pool.reserve0;
+    r1_ <- & pool.reserve1;
+    amp <- & pool.amp_bps;
+    is_amp_pool = let is_eq = builtin eq amp bps in negb is_eq;
+    r0 = match is_amp_pool with | False => r0_ | True => v_r0_ end;
+    r1 = match is_amp_pool with | False => r1_ | True => v_r1_ end;
+    r0_u256 = grow r0;
+    r1_u256 = grow r1;
+    kl_u256 = grow kl;
+
+    match is_fee_on with (* Checks if fee_config is set *)
+    | False =>
+      is_not_eq_zero = let a = builtin eq kl zero_amount in negb a;
+      match is_not_eq_zero with
+      | False =>
+      | True =>
+      end
+    | True =>
+      is_not_eq_zero = let a = builtin eq kl zero_amount in negb a;
+      match is_not_eq_zero with
+      | False =>
+      | True =>
+        t_u256 = u128_mul_grow kl r0;
+        t_r0_u256 = builtin div t_u256 r0_u256;
+        is_eq = builtin eq t_r0_u256 kl_u256;
+        collected_fee = match is_eq with (* value is in token 0 *)
+        | True =>
+          (* _vReserve0.sub(MathExt.sqrt(_tmp.div(_vReserve1))); *)
+          let t_r1_u256 = builtin div t_u256 r1_u256 in
+          let sqrt_u256 = builtin isqrt t_r1_u256 in
+          let sub_u256 = builtin sub r0_u256 sqrt_u256 in
+          reduce sub_u256
+        | False =>
+          (* _vReserve0.sub(MathExt.sqrt(_kLast.div(_vReserve1).mul(_vReserve0))); *)
+          let kl_r1 = builtin div kl r1 in
+          let kl_r1_r0_u256 = u128_mul_grow kl_r1 r0 in
+          let sqrt_u256 = builtin isqrt kl_r1_r0_u256 in
+          let sub_u256 = builtin sub r0_u256 sqrt_u256 in
+          reduce sub_u256
+        end;
+        pool_value = let r1_value = frac r1_ r0 r1 in builtin add r0_ r1_value; (* value in token0 *)
+        ts <- & pool.total_supply;
+        liquidity =
+          let numerator = let a = builtin mul ts collected_fee in builtin mul a fee_bps in
+          let denominator = let a = builtin sub pool_value collected_fee in builtin mul a half_bps in
+          builtin div numerator denominator;
+        minted_fee := liquidity
       end
     end
   end
@@ -1236,34 +1184,6 @@ end
 (* @param: Order of tokens does not matter*)
 (* @param: But ideally, tokenA < tokenB (ie tokenA == token0, tokenB == token1 on Pool) *)
 (* @param: v_reserve_ratio_bounds only applies for amp_pool *)
-(* @solidity addLiquidity DMMRouter02.sol:
-  verifyPoolAddress(tokenA, tokenB, pool);
-  (amountA, amountB) = _addLiquidity(tokenA, tokenB, pool, amountADesired, amountBDesired, amountAMin, amountBMin, vReserveRatioBounds);
-  // using tokenA.safeTransferFrom will get "Stack too deep"
-  SafeERC20.safeTransferFrom(tokenA, msg.sender, pool, amountA);
-  SafeERC20.safeTransferFrom(tokenB, msg.sender, pool, amountB);
-  liquidity = IDMMPool(pool).mint(to);
-*)
-(* @solidity _addLiquidity DMMRouter02.sol:
-  (reserveA, reserveB, vReserveA, vReserveB, ) = DMMLibrary.getTradeInfo(pool, tokenA, tokenB);
-  if (reserveA == 0 && reserveB == 0) { (amountA, amountB) = (amountADesired, amountBDesired); } 
-  else {
-    amountBOptimal = DMMLibrary.quote(amountADesired, reserveA, reserveB);
-    if (amountBOptimal <= amountBDesired) {
-      require(amountBOptimal >= amountBMin, "DMMRouter: INSUFFICIENT_B_AMOUNT");
-      (amountA, amountB) = (amountADesired, amountBOptimal);
-    } else {
-      amountAOptimal = DMMLibrary.quote(amountBDesired, reserveB, reserveA);
-      assert(amountAOptimal <= amountADesired);
-      require(amountAOptimal >= amountAMin, "DMMRouter: INSUFFICIENT_A_AMOUNT");
-      (amountA, amountB) = (amountAOptimal, amountBDesired);
-    }
-    currentRate = (vReserveB * Q112) / vReserveA;
-    require( currentRate >= vReserveRatioBounds[0] && currentRate <= vReserveRatioBounds[1],
-        "DMMRouter: OUT_OF_BOUNDS_VRESERVE"
-    );
-  }
-*)
 transition AddLiquidity(
   tokenA : ByStr20,
   tokenB : ByStr20,
@@ -1376,18 +1296,6 @@ transition AddLiquidity(
   send msg
 end
 
-(* @solidity DMMRouter02.sol:
-  verifyPoolAddress(token, weth, pool);
-  (amountToken, amountETH) = _addLiquidity(token, weth, pool, amountTokenDesired, msg.value, amountTokenMin, amountETHMin, vReserveRatioBounds);
-  token.safeTransferFrom(msg.sender, pool, amountToken);
-  weth.deposit{value: amountETH}();
-  weth.safeTransfer(pool, amountETH);
-  liquidity = IDMMPool(pool).mint(to);
-  // refund dust eth, if any
-  if (msg.value > amountETH) {
-      TransferHelper.safeTransferETH(msg.sender, msg.value - amountETH);
-  }
-*)
 transition AddLiquidityZIL(
   token : ByStr20,
   pool: ByStr20 with contract
@@ -1422,7 +1330,7 @@ transition AddLiquidityZIL(
     andb r_a_ r_b_;
   match e with 
   | True =>
-    (* pool with no liquidity,  *)
+    (* pool with no liquidity *)
     amount_token = amount_token_desired;
     amount_wZIL = _amount;
 
@@ -1479,9 +1387,6 @@ transition AddLiquidityZIL(
       (* Send ZIL to wZIL contract and mint wZIL *)
       accept;
       WrapZIL amount_wZIL;
-    
-      (* transfers wZIL balance from this contract to user, that was obtained by using user's ZIL to mint wZIL *)
-      TransferZRC2 wZIL _sender amount_wZIL;
       
       (* Transfer pairing of wZIL and token to pool *)
       TransferFromZRC2 token _sender pool amount_token;
@@ -1525,15 +1430,6 @@ end
 
 (* @param: Order of tokens does not matter*)
 (* @param: But ideally, tokenA < tokenB (ie tokenA == token0, tokenB == token1 on Pool) *)
-(* @solidity DMMRouter02.sol:
-  verifyPoolAddress(tokenA, tokenB, pool);
-  IERC20(pool).safeTransferFrom(msg.sender, pool, liquidity); // send liquidity to pool
-  (uint256 amount0, uint256 amount1) = IDMMPool(pool).burn(to);
-  (IERC20 token0, ) = DMMLibrary.sortTokens(tokenA, tokenB);
-  (amountA, amountB) = tokenA == token0 ? (amount0, amount1) : (amount1, amount0);
-  require(amountA >= amountAMin, "DMMRouter: INSUFFICIENT_A_AMOUNT");
-  require(amountB >= amountBMin, "DMMRouter: INSUFFICIENT_B_AMOUNT");
-*)
 transition RemoveLiquidity(
   tokenA : ByStr20 with contract
     field balances: Map ByStr20 Uint128
@@ -1542,6 +1438,12 @@ transition RemoveLiquidity(
     field balances: Map ByStr20 Uint128
   end,
   pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field k_last : Uint128,
     field total_supply: Uint128
   end,
   liquidity: Uint128,
@@ -1558,12 +1460,20 @@ transition RemoveLiquidity(
   m_b1 <- & tokenB.balances[pool];
   tokenB_balance = get_amount_or_zero m_b1;
 
-  (* fetch the total supply in the pool *)
-  supply <- & pool.total_supply;
+  (* fetch the current token supply in the pool *)
+  init_supply <- & pool.total_supply;
+
+  (* calculate the amount of LP tokens to be minted as fees *)
+  MintFee pool;
+  fee <- minted_fee;
+  intermediate_supply = builtin add init_supply fee;
+
+  (* set minted_fee to zero *)
+  minted_fee := zero_amount;
 
   (* calculate amount of tokenA and tokenB removed based on amount of liquidity provided *)
-  tokenA_amount = frac liquidity tokenA_balance supply;
-  tokenB_amount = frac liquidity tokenB_balance supply;
+  tokenA_amount = frac liquidity tokenA_balance intermediate_supply;
+  tokenB_amount = frac liquidity tokenB_balance intermediate_supply;
 
   (* check if amount of tokenA and tokenB removed matches min *)
   VerifyAmount tokenA_amount amountA_min;
@@ -1579,17 +1489,17 @@ transition RemoveLiquidity(
   send msgs
 end
 
-(* @solidity DMMRouter.sol:
-  (amountToken, amountETH) = removeLiquidity(token, weth, pool, liquidity, amountTokenMin, amountETHMin, address(this), deadline);
-  token.safeTransfer(to, amountToken);
-  IWETH(weth).withdraw(amountETH);
-  TransferHelper.safeTransferETH(to, amountETH); 
-*)
 transition RemoveLiquidityZIL(
   token: ByStr20 with contract
     field balances: Map ByStr20 Uint128
   end,
   pool: ByStr20 with contract
+    field reserve0 : Uint128,
+    field reserve1 : Uint128,
+    field v_reserve0 : Uint128,
+    field v_reserve1 : Uint128,
+    field amp_bps : Uint128,
+    field k_last : Uint128,
     field total_supply: Uint128
   end,
   liquidity: Uint128,
@@ -1609,12 +1519,20 @@ transition RemoveLiquidityZIL(
   m_b1 <- & wZIL.balances[pool];
   wZil_balance = get_amount_or_zero m_b1;
 
-  (* fetch the total supply in the pool *)
-  supply <- & pool.total_supply;
+  (* fetch the current token supply in the pool *)
+  init_supply <- & pool.total_supply;
+
+  (* calculate the amount of LP tokens to be minted as fees *)
+  MintFee pool;
+  fee <- minted_fee;
+  intermediate_supply = builtin add init_supply fee;
+
+  (* set minted_fee to zero *)
+  minted_fee := zero_amount;
 
   (* calculate amount of tokens and wZIL removed based on amount of liquidity provided *)
-  token_amount = frac liquidity token_balance supply;
-  wZil_amount = frac liquidity wZil_balance supply;
+  token_amount = frac liquidity token_balance intermediate_supply;
+  wZil_amount = frac liquidity wZil_balance intermediate_supply;
 
   (* check if amount of tokens and wZIL removed matches min *)
   VerifyAmount token_amount amount_token_min;
@@ -1640,13 +1558,6 @@ end
 (*** SWAP ***)
 
 (* @param path: token_in token_out *)
-(* @solidity DMMRouter02.sol:
-  verifyPoolsPathSwap(poolsPath, path);
-  amounts = DMMLibrary.getAmountsOut(amountIn, poolsPath, path);
-  require(amounts[amounts.length - 1] >= amountOutMin, "DMMRouter: INSUFFICIENT_OUTPUT_AMOUNT");
-  IERC20(path[0]).safeTransferFrom(msg.sender, poolsPath[0], amounts[0]);
-  _swap(amounts, poolsPath, path, to);
-*)
 transition SwapExactTokensForTokensOnce(
   amount_in: Uint128,
   amount_out_min: Uint128,
@@ -1664,13 +1575,8 @@ transition SwapExactTokensForTokensOnce(
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_out == 0 *)
-  amount_out <- amt_out;
-  is_valid_amount_out = builtin eq amount_out zero_amount;
-  match is_valid_amount_out with
-  | True => | False =>
-    amt_out := zero_amount
-  end;
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
 
   GetAmountOut amount_in pool path deadline_block;
   final_amount_out <- amt_out;
@@ -1689,9 +1595,6 @@ transition SwapExactTokensForTokensOnce(
   amt_out := zero_amount (* Reassign back to 0 *)
 end
 
-(* @dev: amount_in -> pool1 -> intermediate_amount_out *)
-(* @dev: intermediate_amount_out -> pool2 -> final_amount_out *)
-(* @param path: token_in token_out *)
 transition SwapExactTokensForTokensTwice(
   amount_in: Uint128,
   amount_out_min: Uint128,
@@ -1721,17 +1624,28 @@ transition SwapExactTokensForTokensTwice(
   path2: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_out == 0 *)
-  amount_out <- amt_out;
-  is_valid_amount_out = builtin eq amount_out zero_amount;
-  match is_valid_amount_out with
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = builtin eq pool1 pool2;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
+  end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in 
+    let b = get_from_address path2 in
+    builtin eq a b;
+  match is_valid_path with
   | True => | False =>
-    amt_out := zero_amount
+    err = CodeInvalidPaths;
+    ThrowError err
   end;
 
   GetAmountOut amount_in pool1 path1 deadline_block;
   intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn intermediate_amount_out;
 
   GetAmountOut intermediate_amount_out pool2 path2 deadline_block;
   final_amount_out <- amt_out;
@@ -1753,10 +1667,6 @@ transition SwapExactTokensForTokensTwice(
   amt_out := zero_amount (* Reassign back to 0 *)
 end
 
-(* @dev: amount_in -> pool1 -> first_intermediate_amount_out *)
-(* @dev: first_intermediate_amount_out -> pool2 -> second_intermediate_amount_out *)
-(* @dev: second_intermediate_amount_out -> pool3 -> final_amount_out *)
-(* @param path: token_in token_out *)
 transition SwapExactTokensForTokensThrice(
   amount_in: Uint128,
   amount_out_min: Uint128,
@@ -1798,21 +1708,40 @@ transition SwapExactTokensForTokensThrice(
   path3: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_out == 0 *)
-  amount_out <- amt_out;
-  is_valid_amount_out = builtin eq amount_out zero_amount;
-  match is_valid_amount_out with
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = 
+    let a = builtin eq pool1 pool2 in
+    let b = builtin eq pool2 pool3 in
+    let c = builtin eq pool1 pool3 in
+    let a_b = orb a b in
+    orb a_b c;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
+  end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in
+    let b = get_from_address path2 in
+    let c = get_to_address path2 in
+    let d = get_from_address path3 in
+    let is_same_bridge1_token = builtin eq a b in
+    let is_same_bridge2_token = builtin eq c d in
+    andb is_same_bridge1_token is_same_bridge2_token;
+  match is_valid_path with 
   | True => | False =>
-    amt_out := zero_amount
+    err = CodeInvalidPaths;
+    ThrowError err
   end;
 
   GetAmountOut amount_in pool1 path1 deadline_block;
   first_intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn first_intermediate_amount_out;
 
   GetAmountOut first_intermediate_amount_out pool2 path2 deadline_block;
   second_intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn second_intermediate_amount_out;
 
   GetAmountOut second_intermediate_amount_out pool3 path3 deadline_block;
   final_amount_out <- amt_out;
@@ -1836,15 +1765,6 @@ transition SwapExactTokensForTokensThrice(
   amt_out := zero_amount (* Reassign back to 0 *)
 end
 
-(* @dev: init_amt_in -> pool -> amount_out *)
-(* @param path: token_in token_out *)
-(* @solidity DMMRouter02.sol:
-  verifyPoolsPathSwap(poolsPath, path);
-  amounts = DMMLibrary.getAmountsIn(amountOut, poolsPath, path);
-  require(amounts[0] <= amountInMax, "DMMRouter: EXCESSIVE_INPUT_AMOUNT");
-  path[0].safeTransferFrom(msg.sender, poolsPath[0], amounts[0]);
-  _swap(amounts, poolsPath, path, to);
-*)
 transition SwapTokensForExactTokensOnce(
   amount_out: Uint128,
   amount_in_max: Uint128,
@@ -1862,17 +1782,11 @@ transition SwapTokensForExactTokensOnce(
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_in == 0 *)
-  amount_in <- amt_in;
-  is_valid_amt_in = builtin eq amount_in zero_amount;
-  match is_valid_amt_in with 
-  | True => | False =>
-    amt_in := zero_amount
-  end;
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
 
   GetAmountIn amount_out pool path deadline_block;
   init_amt_in <- amt_in;
-  VerifyValidAmountIn init_amt_in;
 
   is_valid_amount_in = uint128_le init_amt_in amount_in_max;
   match is_valid_amount_in with 
@@ -1889,9 +1803,6 @@ transition SwapTokensForExactTokensOnce(
   amt_in := zero_amount (* Reassign back to 0 *)
 end
 
-(* @dev: init_amt_in -> pool1 -> intermediate_amt_in *)
-(* @dev: intermediate_amt_in -> pool2 -> amount_out *)
-(* @param path: token_in token_out *)
 transition SwapTokensForExactTokensTwice(
   amount_out: Uint128,
   amount_in_max: Uint128,
@@ -1921,21 +1832,31 @@ transition SwapTokensForExactTokensTwice(
   path2: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_in == 0 *)
-  amount_in <- amt_in;
-  is_valid_amt_in = builtin eq amount_in zero_amount;
-  match is_valid_amt_in with 
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = builtin eq pool1 pool2;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
+  end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in 
+    let b = get_from_address path2 in
+    builtin eq a b;
+  match is_valid_path with
   | True => | False =>
-    amt_in := zero_amount
+    err = CodeInvalidPaths;
+    ThrowError err
   end;
 
   GetAmountIn amount_out pool2 path2 deadline_block;
   intermediate_amt_in <- amt_in;
-  VerifyValidAmountIn intermediate_amt_in;
 
   GetAmountIn intermediate_amt_in pool1 path1 deadline_block;
   init_amt_in <- amt_in;
-  VerifyValidAmountIn init_amt_in;
 
   is_valid_amount_in = uint128_le init_amt_in amount_in_max;
   match is_valid_amount_in with 
@@ -1955,10 +1876,6 @@ transition SwapTokensForExactTokensTwice(
   amt_in := zero_amount (* Reassign back to 0 *)
 end
 
-(* @dev: init_amount_in -> pool1 -> first_intermediate_amount_in *)
-(* @dev: first_intermediate_amount_in -> pool2 -> second_intermediate_amount_in *)
-(* @dev: second_intermediate_amount_in -> pool3 -> amount_out *)
-(* @param path: token_in token_out *)
 transition SwapTokensForExactTokensThrice(
   amount_out: Uint128,
   amount_in_max: Uint128,
@@ -2000,25 +1917,43 @@ transition SwapTokensForExactTokensThrice(
   path3: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_in == 0 *)
-  amount_in <- amt_in;
-  is_valid_amt_in = builtin eq amount_in zero_amount;
-  match is_valid_amt_in with 
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = 
+    let a = builtin eq pool1 pool2 in
+    let b = builtin eq pool2 pool3 in
+    let c = builtin eq pool1 pool3 in
+    let a_b = orb a b in
+    orb a_b c;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
+  end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in
+    let b = get_from_address path2 in
+    let c = get_to_address path2 in
+    let d = get_from_address path3 in
+    let is_same_bridge1_token = builtin eq a b in
+    let is_same_bridge2_token = builtin eq c d in
+    andb is_same_bridge1_token is_same_bridge2_token;
+  match is_valid_path with 
   | True => | False =>
-    amt_in := zero_amount
+    err = CodeInvalidPaths;
+    ThrowError err
   end;
 
   GetAmountIn amount_out pool3 path3 deadline_block;
   second_intermediate_amt_in <- amt_in;
-  VerifyValidAmountIn second_intermediate_amt_in;
 
   GetAmountIn second_intermediate_amt_in pool2 path2 deadline_block;
   first_intermediate_amt_in <- amt_in;
-  VerifyValidAmountIn first_intermediate_amt_in;
 
   GetAmountIn first_intermediate_amt_in pool1 path1 deadline_block;
   init_amt_in <- amt_in;
-  VerifyValidAmountIn init_amt_in;
 
   is_valid_amount_in = uint128_le init_amt_in amount_in_max;
   match is_valid_amount_in with 
@@ -2040,15 +1975,6 @@ transition SwapTokensForExactTokensThrice(
   amt_in := zero_amount (* Reassign back to 0 *)
 end
 
-(* @solidity DMMRouter02.sol:
-  require(path[0] == weth, "DMMRouter: INVALID_PATH");
-  verifyPoolsPathSwap(poolsPath, path);
-  amounts = DMMLibrary.getAmountsOut(msg.value, poolsPath, path);
-  require(amounts[amounts.length - 1] >= amountOutMin, "DMMRouter: INSUFFICIENT_OUTPUT_AMOUNT");
-  IWETH(weth).deposit{value: amounts[0]}();
-  weth.safeTransfer(poolsPath[0], amounts[0]);
-  _swap(amounts, poolsPath, path, to);
-*)
 transition SwapExactZILForTokensOnce(
   amount_out_min: Uint128,
   pool: ByStr20 with contract
@@ -2065,13 +1991,11 @@ transition SwapExactZILForTokensOnce(
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_out == 0 *)
-  amount_out <- amt_out;
-  is_valid_amount_out = builtin eq amount_out zero_amount;
-  match is_valid_amount_out with
-  | True => | False =>
-    amt_out := zero_amount
-  end;
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  wZIL = get_from_address path;
+  VerifyWZILAddress wZIL;
 
   GetAmountOut _amount pool path deadline_block;
   final_amount_out <- amt_out;
@@ -2086,8 +2010,6 @@ transition SwapExactZILForTokensOnce(
   accept;
 
   (* convert ZIL to wZIL *)
-  wZIL = get_from_address path;
-  VerifyWZILAddress wZIL;
   WrapZIL _amount;
 
   (* pre-transfers wZIL balance from this contract straight to pool before swap *)
@@ -2127,17 +2049,31 @@ transition SwapExactZILForTokensTwice(
   path2: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_out == 0 *)
-  amount_out <- amt_out;
-  is_valid_amount_out = builtin eq amount_out zero_amount;
-  match is_valid_amount_out with
-  | True => | False =>
-    amt_out := zero_amount
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = builtin eq pool1 pool2;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
   end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in 
+    let b = get_from_address path2 in
+    builtin eq a b;
+  match is_valid_path with
+  | True => | False =>
+    err = CodeInvalidPaths;
+    ThrowError err
+  end;
+
+  wZIL = get_from_address path1;
+  VerifyWZILAddress wZIL;
 
   GetAmountOut _amount pool1 path1 deadline_block;
   intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn intermediate_amount_out;
 
   GetAmountOut intermediate_amount_out pool2 path2 deadline_block;
   final_amount_out <- amt_out;
@@ -2152,8 +2088,6 @@ transition SwapExactZILForTokensTwice(
   accept;
 
   (* convert ZIL to wZIL *)
-  wZIL = get_from_address path1;
-  VerifyWZILAddress wZIL;
   WrapZIL _amount;
 
   (* pre-transfers wZIL balance from this contract straight to pool1 before swap *)
@@ -2207,21 +2141,43 @@ transition SwapExactZILForTokensThrice(
   path3: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_out == 0 *)
-  amount_out <- amt_out;
-  is_valid_amount_out = builtin eq amount_out zero_amount;
-  match is_valid_amount_out with
-  | True => | False =>
-    amt_out := zero_amount
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = 
+    let a = builtin eq pool1 pool2 in
+    let b = builtin eq pool2 pool3 in
+    let c = builtin eq pool1 pool3 in
+    let a_b = orb a b in
+    orb a_b c;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
   end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in
+    let b = get_from_address path2 in
+    let c = get_to_address path2 in
+    let d = get_from_address path3 in
+    let is_same_bridge1_token = builtin eq a b in
+    let is_same_bridge2_token = builtin eq c d in
+    andb is_same_bridge1_token is_same_bridge2_token;
+  match is_valid_path with 
+  | True => | False =>
+    err = CodeInvalidPaths;
+    ThrowError err
+  end;
+
+  wZIL = get_from_address path1;
+  VerifyWZILAddress wZIL;
 
   GetAmountOut _amount pool1 path1 deadline_block;
   first_intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn first_intermediate_amount_out;
 
   GetAmountOut first_intermediate_amount_out pool2 path2 deadline_block;
   second_intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn second_intermediate_amount_out;
 
   GetAmountOut second_intermediate_amount_out pool3 path3 deadline_block;
   final_amount_out <- amt_out;
@@ -2236,8 +2192,6 @@ transition SwapExactZILForTokensThrice(
   accept;
 
   (* convert ZIL to wZIL *)
-  wZIL = get_from_address path1;
-  VerifyWZILAddress wZIL;
   WrapZIL _amount;
 
   (* pre-transfers wZIL balance from this contract straight to pool1 before swap *)
@@ -2253,121 +2207,6 @@ transition SwapExactZILForTokensThrice(
   amt_out := zero_amount (* Reassign back to 0 *)
 end
 
-(* @dev: Hits the max depth error *)
-transition SwapExactZILForTokensQuad(
-  amount_out_min: Uint128,
-  pool1: ByStr20 with contract
-    field reserve0 : Uint128,
-    field reserve1 : Uint128,
-    field amp_bps : Uint128,
-    field v_reserve0 : Uint128,
-    field v_reserve1 : Uint128,
-    field short_ema : Uint256,
-    field long_ema : Uint256,
-    field current_block_volume : Uint128,
-    field last_trade_block : BNum
-  end,
-  pool2: ByStr20 with contract
-    field reserve0 : Uint128,
-    field reserve1 : Uint128,
-    field amp_bps : Uint128,
-    field v_reserve0 : Uint128,
-    field v_reserve1 : Uint128,
-    field short_ema : Uint256,
-    field long_ema : Uint256,
-    field current_block_volume : Uint128,
-    field last_trade_block : BNum
-  end,
-  pool3: ByStr20 with contract
-    field reserve0 : Uint128,
-    field reserve1 : Uint128,
-    field amp_bps : Uint128,
-    field v_reserve0 : Uint128,
-    field v_reserve1 : Uint128,
-    field short_ema : Uint256,
-    field long_ema : Uint256,
-    field current_block_volume : Uint128,
-    field last_trade_block : BNum
-  end,
-  pool4: ByStr20 with contract
-  field reserve0 : Uint128,
-  field reserve1 : Uint128,
-  field amp_bps : Uint128,
-  field v_reserve0 : Uint128,
-  field v_reserve1 : Uint128,
-  field short_ema : Uint256,
-  field long_ema : Uint256,
-  field current_block_volume : Uint128,
-  field last_trade_block : BNum
-end,
-  path1: Pair ByStr20 ByStr20,
-  path2: Pair ByStr20 ByStr20,
-  path3: Pair ByStr20 ByStr20,
-  path4: Pair ByStr20 ByStr20,
-  deadline_block: BNum
-)
-  (* Checks if amt_out == 0 *)
-  amount_out <- amt_out;
-  is_valid_amount_out = builtin eq amount_out zero_amount;
-  match is_valid_amount_out with
-  | True => | False =>
-    amt_out := zero_amount
-  end;
-
-  GetAmountOut _amount pool1 path1 deadline_block;
-  first_intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn first_intermediate_amount_out;
-
-  GetAmountOut first_intermediate_amount_out pool2 path2 deadline_block;
-  second_intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn second_intermediate_amount_out;
-
-  GetAmountOut second_intermediate_amount_out pool3 path3 deadline_block;
-  third_intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn third_intermediate_amount_out;
-
-  GetAmountOut third_intermediate_amount_out pool4 path4 deadline_block;
-  final_amount_out <- amt_out;
-  is_valid_final_amount_out = uint128_gt final_amount_out amount_out_min;
-  match is_valid_final_amount_out with 
-  | True => | False => 
-    err = CodeInsufficientOutputAmt;
-    ThrowError err
-  end;
-
-  (* accept ZIL *)
-  accept;
-
-  (* convert ZIL to wZIL *)
-  wZIL = get_from_address path1;
-  VerifyWZILAddress wZIL;
-  WrapZIL _amount;
-
-  (* pre-transfers wZIL balance from this contract straight to pool1 before swap *)
-  TransferZRC2ToPool pool1 path1 _amount;
-
-  (* swap out ZRC2 tokens straight into pool2 *)
-  SwapZRC2Once pool1 path1 first_intermediate_amount_out pool2;
-  (* swap out ZRC2 tokens straight into pool3 *)
-  SwapZRC2Once pool2 path2 second_intermediate_amount_out pool3;
-  (* swap out ZRC2 tokens straight into pool4 *)
-  SwapZRC2Once pool3 path3 third_intermediate_amount_out pool4;
-  (* swap out ZRC2 tokens straight back to _sender *)
-  SwapZRC2Once pool4 path4 final_amount_out _sender;
-
-  amt_out := zero_amount (* Reassign back to 0 *)
-end
-
-(* @solidity DMMRouter02.sol:
-  require(path[path.length - 1] == weth, "DMMRouter: INVALID_PATH");
-  verifyPoolsPathSwap(poolsPath, path);
-  amounts = DMMLibrary.getAmountsIn(amountOut, poolsPath, path);
-  require(amounts[0] <= amountInMax, "DMMRouter: EXCESSIVE_INPUT_AMOUNT");
-  path[0].safeTransferFrom(msg.sender, poolsPath[0], amounts[0]);
-  _swap(amounts, poolsPath, path, address(this));
-  IWETH(weth).withdraw(amounts[amounts.length - 1]);
-  TransferHelper.safeTransferETH(to, amounts[amounts.length - 1]);
-*)
 transition SwapTokensForExactZILOnce(
   amount_out: Uint128,
   amount_in_max: Uint128,
@@ -2385,17 +2224,14 @@ transition SwapTokensForExactZILOnce(
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_in == 0 *)
-  amount_in <- amt_in;
-  is_valid_amt_in = builtin eq amount_in zero_amount;
-  match is_valid_amt_in with 
-  | True => | False =>
-    amt_in := zero_amount
-  end;
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  wZIL = get_to_address path;
+  VerifyWZILAddress wZIL;
 
   GetAmountIn amount_out pool path deadline_block;
   init_amt_in <- amt_in;
-  VerifyValidAmountIn init_amt_in;
 
   is_valid_amount_in = uint128_le init_amt_in amount_in_max;
   match is_valid_amount_in with 
@@ -2411,8 +2247,6 @@ transition SwapTokensForExactZILOnce(
   SwapZRC2Once pool path amount_out _this_address;
 
   (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user *)
-  wZIL = get_to_address path;
-  VerifyWZILAddress wZIL;
   UnwrapZIL amount_out;
 
   amt_in := zero_amount (* Reassign back to 0 *)
@@ -2447,21 +2281,34 @@ transition SwapTokensForExactZILTwice(
   path2: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_in == 0 *)
-  amount_in <- amt_in;
-  is_valid_amt_in = builtin eq amount_in zero_amount;
-  match is_valid_amt_in with 
-  | True => | False =>
-    amt_in := zero_amount
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = builtin eq pool1 pool2;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
   end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in 
+    let b = get_from_address path2 in
+    builtin eq a b;
+  match is_valid_path with
+  | True => | False =>
+    err = CodeInvalidPaths;
+    ThrowError err
+  end;
+
+  wZIL = get_to_address path2;
+  VerifyWZILAddress wZIL;
 
   GetAmountIn amount_out pool2 path2 deadline_block;
   intermediate_amt_in <- amt_in;
-  VerifyValidAmountIn intermediate_amt_in;
   
   GetAmountIn intermediate_amt_in pool1 path1 deadline_block;
   init_amt_in <- amt_in;
-  VerifyValidAmountIn init_amt_in;
 
   is_valid_amount_in = uint128_le init_amt_in amount_in_max;
   match is_valid_amount_in with 
@@ -2479,8 +2326,6 @@ transition SwapTokensForExactZILTwice(
   SwapZRC2Once pool2 path2 amount_out _this_address;
 
   (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user *)
-  wZIL = get_to_address path2;
-  VerifyWZILAddress wZIL;
   UnwrapZIL amount_out;
 
   amt_in := zero_amount (* Reassign back to 0 *)
@@ -2527,25 +2372,46 @@ transition SwapTokensForExactZILThrice(
   path3: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_in == 0 *)
-  amount_in <- amt_in;
-  is_valid_amt_in = builtin eq amount_in zero_amount;
-  match is_valid_amt_in with 
-  | True => | False =>
-    amt_in := zero_amount
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = 
+    let a = builtin eq pool1 pool2 in
+    let b = builtin eq pool2 pool3 in
+    let c = builtin eq pool1 pool3 in
+    let a_b = orb a b in
+    orb a_b c;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
   end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in
+    let b = get_from_address path2 in
+    let c = get_to_address path2 in
+    let d = get_from_address path3 in
+    let is_same_bridge1_token = builtin eq a b in
+    let is_same_bridge2_token = builtin eq c d in
+    andb is_same_bridge1_token is_same_bridge2_token;
+  match is_valid_path with 
+  | True => | False =>
+    err = CodeInvalidPaths;
+    ThrowError err
+  end;
+
+  wZIL = get_to_address path3;
+  VerifyWZILAddress wZIL;
 
   GetAmountIn amount_out pool3 path3 deadline_block;
   second_intermediate_amt_in <- amt_in;
-  VerifyValidAmountIn second_intermediate_amt_in;
 
   GetAmountIn second_intermediate_amt_in pool2 path2 deadline_block;
   first_intermediate_amt_in <- amt_in;
-  VerifyValidAmountIn first_intermediate_amt_in;
   
   GetAmountIn first_intermediate_amt_in pool1 path1 deadline_block;
   init_amt_in <- amt_in;
-  VerifyValidAmountIn init_amt_in;
 
   is_valid_amount_in = uint128_le init_amt_in amount_in_max;
   match is_valid_amount_in with 
@@ -2565,23 +2431,11 @@ transition SwapTokensForExactZILThrice(
   SwapZRC2Once pool3 path3 amount_out _this_address;
 
   (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user *)
-  wZIL = get_to_address path3;
-  VerifyWZILAddress wZIL;
   UnwrapZIL amount_out;
 
   amt_in := zero_amount (* Reassign back to 0 *)
 end
 
-(* @solidity DMMRouter02.sol:
-  require(path[path.length - 1] == weth, "DMMRouter: INVALID_PATH");
-  verifyPoolsPathSwap(poolsPath, path);
-  amounts = DMMLibrary.getAmountsOut(amountIn, poolsPath, path);
-  require(amounts[amounts.length - 1] >= amountOutMin,"DMMRouter: INSUFFICIENT_OUTPUT_AMOUNT");
-  path[0].safeTransferFrom(msg.sender, poolsPath[0], amounts[0]);
-  _swap(amounts, poolsPath, path, address(this));
-  IWETH(weth).withdraw(amounts[amounts.length - 1]);
-  TransferHelper.safeTransferETH(to, amounts[amounts.length - 1]);
-*)
 transition SwapExactTokensForZILOnce(
   amount_in: Uint128,
   amount_out_min: Uint128,
@@ -2599,13 +2453,11 @@ transition SwapExactTokensForZILOnce(
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_out == 0 *)
-  amount_out <- amt_out;
-  is_valid_amount_out = builtin eq amount_out zero_amount;
-  match is_valid_amount_out with
-  | True => | False =>
-    amt_out := zero_amount
-  end;
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  wZIL = get_to_address path;
+  VerifyWZILAddress wZIL;
 
   GetAmountOut amount_in pool path deadline_block;
   final_amount_out <- amt_out;
@@ -2623,8 +2475,6 @@ transition SwapExactTokensForZILOnce(
   SwapZRC2Once pool path final_amount_out _this_address;
 
   (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user *)
-  wZIL = get_to_address path;
-  VerifyWZILAddress wZIL;
   UnwrapZIL final_amount_out;
 
   amt_out := zero_amount (* Reassign back to 0 *)
@@ -2659,17 +2509,31 @@ transition SwapExactTokensForZILTwice(
   path2: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_out == 0 *)
-  amount_out <- amt_out;
-  is_valid_amount_out = builtin eq amount_out zero_amount;
-  match is_valid_amount_out with
-  | True => | False =>
-    amt_out := zero_amount
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = builtin eq pool1 pool2;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
   end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in 
+    let b = get_from_address path2 in
+    builtin eq a b;
+  match is_valid_path with
+  | True => | False =>
+    err = CodeInvalidPaths;
+    ThrowError err
+  end;
+
+  wZIL = get_to_address path2;
+  VerifyWZILAddress wZIL;
 
   GetAmountOut amount_in pool1 path1 deadline_block;
   intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn intermediate_amount_out;
 
   GetAmountOut intermediate_amount_out pool2 path2 deadline_block;
   final_amount_out <- amt_out;
@@ -2689,8 +2553,6 @@ transition SwapExactTokensForZILTwice(
   SwapZRC2Once pool2 path2 final_amount_out _this_address;
 
   (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user *)
-  wZIL = get_to_address path2;
-  VerifyWZILAddress wZIL;
   UnwrapZIL final_amount_out;
 
   amt_out := zero_amount (* Reassign back to 0 *)
@@ -2737,21 +2599,43 @@ transition SwapExactTokensForZILThrice(
   path3: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_out == 0 *)
-  amount_out <- amt_out;
-  is_valid_amount_out = builtin eq amount_out zero_amount;
-  match is_valid_amount_out with
-  | True => | False =>
-    amt_out := zero_amount
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = 
+    let a = builtin eq pool1 pool2 in
+    let b = builtin eq pool2 pool3 in
+    let c = builtin eq pool1 pool3 in
+    let a_b = orb a b in
+    orb a_b c;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
   end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in
+    let b = get_from_address path2 in
+    let c = get_to_address path2 in
+    let d = get_from_address path3 in
+    let is_same_bridge1_token = builtin eq a b in
+    let is_same_bridge2_token = builtin eq c d in
+    andb is_same_bridge1_token is_same_bridge2_token;
+  match is_valid_path with 
+  | True => | False =>
+    err = CodeInvalidPaths;
+    ThrowError err
+  end;
+
+  wZIL = get_to_address path3;
+  VerifyWZILAddress wZIL;
 
   GetAmountOut amount_in pool1 path1 deadline_block;
   first_intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn first_intermediate_amount_out;
 
   GetAmountOut first_intermediate_amount_out pool2 path2 deadline_block;
   second_intermediate_amount_out <- amt_out;
-  VerifyValidAmountIn second_intermediate_amount_out;
 
   GetAmountOut second_intermediate_amount_out pool3 path3 deadline_block;
   final_amount_out <- amt_out;
@@ -2773,24 +2657,11 @@ transition SwapExactTokensForZILThrice(
   SwapZRC2Once pool3 path3 final_amount_out _this_address;
 
   (* call Burn on wZIL to convert back to ZIL, callback will handle transfer of ZIL to user *)
-  wZIL = get_to_address path3;
-  VerifyWZILAddress wZIL;
   UnwrapZIL final_amount_out;
 
   amt_out := zero_amount (* Reassign back to 0 *)
 end
 
-(* @solidity:
-  require(path[0] == weth, "DMMRouter: INVALID_PATH");
-  verifyPoolsPathSwap(poolsPath, path);
-  amounts = DMMLibrary.getAmountsIn(amountOut, poolsPath, path);
-  require(amounts[0] <= msg.value, "DMMRouter: EXCESSIVE_INPUT_AMOUNT");
-  IWETH(weth).deposit{value: amounts[0]}();
-  weth.safeTransfer(poolsPath[0], amounts[0]);
-  _swap(amounts, poolsPath, path, to);
-  // refund dust eth, if any
-  if (msg.value > amounts[0]) { TransferHelper.safeTransferETH(msg.sender, msg.value - amounts[0]); }
-*)
 transition SwapZILForExactTokensOnce(
   amount_out: Uint128,
   pool: ByStr20 with contract
@@ -2807,17 +2678,14 @@ transition SwapZILForExactTokensOnce(
   path: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_in == 0 *)
-  amount_in <- amt_in;
-  is_valid_amt_in = builtin eq amount_in zero_amount;
-  match is_valid_amt_in with 
-  | True => | False =>
-    amt_in := zero_amount
-  end;
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  wZIL = get_from_address path;
+  VerifyWZILAddress wZIL;
 
   GetAmountIn amount_out pool path deadline_block;
   init_amt_in <- amt_in;
-  VerifyValidAmountIn init_amt_in;
 
   is_valid_amount_in = uint128_le init_amt_in _amount;
   match is_valid_amount_in with 
@@ -2830,8 +2698,6 @@ transition SwapZILForExactTokensOnce(
   accept;
 
   (* convert ZIL to wZIL *)
-  wZIL = get_from_address path;
-  VerifyWZILAddress wZIL;
   WrapZIL init_amt_in;
 
   (* refund back remaining ZIL not used up in conversion to wZIL *)
@@ -2875,21 +2741,34 @@ transition SwapZILForExactTokensTwice(
   path2: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_in == 0 *)
-  amount_in <- amt_in;
-  is_valid_amt_in = builtin eq amount_in zero_amount;
-  match is_valid_amt_in with 
-  | True => | False =>
-    amt_in := zero_amount
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = builtin eq pool1 pool2;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
   end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in 
+    let b = get_from_address path2 in
+    builtin eq a b;
+  match is_valid_path with
+  | True => | False =>
+    err = CodeInvalidPaths;
+    ThrowError err
+  end;
+
+  wZIL = get_from_address path1;
+  VerifyWZILAddress wZIL;
 
   GetAmountIn amount_out pool2 path2 deadline_block;
   intermediate_amt_in <- amt_in;
-  VerifyValidAmountIn intermediate_amt_in;
 
   GetAmountIn intermediate_amt_in pool1 path1 deadline_block;
   init_amt_in <- amt_in;
-  VerifyValidAmountIn init_amt_in;
 
   is_valid_amount_in = uint128_le init_amt_in _amount;
   match is_valid_amount_in with 
@@ -2902,8 +2781,6 @@ transition SwapZILForExactTokensTwice(
   accept;
 
   (* convert ZIL to wZIL *)
-  wZIL = get_from_address path1;
-  VerifyWZILAddress wZIL;
   WrapZIL init_amt_in;
 
   (* refund back remaining ZIL not used up in conversion to wZIL *)
@@ -2961,25 +2838,46 @@ transition SwapZILForExactTokensThrice(
   path3: Pair ByStr20 ByStr20,
   deadline_block: BNum
 )
-  (* Checks if amt_in == 0 *)
-  amount_in <- amt_in;
-  is_valid_amt_in = builtin eq amount_in zero_amount;
-  match is_valid_amt_in with 
-  | True => | False =>
-    amt_in := zero_amount
+  (* Set amt_out to 0 *)
+  amt_out := zero_amount;
+
+  is_same_pool = 
+    let a = builtin eq pool1 pool2 in
+    let b = builtin eq pool2 pool3 in
+    let c = builtin eq pool1 pool3 in
+    let a_b = orb a b in
+    orb a_b c;
+  match is_same_pool with
+  | False => | True => 
+    err = CodeSamePools;
+    ThrowError err
   end;
+
+  is_valid_path = 
+    let a = get_to_address path1 in
+    let b = get_from_address path2 in
+    let c = get_to_address path2 in
+    let d = get_from_address path3 in
+    let is_same_bridge1_token = builtin eq a b in
+    let is_same_bridge2_token = builtin eq c d in
+    andb is_same_bridge1_token is_same_bridge2_token;
+  match is_valid_path with 
+  | True => | False =>
+    err = CodeInvalidPaths;
+    ThrowError err
+  end;
+
+  wZIL = get_from_address path1;
+  VerifyWZILAddress wZIL;
 
   GetAmountIn amount_out pool3 path3 deadline_block;
   second_intermediate_amt_in <- amt_in;
-  VerifyValidAmountIn second_intermediate_amt_in;
   
   GetAmountIn second_intermediate_amt_in pool2 path2 deadline_block;
   first_intermediate_amt_in <- amt_in;
-  VerifyValidAmountIn first_intermediate_amt_in;
 
   GetAmountIn first_intermediate_amt_in pool1 path1 deadline_block;
   init_amt_in <- amt_in;
-  VerifyValidAmountIn init_amt_in;
 
   is_valid_amount_in = uint128_le init_amt_in _amount;
   match is_valid_amount_in with 
@@ -2992,8 +2890,6 @@ transition SwapZILForExactTokensThrice(
   accept;
 
   (* convert ZIL to wZIL *)
-  wZIL = get_from_address path1;
-  VerifyWZILAddress wZIL;
   WrapZIL init_amt_in;
 
   (* refund back remaining ZIL not used up in conversion to wZIL *)

@@ -4,9 +4,11 @@ import { TransactionError } from '@zilliqa-js/core';
 import { BN, getAddressFromPrivateKey, Long, units, Zilliqa } from "@zilliqa-js/zilliqa";
 import BigNumber from "bignumber.js";
 import Crypto from "crypto";
+import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as util from 'util';
 import { APIS, CHAIN_VERSIONS, Network } from "../constants";
+dotenv.config()
 
 export const PRECISION = 1000000000000000000
 export const SHORT_ALPHA = 370301795963710
@@ -50,6 +52,10 @@ export const compile = async (file: string) => {
 
 export const compress = (code: string) => {
   return code.replace(matchComments, '')
+}
+
+export const getContract = (address: string): Contract => {
+  return zilliqa.contracts.at(address)
 }
 
 export const getContractCodeHash = (file: string): string => {
