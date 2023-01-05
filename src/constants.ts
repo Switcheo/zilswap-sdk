@@ -27,7 +27,7 @@ export const ZILSWAPV1_CONTRACTS: { [key in Networks]: string } = {
 
 export const ZILSWAPV2_CONTRACTS: { [key in Networks]: string } = {
   [Network.MainNet]: '',
-  [Network.TestNet]: 'zil1uakhf9d42uccydm5g54dffr0lsr3asj8n5vemn', // IsValidPoolContract commented out
+  [Network.TestNet]: 'zil1207cym7lldlk5xd9397aeakf5vx0q7rtqpp7zr', // IsValidPoolContract commented out
   [Network.LocalHost]: '',
 }
 

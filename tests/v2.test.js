@@ -23,29 +23,32 @@ describe("test", () => {
 
   afterAll(async () => {
     zrc2Pool1State = await zrc2Pool1.getState()
-    tx = await zilswap.increaseAllowance(zrc2Pool1.address.toLowerCase(), zrc2Pool1State.balances[owner], router.address.toLowerCase())
-    expect(tx.status).toEqual(2)
+    tx = await zilswap.approveTokenTransferIfRequired(zrc2Pool1.address.toLowerCase(), zrc2Pool1State.balances[owner], router.address.toLowerCase())
+    if (tx) { expect(tx.status).toEqual(2) }
     tx = await zilswap.removeLiquidity(token0.address.toLowerCase(), token1.address.toLowerCase(), zrc2Pool1.address.toLowerCase(), zrc2Pool1State.balances[owner], '0', '0')
     expect(tx.status).toEqual(2)
 
     zrc2Pool2State = await zrc2Pool2.getState()
-    tx = await zilswap.increaseAllowance(zrc2Pool2.address.toLowerCase(), zrc2Pool2State.balances[owner], router.address.toLowerCase())
-    expect(tx.status).toEqual(2)
+    tx = await zilswap.approveTokenTransferIfRequired(zrc2Pool2.address.toLowerCase(), zrc2Pool2State.balances[owner], router.address.toLowerCase())
+    if (tx) { expect(tx.status).toEqual(2) }
     tx = await zilswap.removeLiquidity(token1.address.toLowerCase(), token2.address.toLowerCase(), zrc2Pool2.address.toLowerCase(), zrc2Pool2State.balances[owner], '0', '0')
     expect(tx.status).toEqual(2)
 
     zilPool1State = await zilPool1.getState()
-    await zilswap.increaseAllowance(zilPool1.address.toLowerCase(), zilPool1State.balances[owner], router.address.toLowerCase())
+    await zilswap.approveTokenTransferIfRequired(zilPool1.address.toLowerCase(), zilPool1State.balances[owner], router.address.toLowerCase())
+    if (tx) { expect(tx.status).toEqual(2) }
     tx = await zilswap.removeLiquidityZIL(token0.address.toLowerCase(), zilPool1.address.toLowerCase(), zilPool1State.balances[owner], '0', '0')
     expect(tx.status).toEqual(2)
 
     zilPool2State = await zilPool2.getState()
-    await zilswap.increaseAllowance(zilPool2.address.toLowerCase(), zilPool2State.balances[owner], router.address.toLowerCase())
+    await zilswap.approveTokenTransferIfRequired(zilPool2.address.toLowerCase(), zilPool2State.balances[owner], router.address.toLowerCase())
+    if (tx) { expect(tx.status).toEqual(2) }
     tx = await zilswap.removeLiquidityZIL(token1.address.toLowerCase(), zilPool2.address.toLowerCase(), zilPool2State.balances[owner], '0', '0')
     expect(tx.status).toEqual(2)
 
     zilPool3State = await zilPool3.getState()
-    await zilswap.increaseAllowance(zilPool3.address.toLowerCase(), zilPool3State.balances[owner], router.address.toLowerCase())
+    await zilswap.approveTokenTransferIfRequired(zilPool3.address.toLowerCase(), zilPool3State.balances[owner], router.address.toLowerCase())
+    if (tx) { expect(tx.status).toEqual(2) }
     tx = await zilswap.removeLiquidityZIL(token2.address.toLowerCase(), zilPool3.address.toLowerCase(), zilPool3State.balances[owner], '0', '0')
     expect(tx.status).toEqual(2)
   })
@@ -55,8 +58,6 @@ describe("test", () => {
     zilswap = new ZilSwapV2(network, privateKey, routerAddress)
     await zilswap.initialize()
     zilswap.setDeadlineBlocks(10)
-
-    await zilswap.increaseAllowance(wZil.address.toLowerCase(), '100000000000000000000000000000000000000', router.address.toLowerCase(),)
   })
 
   test('deploy and add zrc2Pool1', async () => {
@@ -218,6 +219,6 @@ async function setup() {
   if (parseInt(token1.address, 16) > parseInt(token2.address, 16)) [token0, token1, token2] = [token0, token2, token1]
   if (parseInt(token0.address, 16) > parseInt(token1.address, 16)) [token0, token1, token2] = [token1, token0, token2]
 
-  // await increaseAllowance(privateKey, wZil, router.address.toLowerCase())
+  await increaseAllowance(privateKey, wZil, router.address.toLowerCase())
   await setFeeConfig(privateKey, router, owner.toLowerCase())
 }

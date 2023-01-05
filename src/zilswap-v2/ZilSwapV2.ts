@@ -257,7 +257,7 @@ export class ZilSwapV2 {
     // Call deployContract
     const pool = await this.deployContract(file, init)
 
-    // // Update app state
+    // // Localhost
     // await this.updateZILBalanceAndNonce()
 
     // Add pool
@@ -266,7 +266,7 @@ export class ZilSwapV2 {
     return [pool, tx]
   }
 
-  public async deployPool(token0: string, token1: string, init_amp_bps: number) {
+  public async deployPool(token0: string, token1: string, init_amp_bps: string) {
     // Check logged in
     this.checkAppLoadedWithUser()
 
@@ -303,15 +303,13 @@ export class ZilSwapV2 {
     // Call deployContract
     const pool = await this.deployContract(file, init)
 
-    // // Update app state
+    // // Localhost
     // await this.updateZILBalanceAndNonce()
 
     return pool
   }
 
-  // Call AddPool transition on the router
-  // Called when there is already a pool
-  public async addPool(pool: string): Promise<Transaction> {
+  public async addPool(pool: string) {
     // Check logged in
     this.checkAppLoadedWithUser()
 
@@ -339,19 +337,20 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    // // Update relevant app states
+    // // Localhost
     // await this.updateRouterState()
     // await this.updatePoolStates()
     // await this.updateTokens()
     // await this.updateZILBalanceAndNonce()
     // this.updateTokenPools()
+    // return addPoolTx
 
-    return addPoolTx
+    return observeTxn
   }
 
   // reserve_ratio_allowance: in percentage
   // Eg If 5%: input 5
-  public async addLiquidity(tokenA: string, tokenB: string, pool: string, amountA_desired: string, amountB_desired: string, amountA_min: string, amountB_min: string, reserve_ratio_allowance: number): Promise<Transaction> {
+  public async addLiquidity(tokenA: string, tokenB: string, pool: string, amountADesiredStr: string, amountBDesiredStr: string, amountAMinStr: string, amountBMinStr: string, reserve_ratio_allowance: number) {
     if (tokenA === tokenB) {
       throw new Error("Invalid Token Pair")
     }
@@ -359,7 +358,7 @@ export class ZilSwapV2 {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // // Update blockHeight
+    // // Localhost
     // await this.updateBlockHeight()
 
     const tokenAHash = this.getHash(tokenA)
@@ -376,22 +375,26 @@ export class ZilSwapV2 {
     const reserveB = poolState.reserve1
     const vReserveA = poolState.v_reserve0
     const vReserveB = poolState.v_reserve1
+    const amountADesired = unitlessBigNumber(amountADesiredStr)
+    const amountBDesired = unitlessBigNumber(amountBDesiredStr)
+    const amountAMin = unitlessBigNumber(amountAMinStr)
+    const amountBMin = unitlessBigNumber(amountBMinStr)
     let amountA, amountB
 
     if (reserveA === '0' && reserveB === '0') {
-      amountA = amountA_desired
-      amountB = amountB_desired
+      amountA = amountADesired
+      amountB = amountBDesired
     }
     else {
-      const amountBOptimal = this.quote(amountA_desired, reserveA, reserveB)
-      if (amountBOptimal.lte(amountB_desired)) {
-        amountA = amountA_desired
+      const amountBOptimal = this.quote(amountADesired, reserveA, reserveB)
+      if (amountBOptimal.lte(amountBDesired)) {
+        amountA = amountADesired
         amountB = amountBOptimal
       }
       else {
-        const amountAOptimal = this.quote(amountB_desired, reserveB, reserveA)
+        const amountAOptimal = this.quote(amountBDesired, reserveB, reserveA)
         amountA = amountAOptimal
-        amountB = amountB_desired
+        amountB = amountBDesired
       }
     }
 
@@ -423,10 +426,10 @@ export class ZilSwapV2 {
       this.param('tokenA', 'ByStr20', tokenAHash),
       this.param('tokenB', 'ByStr20', tokenBHash),
       this.param('pool', 'ByStr20', poolHash),
-      this.param('amountA_desired', 'Uint128', amountA_desired),
-      this.param('amountB_desired', 'Uint128', amountB_desired),
-      this.param('amountA_min', 'Uint128', amountA_min),
-      this.param('amountB_min', 'Uint128', amountB_min),
+      this.param('amountA_desired', 'Uint128', amountADesired.toString()),
+      this.param('amountB_desired', 'Uint128', amountBDesired.toString()),
+      this.param('amountA_min', 'Uint128', amountAMin.toString()),
+      this.param('amountB_min', 'Uint128', amountBMin.toString()),
       this.param('v_reserve_ratio_bounds', 'Pair (Uint256) (Uint256)',
         {
           "constructor": "Pair",
@@ -442,7 +445,6 @@ export class ZilSwapV2 {
 
     // Call contract
     const addLiquidityTxn = await this.callContract(contract, 'AddLiquidity', args, params, true)
-    // console.log("addLiquidityTxn", addLiquidityTxn)
 
     if (addLiquidityTxn.isRejected()) {
       throw new Error('Submitted transaction was rejected.')
@@ -454,27 +456,27 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    // // Update relevant app states
+    // // Localhost
     // await this.updateSinglePoolState(poolHash)
     // await this.updateZILBalanceAndNonce()
+    // return addLiquidityTxn
 
-    return addLiquidityTxn
+    return observeTxn
   }
 
   // reserve_ratio_allowance: in percentage
   // Eg If 5%: input 5
-  public async addLiquidityZIL(token: string, pool: string, amount_token_desired: string, amount_wZIL_desired: string, amount_token_min: string, amount_wZIL_min: string, reserve_ratio_allowance: number) {
+  public async addLiquidityZIL(token: string, pool: string, amountTokenDesiredStr: string, amountwZILDesiredStr: string, amountTokenMinStr: string, amountWZILMinStr: string, reserve_ratio_allowance: number) {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // // Update blockHeight
+    // // Localhost
     // await this.updateBlockHeight()
 
     const tokenHash = this.getHash(token)
     const poolHash = this.getHash(pool)
 
-    // // Get the most updated pool state
-    // await this.updateSinglePoolState(poolHash)
+    await this.updateSinglePoolState(poolHash)
 
     const poolState = this.poolStates![poolHash]!
 
@@ -483,22 +485,26 @@ export class ZilSwapV2 {
     const reserveB = poolState.reserve1
     const vReserveA = poolState.v_reserve0
     const vReserveB = poolState.v_reserve1
+    const amountTokenDesired = unitlessBigNumber(amountTokenDesiredStr)
+    const amountwZILDesired = unitlessBigNumber(amountwZILDesiredStr)
+    const amountTokenMin = unitlessBigNumber(amountTokenMinStr)
+    const amountWZILMin = unitlessBigNumber(amountWZILMinStr)
     let amountToken, amountWZIL
 
     if (reserveA === '0' && reserveB === '0') {
-      amountToken = amount_token_desired
-      amountWZIL = amount_wZIL_desired
+      amountToken = amountTokenDesired
+      amountWZIL = amountwZILDesired
     }
     else {
-      const amountWZILOptimal = await this.quote(amount_token_desired, reserveA, reserveB)
-      if (amountWZILOptimal.lte(amount_wZIL_desired)) {
-        amountToken = amount_token_desired
+      const amountWZILOptimal = await this.quote(amountTokenDesired, reserveA, reserveB)
+      if (amountWZILOptimal.lte(amountwZILDesired)) {
+        amountToken = amountTokenDesired
         amountWZIL = amountWZILOptimal
       }
       else {
-        const amountTokenOptimal = await this.quote(amount_wZIL_desired, reserveB, reserveA)
+        const amountTokenOptimal = await this.quote(amountwZILDesired, reserveB, reserveA)
         amountToken = amountTokenOptimal
-        amountWZIL = amount_wZIL_desired
+        amountWZIL = amountwZILDesired
       }
     }
 
@@ -528,9 +534,9 @@ export class ZilSwapV2 {
     const args: any = [
       this.param('token', 'ByStr20', tokenHash),
       this.param('pool', 'ByStr20', poolHash),
-      this.param('amount_token_desired', 'Uint128', amount_token_desired),
-      this.param('amount_token_min', 'Uint128', amount_token_min),
-      this.param('amount_wZIL_min', 'Uint128', amount_wZIL_min),
+      this.param('amount_token_desired', 'Uint128', amountTokenDesired.toString()),
+      this.param('amount_token_min', 'Uint128', amountTokenMin.toString()),
+      this.param('amount_wZIL_min', 'Uint128', amountWZILMin.toString()),
       this.param('v_reserve_ratio_bounds', 'Pair (Uint256) (Uint256)',
         {
           "constructor": "Pair",
@@ -540,7 +546,7 @@ export class ZilSwapV2 {
       this.param('deadline_block', 'BNum', `${deadline}`),
     ]
     const params: CallParams = {
-      amount: new BN(amount_wZIL_desired),
+      amount: new BN(amountwZILDesired.toString()),
       ...this.txParams()
     }
 
@@ -557,14 +563,15 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    // // Update relevant app states
+    // // Localhost
     // await this.updateSinglePoolState(poolHash)
     // await this.updateZILBalanceAndNonce()
+    // return addLiquidityZilTxn
 
-    return addLiquidityZilTxn
+    return observeTxn
   }
 
-  public async removeLiquidity(tokenA: string, tokenB: string, pool: string, liquidity: string, amountA_min: string, amountB_min: string) {
+  public async removeLiquidity(tokenA: string, tokenB: string, pool: string, liquidityStr: string, amountAMinStr: string, amountBMinStr: string) {
     if (tokenA === tokenB) {
       throw new Error("Invalid Token Pair")
     }
@@ -572,6 +579,9 @@ export class ZilSwapV2 {
     const tokenAHash = this.getHash(tokenA)
     const tokenBHash = this.getHash(tokenB)
     const poolHash = this.getHash(pool)
+    const liquidity = unitlessBigNumber(liquidityStr)
+    const amountAMin = unitlessBigNumber(amountAMinStr)
+    const amountBMin = unitlessBigNumber(amountBMinStr)
 
     const poolState = this.poolStates![poolHash]
     if (!poolState) {
@@ -581,7 +591,7 @@ export class ZilSwapV2 {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // // Update blockHeight
+    // // Localhost
     // await this.updateBlockHeight()
 
     // Check Balance and Allowance
@@ -596,9 +606,9 @@ export class ZilSwapV2 {
       this.param('tokenA', 'ByStr20', tokenAHash),
       this.param('tokenB', 'ByStr20', tokenBHash),
       this.param('pool', 'ByStr20', poolHash),
-      this.param('liquidity', 'Uint128', liquidity),
-      this.param('amountA_min', 'Uint128', amountA_min),
-      this.param('amountB_min', 'Uint128', amountB_min),
+      this.param('liquidity', 'Uint128', liquidity.toString()),
+      this.param('amountA_min', 'Uint128', amountAMin.toString()),
+      this.param('amountB_min', 'Uint128', amountBMin.toString()),
       this.param('deadline_block', 'BNum', `${deadline}`)
     ]
     const params: CallParams = {
@@ -619,14 +629,15 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    // // Update relevant app states
+    // // Localhost
     // await this.updateSinglePoolState(poolHash)
     // await this.updateZILBalanceAndNonce()
+    // return removeLiquidityTxn
 
-    return removeLiquidityTxn
+    return observeTxn
   }
 
-  public async removeLiquidityZIL(token: string, pool: string, liquidity: string, amount_token_min: string, amount_wZIL_min: string) {
+  public async removeLiquidityZIL(token: string, pool: string, liquidityStr: string, amountTokenMinStr: string, amountWZILMinStr: string) {
     const tokenHash = this.getHash(token)
     const poolHash = this.getHash(pool)
 
@@ -638,8 +649,12 @@ export class ZilSwapV2 {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // // Update blockHeight
+    // // Localhost
     // await this.updateBlockHeight()
+
+    const liquidity = unitlessBigNumber(liquidityStr)
+    const amountTokenMin = unitlessBigNumber(amountTokenMinStr)
+    const amountWZILMin = unitlessBigNumber(amountWZILMinStr)
 
     // Check Balance and Allowance
     await this.checkAllowance(poolHash, liquidity)
@@ -652,9 +667,9 @@ export class ZilSwapV2 {
     const args: any = [
       this.param('token', 'ByStr20', tokenHash),
       this.param('pool', 'ByStr20', poolHash),
-      this.param('liquidity', 'Uint128', liquidity),
-      this.param('amount_token_min', 'Uint128', amount_token_min),
-      this.param('amount_wZIL_min', 'Uint128', amount_wZIL_min),
+      this.param('liquidity', 'Uint128', liquidity.toString()),
+      this.param('amount_token_min', 'Uint128', amountTokenMin.toString()),
+      this.param('amount_wZIL_min', 'Uint128', amountWZILMin.toString()),
       this.param('deadline_block', 'BNum', `${deadline}`),
     ]
     const params: CallParams = {
@@ -675,14 +690,15 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    // // Update relevant app states
+    // // Localhost
     // await this.updateSinglePoolState(poolHash)
     // await this.updateZILBalanceAndNonce()
+    // return removeLiquidityZilTxn
 
-    return removeLiquidityZilTxn
+    return observeTxn
   }
 
-  public async swapExactTokensForTokens(tokenIn: string, tokenOut: string, amountIn: string, amountOutMin: string) {
+  public async swapExactTokensForTokens(tokenIn: string, tokenOut: string, amountInStr: string, amountOutMinStr: string) {
     const tokenInHash = this.getHash(tokenIn)
     const tokenOutHash = this.getHash(tokenOut)
 
@@ -696,10 +712,14 @@ export class ZilSwapV2 {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // // Update blockHeight
+    // // Localhost
     // await this.updateBlockHeight()
 
-    let amountOut: BigNumber = new BigNumber(amountOutMin)
+    let amountOutMin: BigNumber = unitlessBigNumber(amountOutMinStr)
+    let amountIn: BigNumber = unitlessBigNumber(amountInStr)
+    if (amountOutMin.isLessThan(0) || amountIn.isLessThan(0)) { throw new Error("Invalid amountOutMin or amountIn") }
+
+    let amountOut: BigNumber = amountOutMin
     let poolPath: string[] = []
     let tokenPath: TokenPath[] = []
     let pool1AmtOut: BigNumber;
@@ -713,7 +733,7 @@ export class ZilSwapV2 {
 
       // First pool has the desired token pair && amountOutTemp > amountOut
       if (tokenOutHash === pool1TokenOut && pool1AmtOut.gt(amountOut)) {
-        console.log("pool1AmtOut", pool1AmtOut.toString())
+        // console.log("pool1AmtOut", pool1AmtOut.toString())
         amountOut = pool1AmtOut
         poolPath = [pool1]
         tokenPath = [{ tokenIn: tokenInHash, tokenOut: tokenOutHash }]
@@ -728,7 +748,7 @@ export class ZilSwapV2 {
 
         // Second pool has the desired token pair && current amountOut > previous amountOut
         if (tokenOutHash === pool2TokenOut && pool2AmtOut.gt(amountOut)) {
-          console.log("pool2AmtOut", pool2AmtOut.toString())
+          // console.log("pool2AmtOut", pool2AmtOut.toString())
           amountOut = pool2AmtOut
           poolPath = [pool1, pool2]
           tokenPath = [
@@ -748,7 +768,7 @@ export class ZilSwapV2 {
             pool3AmtOut = await this.getAmountOut(pool2AmtOut, pool3, pool2TokenOut)
 
             if (pool3AmtOut.gt(amountOut)) {
-              console.log("pool3AmtOut", pool3AmtOut.toString())
+              // console.log("pool3AmtOut", pool3AmtOut.toString())
               amountOut = pool3AmtOut
               poolPath = [pool1, pool2, pool3]
               tokenPath = [
@@ -775,8 +795,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapExactTokensForTokensOnce",
         args: [
-          this.param('amount_in', 'Uint128', `${amountIn}`),
-          this.param('amount_out_min', 'Uint128', `${amountOutMin}`),
+          this.param('amount_in', 'Uint128', amountIn.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
           this.param('pool', 'ByStr20', poolPath[0]),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
@@ -795,8 +815,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapExactTokensForTokensTwice",
         args: [
-          this.param('amount_in', 'Uint128', `${amountIn}`),
-          this.param('amount_out_min', 'Uint128', `${amountOutMin}`),
+          this.param('amount_in', 'Uint128', amountIn.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('path1', 'Pair ByStr20 ByStr20', {
@@ -821,8 +841,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapExactTokensForTokensThrice",
         args: [
-          this.param('amount_in', 'Uint128', `${amountIn}`),
-          this.param('amount_out_min', 'Uint128', `${amountOutMin}`),
+          this.param('amount_in', 'Uint128', amountIn.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('pool3', 'ByStr20', poolPath[2]),
@@ -858,7 +878,7 @@ export class ZilSwapV2 {
       throw new Error('Submitted transaction was rejected.')
     }
 
-    // // Update relevant app states
+    // // Localhost
     // poolPath.map(async (pool) => {
     //   await this.updateSinglePoolState(pool)
     // })
@@ -870,10 +890,13 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    return swapExactTokensForTokensTxn
+    // // Localhost
+    // return swapExactTokensForTokensTxn
+
+    return observeTxn
   }
 
-  public async swapTokensForExactTokens(tokenIn: string, tokenOut: string, amountInMax: string, amountOut: string) {
+  public async swapTokensForExactTokens(tokenIn: string, tokenOut: string, amountInMaxStr: string, amountOutStr: string) {
     const tokenInHash = this.getHash(tokenIn)
     const tokenOutHash = this.getHash(tokenOut)
 
@@ -887,10 +910,14 @@ export class ZilSwapV2 {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // // Update blockHeight
+    // // Localhost
     // await this.updateBlockHeight()
 
-    let amountIn: BigNumber = new BigNumber(amountInMax)
+    const amountInMax = unitlessBigNumber(amountInMaxStr)
+    const amountOut = unitlessBigNumber(amountOutStr)
+    if (amountInMax.isLessThan(0) || amountOut.isLessThan(0)) { throw new Error("Invalid amountInMax or amountOut") }
+
+    let amountIn: BigNumber = amountInMax
     let poolPath: string[] = []
     let tokenPath: TokenPath[] = []
     let pool1AmtIn: BigNumber;
@@ -903,8 +930,8 @@ export class ZilSwapV2 {
       pool3AmtIn = await this.getAmountIn(amountOut, pool3, pool3TokenIn)
 
       // First pool has the desired token pair && amountOutTemp > amountOut
-      if (tokenInHash === pool3TokenIn && pool3AmtIn.lt(amountIn)) {
-        console.log("pool3AmtIn", pool3AmtIn.toString())
+      if (tokenInHash === pool3TokenIn && pool3AmtIn.lt(amountIn) && pool3AmtIn.isGreaterThan(0)) {
+        // console.log("pool3AmtIn", pool3AmtIn.toString())
         amountIn = pool3AmtIn
         poolPath = [pool3]
         tokenPath = [{ tokenIn: tokenInHash, tokenOut: tokenOutHash }]
@@ -918,8 +945,8 @@ export class ZilSwapV2 {
         pool2AmtIn = await this.getAmountIn(pool3AmtIn, pool2, pool2TokenIn)
 
         // Second pool has the desired token pair && current amountOut > previous amountOut
-        if (tokenInHash === pool2TokenIn && pool2AmtIn.lt(amountIn)) {
-          console.log("pool2AmtIn", pool2AmtIn.toString())
+        if (tokenInHash === pool2TokenIn && pool2AmtIn.lt(amountIn) && pool2AmtIn.isGreaterThan(0)) {
+          // console.log("pool2AmtIn", pool2AmtIn.toString())
           amountIn = pool2AmtIn
           poolPath = [pool2, pool3]
           tokenPath = [
@@ -938,8 +965,8 @@ export class ZilSwapV2 {
           if (tokenInHash === pool1TokenIn) {
             pool1AmtIn = await this.getAmountIn(pool2AmtIn, pool1, pool1TokenIn)
 
-            if (pool1AmtIn.lt(amountOut)) {
-              console.log("pool1AmtIn", pool1AmtIn.toString())
+            if (pool1AmtIn.lt(amountOut) && pool1AmtIn.isGreaterThan(0)) {
+              // console.log("pool1AmtIn", pool1AmtIn.toString())
               amountIn = pool1AmtIn
               poolPath = [pool1, pool2, pool3]
               tokenPath = [
@@ -966,8 +993,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapTokensForExactTokensOnce",
         args: [
-          this.param('amount_out', 'Uint128', `${amountOut}`),
-          this.param('amount_in_max', 'Uint128', `${amountInMax}`),
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
           this.param('pool', 'ByStr20', poolPath[0]),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
@@ -986,8 +1013,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapTokensForExactTokensTwice",
         args: [
-          this.param('amount_out', 'Uint128', `${amountOut}`),
-          this.param('amount_in_max', 'Uint128', `${amountInMax}`),
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('path1', 'Pair ByStr20 ByStr20', {
@@ -1012,8 +1039,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapTokensForExactTokensThrice",
         args: [
-          this.param('amount_out', 'Uint128', `${amountOut}`),
-          this.param('amount_in_max', 'Uint128', `${amountInMax}`),
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('pool3', 'ByStr20', poolPath[2]),
@@ -1049,7 +1076,7 @@ export class ZilSwapV2 {
       throw new Error('Submitted transaction was rejected.')
     }
 
-    // // Update relevant app states
+    // // Localhost
     // for (var pool of poolPath) {
     //   await this.updateSinglePoolState(pool)
     // }
@@ -1061,11 +1088,14 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    return swapTokensForExactTokensTxn
+    // // Localhost
+    // return swapTokensForExactTokensTxn
+
+    return observeTxn
   }
 
   // tokenIn: wZIL address
-  public async swapExactZILForTokens(tokenIn: string, tokenOut: string, amountIn: string, amountOutMin: string) {
+  public async swapExactZILForTokens(tokenIn: string, tokenOut: string, amountInStr: string, amountOutMinStr: string) {
     const tokenInHash = this.getHash(tokenIn)
     const tokenOutHash = this.getHash(tokenOut)
 
@@ -1079,10 +1109,15 @@ export class ZilSwapV2 {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // // Update blockHeight
+    // // Localhost
     // await this.updateBlockHeight()
 
-    let amountOut: BigNumber = new BigNumber(amountOutMin)
+    const amountIn = unitlessBigNumber(amountInStr)
+    const amountOutMin = unitlessBigNumber(amountOutMinStr)
+    if (amountOutMin.isLessThan(0) || amountIn.isLessThan(0)) { throw new Error("Invalid amountOutMin or amountIn") }
+
+
+    let amountOut: BigNumber = amountOutMin
     let poolPath: string[] = []
     let tokenPath: TokenPath[] = []
     let pool1AmtOut: BigNumber;
@@ -1096,7 +1131,7 @@ export class ZilSwapV2 {
 
       // First pool has the desired token pair && amountOutTemp > amountOut
       if (tokenOutHash === pool1TokenOut && pool1AmtOut.gt(amountOut)) {
-        console.log("pool1AmtOut", pool1AmtOut.toString())
+        // console.log("pool1AmtOut", pool1AmtOut.toString())
         amountOut = pool1AmtOut
         poolPath = [pool1]
         tokenPath = [{ tokenIn: tokenInHash, tokenOut: tokenOutHash }]
@@ -1111,7 +1146,7 @@ export class ZilSwapV2 {
 
         // Second pool has the desired token pair && current amountOut > previous amountOut
         if (tokenOutHash === pool2TokenOut && pool2AmtOut.gt(amountOut)) {
-          console.log("pool2AmtOut", pool2AmtOut.toString())
+          // console.log("pool2AmtOut", pool2AmtOut.toString())
           amountOut = pool2AmtOut
           poolPath = [pool1, pool2]
           tokenPath = [
@@ -1131,7 +1166,7 @@ export class ZilSwapV2 {
             pool3AmtOut = await this.getAmountOut(pool2AmtOut, pool3, pool2TokenOut)
 
             if (pool3AmtOut.gt(amountOut)) {
-              console.log("pool3AmtOut", pool3AmtOut.toString())
+              // console.log("pool3AmtOut", pool3AmtOut.toString())
               amountOut = pool3AmtOut
               poolPath = [pool1, pool2, pool3]
               tokenPath = [
@@ -1157,7 +1192,7 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapExactZILForTokensOnce",
         args: [
-          this.param('amount_out_min', 'Uint128', `${amountOutMin}`),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
           this.param('pool', 'ByStr20', poolPath[0]),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
@@ -1167,7 +1202,7 @@ export class ZilSwapV2 {
           this.param('deadline_block', 'BNum', `${deadline}`),
         ],
         params: {
-          amount: new BN(amountIn),
+          amount: new BN(amountIn.toString()),
           ...this.txParams()
         },
       }
@@ -1176,7 +1211,7 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapExactZILForTokensTwice",
         args: [
-          this.param('amount_out_min', 'Uint128', `${amountOutMin}`),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('path1', 'Pair ByStr20 ByStr20', {
@@ -1192,7 +1227,7 @@ export class ZilSwapV2 {
           this.param('deadline_block', 'BNum', `${deadline}`),
         ],
         params: {
-          amount: new BN(amountIn),
+          amount: new BN(amountIn.toString()),
           ...this.txParams()
         },
       }
@@ -1201,7 +1236,7 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapExactZILForTokensThrice",
         args: [
-          this.param('amount_out_min', 'Uint128', `${amountOutMin}`),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('pool3', 'ByStr20', poolPath[2]),
@@ -1223,7 +1258,7 @@ export class ZilSwapV2 {
           this.param('deadline_block', 'BNum', `${deadline}`),
         ],
         params: {
-          amount: new BN(amountIn),
+          amount: new BN(amountIn.toString()),
           ...this.txParams()
         }
       }
@@ -1237,7 +1272,7 @@ export class ZilSwapV2 {
       throw new Error('Submitted transaction was rejected.')
     }
 
-    // // Update relevant app states
+    // // Localhost
     // poolPath.map(async (pool) => {
     //   await this.updateSinglePoolState(pool)
     // })
@@ -1249,11 +1284,14 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    return swapExactZILForTokensTxn
+    // // Localhost
+    // return swapExactZILForTokensTxn
+
+    return observeTxn
   }
 
   // tokenIn: wZIL address
-  public async swapZILForExactTokens(tokenIn: string, tokenOut: string, amountInMax: string, amountOut: string) {
+  public async swapZILForExactTokens(tokenIn: string, tokenOut: string, amountInMaxStr: string, amountOutStr: string) {
     const tokenInHash = this.getHash(tokenIn)
     const tokenOutHash = this.getHash(tokenOut)
 
@@ -1267,10 +1305,14 @@ export class ZilSwapV2 {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // // Update blockHeight
+    // // Localhost
     // await this.updateBlockHeight()
 
-    let amountIn: BigNumber = new BigNumber(amountInMax)
+    const amountInMax = unitlessBigNumber(amountInMaxStr)
+    const amountOut = unitlessBigNumber(amountOutStr)
+    if (amountInMax.isLessThan(0) || amountOut.isLessThan(0)) { throw new Error("Invalid amountInMax or amountOut") }
+
+    let amountIn: BigNumber = amountInMax
     let poolPath: string[] = []
     let tokenPath: TokenPath[] = []
     let pool1AmtIn: BigNumber;
@@ -1283,8 +1325,8 @@ export class ZilSwapV2 {
       pool3AmtIn = await this.getAmountIn(amountOut, pool3, pool3TokenIn)
 
       // First pool has the desired token pair && amountOutTemp > amountOut
-      if (tokenInHash === pool3TokenIn && pool3AmtIn.lt(amountIn)) {
-        console.log("pool3AmtIn", pool3AmtIn.toString())
+      if (tokenInHash === pool3TokenIn && pool3AmtIn.lt(amountIn) && pool3AmtIn.isGreaterThan(0)) {
+        // console.log("pool3AmtIn", pool3AmtIn.toString())
         amountIn = pool3AmtIn
         poolPath = [pool3]
         tokenPath = [{ tokenIn: tokenInHash, tokenOut: tokenOutHash }]
@@ -1298,8 +1340,8 @@ export class ZilSwapV2 {
         pool2AmtIn = await this.getAmountIn(pool3AmtIn, pool2, pool2TokenIn)
 
         // Second pool has the desired token pair && current amountOut > previous amountOut
-        if (tokenInHash === pool2TokenIn && pool2AmtIn.lt(amountIn)) {
-          console.log("pool2AmtIn", pool2AmtIn.toString())
+        if (tokenInHash === pool2TokenIn && pool2AmtIn.lt(amountIn) && pool2AmtIn.isGreaterThan(0)) {
+          // console.log("pool2AmtIn", pool2AmtIn.toString())
           amountIn = pool2AmtIn
           poolPath = [pool2, pool3]
           tokenPath = [
@@ -1318,8 +1360,8 @@ export class ZilSwapV2 {
           if (tokenInHash === pool1TokenIn) {
             pool1AmtIn = await this.getAmountIn(pool2AmtIn, pool1, pool1TokenIn)
 
-            if (pool1AmtIn.lt(amountOut)) {
-              console.log("pool1AmtIn", pool1AmtIn.toString())
+            if (pool1AmtIn.lt(amountOut) && pool1AmtIn.isGreaterThan(0)) {
+              // console.log("pool1AmtIn", pool1AmtIn.toString())
               amountIn = pool1AmtIn
               poolPath = [pool1, pool2, pool3]
               tokenPath = [
@@ -1345,7 +1387,7 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapZILForExactTokensOnce",
         args: [
-          this.param('amount_out', 'Uint128', `${amountOut}`),
+          this.param('amount_out', 'Uint128', amountOut.toString()),
           this.param('pool', 'ByStr20', poolPath[0]),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
@@ -1364,7 +1406,7 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapZILForExactTokensTwice",
         args: [
-          this.param('amount_out', 'Uint128', `${amountOut}`),
+          this.param('amount_out', 'Uint128', amountOut.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('path1', 'Pair ByStr20 ByStr20', {
@@ -1389,7 +1431,7 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapZILForExactTokensThrice",
         args: [
-          this.param('amount_out', 'Uint128', `${amountOut}`),
+          this.param('amount_out', 'Uint128', amountOut.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('pool3', 'ByStr20', poolPath[2]),
@@ -1425,7 +1467,7 @@ export class ZilSwapV2 {
       throw new Error('Submitted transaction was rejected.')
     }
 
-    // // Update relevant app states
+    // // Localhost
     // for (var pool of poolPath) {
     //   await this.updateSinglePoolState(pool)
     // }
@@ -1437,11 +1479,14 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    return swapZILForExactTokensTxn
+    // // Localhost
+    // return swapZILForExactTokensTxn
+
+    return observeTxn
   }
 
   // tokenOut: wZIL address
-  public async swapExactTokensForZIL(tokenIn: string, tokenOut: string, amountIn: string, amountOutMin: string) {
+  public async swapExactTokensForZIL(tokenIn: string, tokenOut: string, amountInStr: string, amountOutMinStr: string) {
     const tokenInHash = this.getHash(tokenIn)
     const tokenOutHash = this.getHash(tokenOut)
 
@@ -1455,8 +1500,12 @@ export class ZilSwapV2 {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // // Update blockHeight
+    // // Localhost
     // await this.updateBlockHeight()
+
+    const amountIn = unitlessBigNumber(amountInStr)
+    const amountOutMin = unitlessBigNumber(amountOutMinStr)
+    if (amountOutMin.isLessThan(0) || amountIn.isLessThan(0)) { throw new Error("Invalid amountOutMin or amountIn") }
 
     let amountOut: BigNumber = new BigNumber(amountOutMin)
     let poolPath: string[] = []
@@ -1472,7 +1521,7 @@ export class ZilSwapV2 {
 
       // First pool has the desired token pair && amountOutTemp > amountOut
       if (tokenOutHash === pool1TokenOut && pool1AmtOut.gt(amountOut)) {
-        console.log("pool1AmtOut", pool1AmtOut.toString())
+        // console.log("pool1AmtOut", pool1AmtOut.toString())
         amountOut = pool1AmtOut
         poolPath = [pool1]
         tokenPath = [{ tokenIn: tokenInHash, tokenOut: tokenOutHash }]
@@ -1487,7 +1536,7 @@ export class ZilSwapV2 {
 
         // Second pool has the desired token pair && current amountOut > previous amountOut
         if (tokenOutHash === pool2TokenOut && pool2AmtOut.gt(amountOut)) {
-          console.log("pool2AmtOut", pool2AmtOut.toString())
+          // console.log("pool2AmtOut", pool2AmtOut.toString())
           amountOut = pool2AmtOut
           poolPath = [pool1, pool2]
           tokenPath = [
@@ -1507,7 +1556,7 @@ export class ZilSwapV2 {
             pool3AmtOut = await this.getAmountOut(pool2AmtOut, pool3, pool2TokenOut)
 
             if (pool3AmtOut.gt(amountOut)) {
-              console.log("pool3AmtOut", pool3AmtOut.toString())
+              // console.log("pool3AmtOut", pool3AmtOut.toString())
               amountOut = pool3AmtOut
               poolPath = [pool1, pool2, pool3]
               tokenPath = [
@@ -1534,8 +1583,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapExactTokensForZILOnce",
         args: [
-          this.param('amount_in', 'Uint128', `${amountIn}`),
-          this.param('amount_out_min', 'Uint128', `${amountOutMin}`),
+          this.param('amount_in', 'Uint128', amountIn.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
           this.param('pool', 'ByStr20', poolPath[0]),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
@@ -1554,8 +1603,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapExactTokensForZILTwice",
         args: [
-          this.param('amount_in', 'Uint128', `${amountIn}`),
-          this.param('amount_out_min', 'Uint128', `${amountOutMin}`),
+          this.param('amount_in', 'Uint128', amountIn.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('path1', 'Pair ByStr20 ByStr20', {
@@ -1580,8 +1629,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapExactTokensForZILThrice",
         args: [
-          this.param('amount_in', 'Uint128', `${amountIn}`),
-          this.param('amount_out_min', 'Uint128', `${amountOutMin}`),
+          this.param('amount_in', 'Uint128', amountIn.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('pool3', 'ByStr20', poolPath[2]),
@@ -1617,7 +1666,7 @@ export class ZilSwapV2 {
       throw new Error('Submitted transaction was rejected.')
     }
 
-    // // Update relevant app states
+    // // Localhost
     // poolPath.map(async (pool) => {
     //   await this.updateSinglePoolState(pool)
     // })
@@ -1629,11 +1678,14 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    return swapExactTokensForZILTxn
+    // // Localhost
+    // return swapExactTokensForZILTxn
+
+    return observeTxn
   }
 
   // tokenOut: wZIL address
-  public async swapTokensForExactZIL(tokenIn: string, tokenOut: string, amountInMax: string, amountOut: string) {
+  public async swapTokensForExactZIL(tokenIn: string, tokenOut: string, amountInMaxStr: string, amountOutStr: string) {
     const tokenInHash = this.getHash(tokenIn)
     const tokenOutHash = this.getHash(tokenOut)
 
@@ -1647,10 +1699,14 @@ export class ZilSwapV2 {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // // Update blockHeight
+    // // Localhost
     // await this.updateBlockHeight()
 
-    let amountIn: BigNumber = new BigNumber(amountInMax)
+    const amountInMax = unitlessBigNumber(amountInMaxStr)
+    const amountOut = unitlessBigNumber(amountOutStr)
+    if (amountInMax.isLessThan(0) || amountOut.isLessThan(0)) { throw new Error("Invalid amountInMax or amountOut") }
+
+    let amountIn: BigNumber = amountInMax
     let poolPath: string[] = []
     let tokenPath: TokenPath[] = []
     let pool1AmtIn: BigNumber;
@@ -1663,8 +1719,8 @@ export class ZilSwapV2 {
       pool3AmtIn = await this.getAmountIn(amountOut, pool3, pool3TokenIn)
 
       // First pool has the desired token pair && amountOutTemp > amountOut
-      if (tokenInHash === pool3TokenIn && pool3AmtIn.lt(amountIn)) {
-        console.log("pool3AmtIn", pool3AmtIn.toString())
+      if (tokenInHash === pool3TokenIn && pool3AmtIn.lt(amountIn) && pool3AmtIn.isGreaterThan(0)) {
+        // console.log("pool3AmtIn", pool3AmtIn.toString())
         amountIn = pool3AmtIn
         poolPath = [pool3]
         tokenPath = [{ tokenIn: tokenInHash, tokenOut: tokenOutHash }]
@@ -1678,8 +1734,8 @@ export class ZilSwapV2 {
         pool2AmtIn = await this.getAmountIn(pool3AmtIn, pool2, pool2TokenIn)
 
         // Second pool has the desired token pair && current amountOut > previous amountOut
-        if (tokenInHash === pool2TokenIn && pool2AmtIn.lt(amountIn)) {
-          console.log("pool2AmtIn", pool2AmtIn.toString())
+        if (tokenInHash === pool2TokenIn && pool2AmtIn.lt(amountIn) && pool2AmtIn.isGreaterThan(0)) {
+          // console.log("pool2AmtIn", pool2AmtIn.toString())
           amountIn = pool2AmtIn
           poolPath = [pool2, pool3]
           tokenPath = [
@@ -1698,8 +1754,8 @@ export class ZilSwapV2 {
           if (tokenInHash === pool1TokenIn) {
             pool1AmtIn = await this.getAmountIn(pool2AmtIn, pool1, pool1TokenIn)
 
-            if (pool1AmtIn.lt(amountOut)) {
-              console.log("pool1AmtIn", pool1AmtIn.toString())
+            if (pool1AmtIn.lt(amountOut) && pool1AmtIn.isGreaterThan(0)) {
+              // console.log("pool1AmtIn", pool1AmtIn.toString())
               amountIn = pool1AmtIn
               poolPath = [pool1, pool2, pool3]
               tokenPath = [
@@ -1726,8 +1782,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapTokensForExactZILOnce",
         args: [
-          this.param('amount_out', 'Uint128', `${amountOut}`),
-          this.param('amount_in_max', 'Uint128', `${amountInMax}`),
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
           this.param('pool', 'ByStr20', poolPath[0]),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
@@ -1746,8 +1802,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapTokensForExactZILTwice",
         args: [
-          this.param('amount_out', 'Uint128', `${amountOut}`),
-          this.param('amount_in_max', 'Uint128', `${amountInMax}`),
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('path1', 'Pair ByStr20 ByStr20', {
@@ -1772,8 +1828,8 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapTokensForExactZILThrice",
         args: [
-          this.param('amount_out', 'Uint128', `${amountOut}`),
-          this.param('amount_in_max', 'Uint128', `${amountInMax}`),
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('pool3', 'ByStr20', poolPath[2]),
@@ -1809,7 +1865,7 @@ export class ZilSwapV2 {
       throw new Error('Submitted transaction was rejected.')
     }
 
-    // // Update relevant app states
+    // // Localhost
     // for (var pool of poolPath) {
     //   await this.updateSinglePoolState(pool)
     // }
@@ -1821,14 +1877,17 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    return swapTokensForExactZILTxn
+    // // Localhost
+    // return swapTokensForExactZILTxn
+
+    return observeTxn
   }
 
-  public async increaseAllowance(token: string, amountStrOrBN: BigNumber | string, spender: string): Promise<Transaction | null> {
+  public async approveTokenTransferIfRequired(token: string, amountStrOrBN: BigNumber | string, spender: string) {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    // // Update blockHeight
+    // // Localhost
     // await this.updateBlockHeight()
 
     const tokenHash = this.getHash(token)
@@ -1846,7 +1905,7 @@ export class ZilSwapV2 {
           'IncreaseAllowance',
           [
             this.param('spender', 'ByStr20', spenderHash),
-            this.param('amount', 'Uint128', amount.minus(allowance).toString(10))
+            this.param('amount', 'Uint128', new BigNumber(2).pow(128).minus(1).minus(allowance).toString(10))
           ],
           {
             amount: new BN(0),
@@ -1859,7 +1918,7 @@ export class ZilSwapV2 {
           throw new Error('Submitted transaction was rejected.')
         }
 
-        // // Update relevant app state
+        // // Localhost
         // await this.updateZILBalanceAndNonce()
 
         const observeTxn = {
@@ -1868,7 +1927,10 @@ export class ZilSwapV2 {
         }
         await this.observeTx(observeTxn)
 
-        return approveTxn
+        // // Localhost
+        // return approveTxn
+
+        return observeTxn
       } catch (err) {
         if ((err as any).message === 'Could not get balance') {
           throw new Error('No ZIL to pay for transaction.')
@@ -1944,15 +2006,16 @@ export class ZilSwapV2 {
         return this.errors.length > 0 || this.exceptions.length > 0
       }
     } else {
+      // // Localhost
       // tx = await (contract as any).call(transition, args, params, toDs)
       tx = await contract.callWithoutConfirm(transition, args, params, toDs)
     }
 
     console.log(`Contract call ${transition} id: ${tx.id}`)
 
+    // // Localhost
     // const receipt = tx.getReceipt()
     // console.log(`${transition} receipt`, receipt)
-
     // if (receipt && !receipt.success) {
     //   const errors = receipt.errors
     //   if (errors) {
@@ -2064,7 +2127,13 @@ export class ZilSwapV2 {
     }
   }
 
-  // tokenID: token hash
+  /**
+   * Converts an amount to it's human representation (with decimals based on token contract, or 12 decimals for ZIL)
+   * from it's unitless representation (integer, no decimals).
+   * @param tokenID is the token ID related to the conversion amount, which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param amountStr is the unitless amount as a string (e.g. 42000000000000 for 42 ZILs) to be converted.
+   */
   public toUnit(tokenID: string, amountStr: string): string {
     const tokenDetails = this.getTokenDetails(tokenID)
     const amountBN = new BigNumber(amountStr)
@@ -2072,6 +2141,22 @@ export class ZilSwapV2 {
       throw new Error(`Amount ${amountStr} for ${tokenDetails.symbol} cannot have decimals.`)
     }
     return amountBN.shiftedBy(-tokenDetails.decimals).toString()
+  }
+
+  /**
+   * Converts an amount to it's unitless representation (integer, no decimals) from it's
+   * human representation (with decimals based on token contract, or 12 decimals for ZIL).
+   * @param tokenID is the token ID related to the conversion amount, which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...). The hash for ZIL is represented by the ZIL_HASH constant.
+   * @param amountHuman is the amount as a human string (e.g. 4.2 for 4.2 ZILs) to be converted.
+   */
+  public toUnitless(tokenID: string, amountHuman: string): string {
+    const token = this.getTokenDetails(tokenID)
+    const amountUnitless = new BigNumber(amountHuman).shiftedBy(token.decimals)
+    if (!amountUnitless.integerValue().isEqualTo(amountUnitless)) {
+      throw new Error(`Amount ${amountHuman} for ${token.symbol} has too many decimals, max is ${token.decimals}.`)
+    }
+    return amountUnitless.toString()
   }
 
   // Obtains token details  
@@ -2129,7 +2214,6 @@ export class ZilSwapV2 {
 
   private quote(amountA: string | number | BigNumber, reserveA: string | number | BigNumber, reserveB: string | number | BigNumber): BigNumber {
     return this.frac(amountA, reserveB, reserveA)
-    // return new BigNumber(amountA).multipliedBy(reserveB).dividedToIntegerBy(reserveA)
   }
 
   private getTradeInfo(reserve0: string, reserve1: string, vReserve0: string, vReserve1: string, isNotAmpPool: boolean, isSameOrder: boolean) {
@@ -2321,6 +2405,10 @@ export class ZilSwapV2 {
     const isNotAmpPool = !(ampBps === BASIS.toString())
     const isSameOrder = tokenIn === token0
 
+    // Not possible to get any tokens if reserve === 0
+    if (isSameOrder && reserve1 === '0') { return BigNumber(0) }
+    else if (!isSameOrder && reserve0 === '0') { return BigNumber(0) }
+
     // Calculate feeInPrecision
     const rFactorInPrecision = this.getRFactor(pool)
     const intermediateFee = this.getFee(rFactorInPrecision)
@@ -2335,7 +2423,7 @@ export class ZilSwapV2 {
     return numerator.dividedToIntegerBy(denominator)
   }
 
-  private async getAmountIn(amountOut: string | number | BigNumber, pool: string, tokenIn: string) {
+  public async getAmountIn(amountOut: string | number | BigNumber, pool: string, tokenIn: string) {
     // Update pool state of specified pool
     await this.updateSinglePoolState(pool)
 
@@ -2356,6 +2444,10 @@ export class ZilSwapV2 {
     const isNotAmpPool = !(ampBps === BASIS.toString())
     const isSameOrder = tokenIn === token0
 
+    // Arbitrarily large number; Not possible to get any tokens if reserve === 0
+    if (isSameOrder && reserve1 === '0') { return BigNumber(100000000000000000000000000000000000000) }
+    else if (!isSameOrder && reserve0 === '0') { return BigNumber(100000000000000000000000000000000000000) }
+
     // Calculate feeInPrecision
     const rFactorInPrecision = this.getRFactor(pool)
     const intermediateFee = this.getFee(rFactorInPrecision)
@@ -2374,7 +2466,6 @@ export class ZilSwapV2 {
   /////////////////////// App Helper functions //////////////////
 
   private async updateAppState(): Promise<void> {
-    console.log("reached updateAppState")
     await this.updateRouterState()
     await this.updatePoolStates()
     await this.updateTokens()
@@ -2391,22 +2482,15 @@ export class ZilSwapV2 {
     requests.push({ id: '1', method: 'GetSmartContractSubState', params: [address, 'all_pools', []], jsonrpc: '2.0' })
 
     const result = await sendBatchRequest(this.rpcEndpoint, requests)
-    // console.log("updateRouterState result", result)
-
-    // console.log("Object.values(result)", Object.values(result))
 
     const routerState = Object.values(result).reduce((a, i) => ({ ...a, ...i }), {}) as RouterState
     this.routerState = routerState;
-
-    // Log out to see what is the object type
-    // console.log("this.routerState", this.routerState)
   }
 
   // Updates the state of all pools
   private async updatePoolStates(): Promise<void> {
     if (this.routerState) {
       const allPools = this.routerState.all_pools
-      // console.log("allPools", allPools)
 
       if (allPools.length === 0) { // If there is no pool
         this.poolStates = {}
@@ -2418,18 +2502,14 @@ export class ZilSwapV2 {
       for (let poolHash of allPools) {
         const requests: BatchRequest[] = []
 
-        // console.log("poolHash", poolHash)
         const address = poolHash.replace('0x', '')
-        // console.log("address", address)
 
         requests.push({ id: '1', method: 'GetSmartContractState', params: [address], jsonrpc: '2.0' })
         const result = await sendBatchRequest(this.rpcEndpoint, requests)
-        // console.log("result", result)
         const poolState = Object.values(result).reduce((a, i) => ({ ...a, ...i }), {})
         poolStates[poolHash] = poolState;
       }
       this.poolStates = poolStates
-      // console.log("poolStates", this.poolStates)
     }
   }
 
@@ -2453,7 +2533,6 @@ export class ZilSwapV2 {
           tokenHash.push(token1)
         }
       })
-      // console.log("tokenHash", tokenHash)
 
       // Fetch the token details using the token hash
       const tokens: { [key in string]: TokenDetails } = {} // tokenAddress: tokenDetails
@@ -2474,7 +2553,6 @@ export class ZilSwapV2 {
       await Promise.all(promises)
 
       this.tokens = tokens;
-      // console.log("this.tokens", this.tokens)
     }
     else {
       this.tokens = {}
@@ -2515,7 +2593,6 @@ export class ZilSwapV2 {
   }
 
   private subscribeToAppChanges() {
-    console.log("reached subscribeToAppChanges")
     // clear existing subscription, if any
     this.subscription?.stop()
 
@@ -2531,13 +2608,13 @@ export class ZilSwapV2 {
     })
 
     subscription.emitter.on(MessageType.NEW_BLOCK, event => {
-      console.log('new block: ', JSON.stringify(event, null, 2))
+      // console.log('new block: ', JSON.stringify(event, null, 2))
       this.updateBlockHeight().then(() => this.updateObservedTxs())
     })
 
     subscription.emitter.on(MessageType.EVENT_LOG, event => {
       if (!event.value) return
-      console.log('ws update: ', JSON.stringify(event, null, 2))
+      // console.log('ws update: ', JSON.stringify(event, null, 2))
 
       for (const item of event.value) {
         const byStr20Address = `0x${item.address}`
@@ -2545,16 +2622,17 @@ export class ZilSwapV2 {
         // Update single pool state if event thrown from pool
         if (Object.keys(this.poolStates!).includes(byStr20Address)) {
           this.updateSinglePoolState(byStr20Address)
+            .then(() => { this.updateObservedTxs() })
         }
-        // Update whole app state only when pool is added
+
+        // Update whole app state when routerState changes
         if (byStr20Address === this.contractHash) {
           for (const event of item.event_logs) {
-            if (event._eventname === 'PoolCreated') {
-              this.updateRouterState()
-                .then(() => { this.updatePoolStates() })
-                .then(() => { this.updateTokens() })
-              this.updateTokenPools()
-            }
+            this.updateRouterState()
+              .then(() => { this.updatePoolStates() })
+              .then(() => { this.updateTokens() })
+              .then(() => { this.updateObservedTxs() })
+            this.updateTokenPools()
           }
         }
       }
@@ -2564,8 +2642,6 @@ export class ZilSwapV2 {
       console.log('ws disconnected: ', event)
       this.subscription = null
     })
-
-    console.log("subscription", subscription)
 
     subscription.start()
 
@@ -2621,7 +2697,6 @@ export class ZilSwapV2 {
     if (this.currentUser) {
       try {
         const res: RPCBalanceResponse = (await this.zilliqa.blockchain.getBalance(this.currentUser)).result
-        // console.log(res)
         if (!res) {
           this.currentZILBalance = new BigNumber(0)
           this.currentNonce = 0
@@ -2642,8 +2717,6 @@ export class ZilSwapV2 {
       this.currentZILBalance = null
       this.currentNonce = null
     }
-    // console.log("this.currentZILBalance", this.currentZILBalance)
-    // console.log("this.currentNonce", this.currentNonce)
   }
 
   // Updates the poolState of a single pool
@@ -2666,26 +2739,37 @@ export class ZilSwapV2 {
     if (!this.routerState) {
       throw new Error('App state not loaded, call #initialize first.')
     }
-
     // Check user address
     if (this.currentUser === null) {
       throw new Error('No wallet connected.')
     }
-
     // Check wallet account
     if (this.walletProvider && this.walletProvider.wallet.defaultAccount.base16.toLowerCase() !== this.currentUser) {
       throw new Error('Wallet user has changed, please reconnect.')
     }
-
     // Check network is correct
     if (this.walletProvider && this.walletProvider.wallet.net.toLowerCase() !== this.network.toLowerCase()) {
       throw new Error('Wallet is connected to wrong network.')
     }
   }
 
-  public getAppState() {
-    const appState = { routerState: this.routerState, poolState: this.poolStates, tokenPools: this.tokenPools }
-    return appState
+  /**
+   * Stops watching the Zilswap contract state.
+   */
+  public async teardown() {
+    this.subscription?.stop()
+
+    const stopped = new Promise<void>(resolve => {
+      const checkSubscription = () => {
+        if (this.subscription) {
+          setTimeout(checkSubscription, 100)
+        } else {
+          resolve()
+        }
+      }
+      checkSubscription()
+    })
+    await stopped
   }
 
   public txParams(): TxParams & { nonce: number } {
@@ -2696,6 +2780,7 @@ export class ZilSwapV2 {
   }
 
   private nonce(): number {
+    // // Localhost
     // return this.currentNonce! + 1
     return this.currentNonce! + this.observedTxs.length + 1
   }
@@ -2725,11 +2810,6 @@ export class ZilSwapV2 {
   }
 
   private async updateBlockHeight(): Promise<void> {
-    // // change back when converting to mainnet
-    // const response = await this.zilliqa.blockchain.getNumTxBlocks()
-    // const bNum = parseInt(response.result!, 10)
-    // this.currentBlock = bNum
-
     const response = await this.zilliqa.blockchain.getLatestTxBlock()
     const bNum = parseInt(response.result!.header.BlockNum, 10)
     this.currentBlock = bNum
@@ -2747,10 +2827,26 @@ export class ZilSwapV2 {
     const release = await this.observerMutex.acquire()
     try {
       this.observedTxs.push(observedTx)
-      console.log("observedTxs length", this.observedTxs.length)
     } finally {
       release()
     }
+  }
+
+  /**
+   * Gets the currently observed transactions.
+   */
+  public async getObservedTxs(): Promise<ObservedTx[]> {
+    const release = await this.observerMutex.acquire()
+    try {
+      return [...this.observedTxs]
+    } finally {
+      release()
+    }
+  }
+
+  public getAppState() {
+    const appState = { routerState: this.routerState, poolState: this.poolStates, tokenPools: this.tokenPools }
+    return appState
   }
 
   public getRouterState(): RouterState | undefined {
