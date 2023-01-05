@@ -6,7 +6,7 @@ Install from npm:
 
 `npm install zilswap-sdk`
 
-## ZILSWAPV1 SDK Usage
+## ZilSwap-V1 SDK Usage
 
 Initialize the sdk based on the required network, then call the required methods which will automatically map and call the corresponding smart contract correct transitions.
 
@@ -58,7 +58,7 @@ The following is a list of methods to quickly get you started:
 - `getRatesForInput` - get the current exchange rates for a pool by giving an input amount.
 - `getRatesForOutput` - get the current exchange rates for a pool by giving an output amount.
 
-## ZILSWAPV2 SDK Usage
+## ZilSwap-V2 SDK Usage
 
 Initialize the sdk based on the required network, then call the required methods which will automatically map and call the corresponding smart contract correct transitions.
 
