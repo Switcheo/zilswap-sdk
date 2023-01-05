@@ -52,7 +52,7 @@ const test = async () => {
   const owner = getAddressFromPrivateKey(privateKey).toLowerCase()
 
   const routerAddress = toBech32Address(routerHash)
-  zilswap = new ZilSwapV2(network, privateKey, routerAddress)
+  zilswap = new ZilSwapV2(network, privateKey)
   await zilswap.initialize(printResults)
   zilswap.setDeadlineBlocks(10)
   console.log('\ninitial app state:\n')

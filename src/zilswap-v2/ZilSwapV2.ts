@@ -12,7 +12,7 @@ import 'isomorphic-fetch'
 import { BatchRequest, sendBatchRequest } from '../batch'
 import { APIS, BASIS, CHAIN_VERSIONS, Network, WSS, ZILSWAPV2_CONTRACTS, ZIL_HASH } from '../constants'
 import { isLocalStorageAvailable, toPositiveQa, unitlessBigNumber } from '../utils'
-import { compile, getContractCodeHash, LONG_ALPHA, PRECISION, SHORT_ALPHA } from './utils'
+import { compile, LONG_ALPHA, PRECISION, SHORT_ALPHA } from './utils'
 export * as Zilo from '../zilo'
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
@@ -50,7 +50,6 @@ export type TokenPath = {
   tokenOut: string
 }
 
-// Tokens on the Pool contract
 export type TokenDetails = {
   contract: Contract // instance
   address: string
@@ -60,7 +59,7 @@ export type TokenDetails = {
   decimals: number
 }
 
-// V2 Pool contract
+/* V2 Pool contract */
 export type PoolState = {
   factory: string
   token0: string
@@ -85,7 +84,7 @@ export type PoolState = {
   allowances: { [key in string]?: { [key2 in string]?: string } }
 }
 
-// V2 Router contract
+/* V2 Router contract */
 export type RouterState = {
   all_pools: string[]
 }
@@ -104,29 +103,13 @@ export class ZilSwapV2 {
   /* Internals */
   private readonly rpcEndpoint: string
   private readonly walletProvider?: WalletProvider // zilpay
-
-  // router contract state: Updates when there are new pools
-  private routerState?: RouterState
-
-  // pool state: Updates when there are new pools/ changes in the state of the pool
-  // If no pools, poolStates = {}
-  private poolStates?: { [key in string]?: PoolState } // poolHash : poolState
-
-  // Mapping of tokens in pools & LP tokens to TokenDetails
-  // If no pools, tokens = {}
-  private tokens?: { [key in string]?: TokenDetails } // tokenHash : tokenDetails
-
-  // Mapping of tokens to the pools holding the token
-  private tokenPools?: { [key in string]?: string[] }
-
+  private routerState?: RouterState // router contract state
+  private poolStates?: { [key in string]?: PoolState } // poolHash => poolState mapping 
+  private tokens?: { [key in string]?: TokenDetails } // pool tokens & LP tokens => TokenDetails mapping
+  private tokenPools?: { [key in string]?: string[] } // pool tokens => pools mapping
   private currentUser: string | null
-
-  // If currentUser == null, currentNonce == null
   private currentNonce?: number | null
-
-  // User's zil balance
-  // If currentUser == null, currentZILBalance == null
-  private currentZILBalance?: BigNumber | null
+  private currentZILBalance?: BigNumber | null // User'z zil balance
 
   /* Txn observers */
   private subscription: NewEventSubscription | null = null
@@ -138,10 +121,10 @@ export class ZilSwapV2 {
   private deadlineBuffer: number = 3
   private currentBlock: number = -1
 
-  /* Zilswap-V2 Router contract attributes */
+  /* ZilswapV2 Router contract attributes */
   readonly contract: Contract
-  readonly contractAddress: string //contract address in bech32
-  readonly contractHash: string //contract address in hex
+  readonly contractAddress: string // router address in bech32
+  readonly contractHash: string // router address in hex
 
   /* Transaction attributes */
   readonly _txParams: TxParams = {
@@ -151,17 +134,14 @@ export class ZilSwapV2 {
   }
 
   /**
-   * Creates the Zilswap-V2 SDK object. {@linkcode initalize} needs to be called after
+   * Creates the ZilswapV2 SDK object. {@linkcode initalize} needs to be called after
    * the object is created to begin watching the blockchain's state.
    *
    * @param network the Network to use, either `TestNet` or `MainNet`.
    * @param walletProviderOrKey a Provider with Wallet or private key string to be used for signing txns.
    * @param options a set of Options that will be used for all txns.
    */
-  // remember to remove the contractAddress in constructor params
-  constructor(readonly network: Network, walletProviderOrKey?: WalletProvider | string, contractAddress: string | null = null, options?: Options) {
-
-    // Initialize Internals
+  constructor(readonly network: Network, walletProviderOrKey?: WalletProvider | string, options?: Options) {
     this.rpcEndpoint = options?.rpcEndpoint || APIS[network]
     if (typeof walletProviderOrKey === 'string') {
       this.zilliqa = new Zilliqa(this.rpcEndpoint)
@@ -174,7 +154,7 @@ export class ZilSwapV2 {
     }
 
     // Initialize router contract attributes
-    this.contractAddress = contractAddress || ZILSWAPV2_CONTRACTS[network]
+    this.contractAddress = ZILSWAPV2_CONTRACTS[network]
     this.contract = (this.walletProvider || this.zilliqa).contracts.at(this.contractAddress)
     this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
 
@@ -183,8 +163,6 @@ export class ZilSwapV2 {
       ? // ugly hack for zilpay provider
       this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
       : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
-
-    // Initialize txParams
     this._txParams.version = CHAIN_VERSIONS[network]
 
     if (options) {
@@ -197,7 +175,7 @@ export class ZilSwapV2 {
   }
 
   /**
-   * Intializes the SDK, fetching a cache of the Zilswap contract state and
+   * Intializes the SDK, fetching a cache of the ZilswapV2 contract state and
    * subscribing to subsequent state changes. You may optionally pass an array
    * of ObservedTx's to subscribe to status changes on any of those txs.
    *
@@ -207,9 +185,6 @@ export class ZilSwapV2 {
   public async initialize(subscription?: OnUpdate, observeTxs: ObservedTx[] = []) {
     this.observedTxs = observeTxs
     if (subscription) this.observer = subscription
-
-    // Update the txParams using chain information
-    // Note: javascript constructors cannot contain async tasks
     if (this._txParams.gasPrice.isZero()) {
       const minGasPrice = await this.zilliqa.blockchain.getMinimumGasPrice()
       if (!minGasPrice.result) throw new Error('Failed to get min gas price.')
@@ -219,13 +194,26 @@ export class ZilSwapV2 {
     await this.updateAppState()
   }
 
-  /////////////////////// Contract Transition functions //////////////////
-  public async deployAndAddPool(token0: string, token1: string, init_amp_bps: string) {
+  /**
+   * Deploys new pool contract and add to router by calling the `AddPool` transition on the router.
+   * The new pool contract deployed will consist of token0 and token1, given by token0ID and token1ID.
+   * 
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   *
+   * @param token0ID is the hash (0x...) or bech32 address (zil...) of the token 
+   * which matches the init_token0 of the pool.
+   * @param token1ID is the hash (0x...) or bech32 address (zil...) of the token 
+   * which matches the init_token1 of the pool.
+   * @param initAmpBps is amplification factor of the pool given in given in 
+   * {@link https://www.investopedia.com/terms/b/basispoint.asp basis points}.
+   * 10000 basis points = 100%
+   */
+  public async deployAndAddPool(token0ID: string, token1ID: string, initAmpBps: string): Promise<(Contract | ObservedTx)[]> {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    let token0Hash = this.getHash(token0)
-    let token1Hash = this.getHash(token1)
+    let token0Hash = this.getHash(token0ID)
+    let token1Hash = this.getHash(token1ID)
 
     if (parseInt(token0Hash, 16) > parseInt(token1Hash, 16)) [token0Hash, token1Hash] = [token1Hash, token0Hash]
 
@@ -239,22 +227,21 @@ export class ZilSwapV2 {
     const name = `ZilSwap V2 ${pair} LP Token`
     const symbol = `ZWAPv2LP.${pair}`
 
-    // Load file and contract initialization variables
     const file = `./src/zilswap-v2/contracts/ZilSwapPool.scilla`
     const init = [
       this.param('_scilla_version', 'Uint32', '0'),
-      this.param('init_token0', 'ByStr20', `${token0Hash}`),
-      this.param('init_token1', 'ByStr20', `${token1Hash}`),
+      this.param('init_token0', 'ByStr20', token0Hash),
+      this.param('init_token1', 'ByStr20', token1Hash),
       this.param('init_factory', 'ByStr20', this.contractHash),
-      this.param('init_amp_bps', 'Uint128', `${init_amp_bps}`),
+      this.param('init_amp_bps', 'Uint128', initAmpBps),
       this.param('contract_owner', 'ByStr20', this.contractHash),
-      this.param('name', 'String', `${name}`),
-      this.param('symbol', 'String', `${symbol}`),
+      this.param('name', 'String', name),
+      this.param('symbol', 'String', symbol),
       this.param('decimals', 'Uint32', '12'),
       this.param('init_supply', 'Uint128', '0'),
     ];
 
-    // Call deployContract
+    // Deploy pool
     const pool = await this.deployContract(file, init)
 
     // // Localhost
@@ -266,12 +253,24 @@ export class ZilSwapV2 {
     return [pool, tx]
   }
 
-  public async deployPool(token0: string, token1: string, init_amp_bps: string) {
+  /**
+   * Deploys new pool contract only, without adding to the router.
+   * The new pool contract deployed will consist of token0 and token1, given by token0ID and token1ID.
+   * 
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   *
+   * @param token0ID is the hash (0x...) or bech32 address (zil...) of the token which matches the init_token0 of the pool.
+   * @param token1ID is the hash (0x...) or bech32 address (zil...) of the token which matches the init_token1 of the pool.
+   * @param initAmpBps is amplification factor of the pool given in given in 
+   * {@link https://www.investopedia.com/terms/b/basispoint.asp basis points}.
+   * 10000 = 100%
+   */
+  public async deployPool(token0ID: string, token1ID: string, initAmpBps: string): Promise<Contract> {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    let token0Hash = this.getHash(token0)
-    let token1Hash = this.getHash(token1)
+    let token0Hash = this.getHash(token0ID)
+    let token1Hash = this.getHash(token1ID)
 
     if (parseInt(token0Hash, 16) > parseInt(token1Hash, 16)) [token0Hash, token1Hash] = [token1Hash, token0Hash]
 
@@ -285,17 +284,16 @@ export class ZilSwapV2 {
     const name = `ZilSwap V2 ${pair} LP Token`
     const symbol = `ZWAPv2LP.${pair}`
 
-    // Load file and contract initialization variables
     const file = `./src/zilswap-v2/contracts/ZilSwapPool.scilla`
     const init = [
       this.param('_scilla_version', 'Uint32', '0'),
-      this.param('init_token0', 'ByStr20', `${token0Hash}`),
-      this.param('init_token1', 'ByStr20', `${token1Hash}`),
+      this.param('init_token0', 'ByStr20', token0Hash),
+      this.param('init_token1', 'ByStr20', token1Hash),
       this.param('init_factory', 'ByStr20', this.contractHash),
-      this.param('init_amp_bps', 'Uint128', `${init_amp_bps}`),
+      this.param('init_amp_bps', 'Uint128', initAmpBps),
       this.param('contract_owner', 'ByStr20', this.contractHash),
-      this.param('name', 'String', `${name}`),
-      this.param('symbol', 'String', `${symbol}`),
+      this.param('name', 'String', name),
+      this.param('symbol', 'String', symbol),
       this.param('decimals', 'Uint32', '12'),
       this.param('init_supply', 'Uint128', '0'),
     ];
@@ -309,7 +307,14 @@ export class ZilSwapV2 {
     return pool
   }
 
-  public async addPool(pool: string) {
+  /**
+   * Adds a deployed pool contract to the router by calling the `AddPool` transition.
+   * 
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   *
+   * @param pool is the hash (0x...) or bech32 address (zil...) of the pool to be added to the router.
+   */
+  public async addPool(pool: string): Promise<ObservedTx> {
     // Check logged in
     this.checkAppLoadedWithUser()
 
@@ -348,10 +353,43 @@ export class ZilSwapV2 {
     return observeTxn
   }
 
-  // reserve_ratio_allowance: in percentage
-  // Eg If 5%: input 5
-  public async addLiquidity(tokenA: string, tokenB: string, pool: string, amountADesiredStr: string, amountBDesiredStr: string, amountAMinStr: string, amountBMinStr: string, reserve_ratio_allowance: number) {
-    if (tokenA === tokenB) {
+  /**
+   * Adds liquidity to the pool by transferring a ZRC-2 token-pair given by tokenAID and tokenBID.
+   * The pool must consist of the tokenA and tokenB.
+   * 
+   * Note that pools can only contain ZRC-2 tokens.
+   * 
+   * The desired amount of tokenA and tokenB added to the pool is given by `amountADesiredStr` and `amountBDesiredStr`.
+   * The minimum amount of tokenA and tokenB to add to the pool is given by `amountAMinStr` and `amountBMinStr`.
+   * 
+   * If the pool has no liquidity yet, the token amount added will be based on `amountADesiredStr` and `amountBDesiredStr`.
+   * Else, the amount of tokens to be added will be calculated and transferred to the pool. The amount of tokenA and tokenB
+   * to be added to the pool must be larger or equal to `amountAMinStr` and `amountBMinStr`.
+   * 
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param tokenAID is the hash (0x...) or bech32 address (zil...) of the token added to the pool.
+   * @param tokenBID is the hash (0x...) or bech32 address (zil...) of the other token added to the pool.
+   * @param poolID is the hash (0x...) or bech32 address (zil...) of the pool to add liquidity to.
+   * @param amountADesiredStr is the target amount of tokenA to contribute to the pool as a unitless string (integer, no decimals).
+   * @param amountBDesiredStr is the target amount of tokenB to contribute to the pool as a unitless string (integer, no decimals).
+   * @param amountAMinStr is the minimum amount of tokenA to contribute to the pool as a unitless string (integer, no decimals).
+   * @param amountBMinStr is the minimum amount of tokenB to contribute to the pool as a unitless string (integer, no decimals).
+   * @param reserve_ratio_allowance is the allowed pool token reserve ratio in percentage. Eg 5 = 5%.
+   */
+  public async addLiquidity(
+    tokenAID: string,
+    tokenBID: string,
+    poolID: string,
+    amountADesiredStr: string,
+    amountBDesiredStr: string,
+    amountAMinStr: string,
+    amountBMinStr: string,
+    reserve_ratio_allowance: number
+  ): Promise<ObservedTx> {
+    if (tokenAID === tokenBID) {
       throw new Error("Invalid Token Pair")
     }
 
@@ -361,9 +399,9 @@ export class ZilSwapV2 {
     // // Localhost
     // await this.updateBlockHeight()
 
-    const tokenAHash = this.getHash(tokenA)
-    const tokenBHash = this.getHash(tokenB)
-    const poolHash = this.getHash(pool)
+    const tokenAHash = this.getHash(tokenAID)
+    const tokenBHash = this.getHash(tokenBID)
+    const poolHash = this.getHash(poolID)
 
     // Get the most updated pool state
     await this.updateSinglePoolState(poolHash)
@@ -464,17 +502,50 @@ export class ZilSwapV2 {
     return observeTxn
   }
 
-  // reserve_ratio_allowance: in percentage
-  // Eg If 5%: input 5
-  public async addLiquidityZIL(token: string, pool: string, amountTokenDesiredStr: string, amountwZILDesiredStr: string, amountTokenMinStr: string, amountWZILMinStr: string, reserve_ratio_allowance: number) {
+  /**
+   * Adds liquidity to the pool. One of the token added is wZIL, while the other is a specified ZRC-2 token.
+   * The pool must consist of the token and wZIL.
+   * 
+   * Note that pools can only contain ZRC-2 tokens. Hence, pools can only contain wZIL, and not ZIL. However, users are still able to add 
+   * liquidity using ZIL. The user will transfer ZIL to the router. The router accepts user's ZIL and wraps it to wZIL before transferring 
+   * to the pool as wZIL.
+   * 
+   * The desired amount of token and wZIL added to the pool is given by `amountTokenDesiredStr` and `amountwZILDesiredStr`.
+   * The minimum amount of token and wZIL to add to the pool is given by `amountTokenMinStr` and `amountWZILMinStr`.
+   * 
+   * If the pool has no liquidity yet, the token amount added will be based on `amountTokenDesiredStr` and `amountwZILDesiredStr`.
+   * Else, the amount of tokens to be added will be calculated and transferred to the pool. The amount of token and wZIL
+   * to be added to the pool must be larger or equal to `amountAMinStr` and `amountBMinStr`.
+   * 
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param tokenID is the hash (0x...) or bech32 address (zil...) of the token added to the pool.
+   * @param poolID is the hash (0x...) or bech32 address (zil...) of the pool to add liquidity to.
+   * @param amountTokenDesiredStr is the target amount of token to contribute to the pool as a unitless string (integer, no decimals).
+   * @param amountwZILDesiredStr is the target amount of wZIL to contribute to the pool as a unitless string (integer, no decimals).
+   * @param amountTokenMinStr is the minimum amount of token to contribute to the pool as a unitless string (integer, no decimals).
+   * @param amountWZILMinStr is the minimum amount of wZIL to contribute to the pool as a unitless string (integer, no decimals).
+   * @param reserve_ratio_allowance is the allowed pool token reserve ratio in percentage. Eg 5 = 5%.
+   */
+  public async addLiquidityZIL(
+    tokenID: string,
+    poolID: string,
+    amountTokenDesiredStr: string,
+    amountwZILDesiredStr: string,
+    amountTokenMinStr: string,
+    amountWZILMinStr: string,
+    reserve_ratio_allowance: number
+  ): Promise<ObservedTx> {
     // Check logged in
     this.checkAppLoadedWithUser()
 
     // // Localhost
     // await this.updateBlockHeight()
 
-    const tokenHash = this.getHash(token)
-    const poolHash = this.getHash(pool)
+    const tokenHash = this.getHash(tokenID)
+    const poolHash = this.getHash(poolID)
 
     await this.updateSinglePoolState(poolHash)
 
@@ -571,14 +642,40 @@ export class ZilSwapV2 {
     return observeTxn
   }
 
-  public async removeLiquidity(tokenA: string, tokenB: string, pool: string, liquidityStr: string, amountAMinStr: string, amountBMinStr: string) {
-    if (tokenA === tokenB) {
+  /**
+   * Remove liquidity from the pool. 
+   * Users will transfer their LP tokens to the pool. Pool burns LP tokens and transfers the ZRC-2 token pair 
+   * (given by `tokenAID` and `tokenBID`) back to the user.
+   * 
+   * The minimum amount of tokenA and tokenB to be received is given by `amountAMinStr` and `amountBMinStr` respectively.
+   * The amount of ZRC-2 tokens received is calculated based on the pool reserves.
+   * 
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param tokenAID is the hash (0x...) or bech32 address (zil...) of the tokenA added to the pool.
+   * @param tokenBID is the hash (0x...) or bech32 address (zil...) of the tokenB added to the pool.
+   * @param poolID is the hash (0x...) or bech32 address (zil...) of the pool to remove liquidity from.
+   * @param liquidityStr is the target amount of LP tokens to send back to the pool to burn, as a unitless string (integer, no decimals).
+   * @param amountAMinStr is the minimum amount of tokenA to receive from the pool as a unitless string (integer, no decimals).
+   * @param amountBMinStr is the minimum amount of tokenB to receive from the pool as a unitless string (integer, no decimals).
+   */
+  public async removeLiquidity(
+    tokenAID: string,
+    tokenBID: string,
+    poolID: string,
+    liquidityStr: string,
+    amountAMinStr: string,
+    amountBMinStr: string
+  ): Promise<ObservedTx> {
+    if (tokenAID === tokenBID) {
       throw new Error("Invalid Token Pair")
     }
 
-    const tokenAHash = this.getHash(tokenA)
-    const tokenBHash = this.getHash(tokenB)
-    const poolHash = this.getHash(pool)
+    const tokenAHash = this.getHash(tokenAID)
+    const tokenBHash = this.getHash(tokenBID)
+    const poolHash = this.getHash(poolID)
     const liquidity = unitlessBigNumber(liquidityStr)
     const amountAMin = unitlessBigNumber(amountAMinStr)
     const amountBMin = unitlessBigNumber(amountBMinStr)
@@ -637,9 +734,32 @@ export class ZilSwapV2 {
     return observeTxn
   }
 
-  public async removeLiquidityZIL(token: string, pool: string, liquidityStr: string, amountTokenMinStr: string, amountWZILMinStr: string) {
-    const tokenHash = this.getHash(token)
-    const poolHash = this.getHash(pool)
+  /**
+   * Remove liquidity from the pool. 
+   * User transfers LP tokens to the pool. Pool burns LP tokens and transfers the tokens back to the user. User receives ZIL as one of the tokens.
+   *
+   * The minimum amount of token and ZIL to be received is given by `amountTokenMinStr` and `amountWZILMinStr` respectively.
+   * The amount of tokens received is calculated based on the pool reserves.
+   * 
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   * 
+   * @param tokenID is the hash (0x...) or bech32 address (zil...) of the token added to the pool.
+   * @param poolID is the hash (0x...) or bech32 address (zil...) of the pool to remove liquidity from.
+   * @param liquidityStr is the target amount of LP tokens to send back to the pool to burn, as a unitless string (integer, no decimals).
+   * @param amountTokenMinStr is the minimum amount of token to receive from the pool as a unitless string (integer, no decimals).
+   * @param amountWZILMinStr is the minimum amount of wZIL to receive from the pool as a unitless string (integer, no decimals).
+   */
+  public async removeLiquidityZIL(
+    tokenID: string,
+    poolID: string,
+    liquidityStr: string,
+    amountTokenMinStr: string,
+    amountWZILMinStr: string
+  ): Promise<ObservedTx> {
+    const tokenHash = this.getHash(tokenID)
+    const poolHash = this.getHash(poolID)
 
     const poolState = this.poolStates![poolHash]
     if (!poolState) {
@@ -698,9 +818,30 @@ export class ZilSwapV2 {
     return observeTxn
   }
 
-  public async swapExactTokensForTokens(tokenIn: string, tokenOut: string, amountInStr: string, amountOutMinStr: string) {
-    const tokenInHash = this.getHash(tokenIn)
-    const tokenOutHash = this.getHash(tokenOut)
+  /**
+   * Swaps ZRC-2 token with `tokenInID` for a corresponding ZRC-2 token with `tokenOutID`.
+   *
+   * The exact amount of ZRC-2 to be sent in (sold) is `amountInStr`. The SDK determines the path that returns the most token output
+   * and calls the corresponding transition `SwapExactTokensForTokensOnce`, `SwapExactTokensForTokensTwice`, `SwapExactTokensForTokensThrice` on 
+   * on the router.The amount received is determined by the contract. A maximum of swaps over 3 pools are allowed
+   * 
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param tokenInID is the token ID to be sent to the pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInStr is the exact amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutMinStr is the minimum amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   */
+  public async swapExactTokensForTokens(
+    tokenInID: string,
+    tokenOutID: string,
+    amountInStr: string,
+    amountOutMinStr: string
+  ): Promise<ObservedTx> {
+    const tokenInHash = this.getHash(tokenInID)
+    const tokenOutHash = this.getHash(tokenOutID)
 
     if (!(this.tokens![tokenInHash] && this.tokens![tokenOutHash])) {
       throw new Error("Token Pair does not exist")
@@ -896,9 +1037,31 @@ export class ZilSwapV2 {
     return observeTxn
   }
 
-  public async swapTokensForExactTokens(tokenIn: string, tokenOut: string, amountInMaxStr: string, amountOutStr: string) {
-    const tokenInHash = this.getHash(tokenIn)
-    const tokenOutHash = this.getHash(tokenOut)
+
+  /**
+   * Swaps ZRC-2 token with `tokenInID` for a corresponding ZRC-2 token with `tokenOutID`.
+   *
+   * The exact amount of ZRC-2 to be received (bought) is `amountOutStr`. The SDK determines the path that returns the most token output
+   * and calls the corresponding transition `SwapTokensForExactTokensOnce`, `SwapTokensForExactTokensTwice`, `SwapTokensForExactTokensThrice` on 
+   * on the router.The amount sold is determined by the contract. A maximum of swaps over 3 pools are allowed
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInMaxStr is the maximum amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutStr is the exact amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   */
+  public async swapTokensForExactTokens(
+    tokenInID: string,
+    tokenOutID: string,
+    amountInMaxStr: string,
+    amountOutStr: string
+  ): Promise<ObservedTx> {
+    const tokenInHash = this.getHash(tokenInID)
+    const tokenOutHash = this.getHash(tokenOutID)
 
     if (!(this.tokens![tokenInHash] && this.tokens![tokenOutHash])) {
       throw new Error("Token Pair does not exist")
@@ -1094,10 +1257,32 @@ export class ZilSwapV2 {
     return observeTxn
   }
 
-  // tokenIn: wZIL address
-  public async swapExactZILForTokens(tokenIn: string, tokenOut: string, amountInStr: string, amountOutMinStr: string) {
-    const tokenInHash = this.getHash(tokenIn)
-    const tokenOutHash = this.getHash(tokenOut)
+  /**
+   * Swaps ZIL for a corresponding ZRC-2 token with `tokenOutID`.
+   *
+   * The exact amount of ZIL to be sent in (sold) is `amountInStr`. The SDK determines the path that returns the most token output
+   * and calls the corresponding transition `SwapExactZILForTokensOnce`, `SwapExactZILForTokensTwice`, `SwapExactZILForTokensThrice` on 
+   * on the router.The amount received is determined by the contract. A maximum of swaps over 3 pools are allowed
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that tokenInID should be that of wZIL.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param tokenInID is the wZIL ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInStr is the exact amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutMinStr is the minimum amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   */
+  public async swapExactZILForTokens(
+    tokenInID: string,
+    tokenOutID: string,
+    amountInStr: string,
+    amountOutMinStr: string
+  ): Promise<ObservedTx> {
+    const tokenInHash = this.getHash(tokenInID)
+    const tokenOutHash = this.getHash(tokenOutID)
 
     if (!(this.tokens![tokenInHash] && this.tokens![tokenOutHash])) {
       throw new Error("Token Pair does not exist")
@@ -1290,10 +1475,27 @@ export class ZilSwapV2 {
     return observeTxn
   }
 
-  // tokenIn: wZIL address
-  public async swapZILForExactTokens(tokenIn: string, tokenOut: string, amountInMaxStr: string, amountOutStr: string) {
-    const tokenInHash = this.getHash(tokenIn)
-    const tokenOutHash = this.getHash(tokenOut)
+  /**
+   * Swaps ZIL for a corresponding ZRC-2 token with `tokenOutID`.
+   *
+   * The exact amount of ZRC-2 to be received (bought) is `amountOutStr`. The SDK determines the path that returns the most token output
+   * and calls the corresponding transition `SwapZILForExactTokensOnce`, `SwapZILForExactTokensTwice`, `SwapZILForExactTokensThrice` on 
+   * on the router.The amount sold is determined by the contract. A maximum of swaps over 3 pools are allowed
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that tokenInID should be that of wZIL.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param tokenInID is the wZIL ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInMaxStr is the maximum amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutStr is the exact amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   */
+  public async swapZILForExactTokens(tokenInID: string, tokenOutID: string, amountInMaxStr: string, amountOutStr: string) {
+    const tokenInHash = this.getHash(tokenInID)
+    const tokenOutHash = this.getHash(tokenOutID)
 
     if (!(this.tokens![tokenInHash] && this.tokens![tokenOutHash])) {
       throw new Error("Token Pair does not exist")
@@ -1485,7 +1687,24 @@ export class ZilSwapV2 {
     return observeTxn
   }
 
-  // tokenOut: wZIL address
+  /**
+   * Swaps ZRC-2 token with `tokenInID` for a corresponding ZIL.
+   *
+   * The exact amount of ZIL to be sent in (sold) is `amountInStr`. The SDK determines the path that returns the most token output
+   * and calls the corresponding transition `SwapExactTokensForZILOnce`, `SwapExactTokensForZILTwice`, `SwapExactTokensForZILThrice` on 
+   * on the router.The amount received is determined by the contract. A maximum of swaps over 3 pools are allowed
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that tokenOutID should be that of wZIL.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param tokenOutID is the wZIL ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInStr is the exact amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutMinStr is the minimum amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   */
   public async swapExactTokensForZIL(tokenIn: string, tokenOut: string, amountInStr: string, amountOutMinStr: string) {
     const tokenInHash = this.getHash(tokenIn)
     const tokenOutHash = this.getHash(tokenOut)
@@ -1685,6 +1904,24 @@ export class ZilSwapV2 {
   }
 
   // tokenOut: wZIL address
+  /**
+   * Swaps ZRC-2 token with `tokenInID` for a corresponding ZIL.
+   *
+   * The exact amount of ZRC-2 to be received (bought) is `amountOutStr`. The SDK determines the path that returns the most token output
+   * and calls the corresponding transition `SwapTokensForExactZILOnce`, `SwapTokensForExactZILTwice`, `SwapTokensForExactZILThrice` on 
+   * on the router.The amount sold is determined by the contract. A maximum of swaps over 3 pools are allowed
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that tokenOutID should be that of wZIL.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param tokenOutID is the wZIL ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInMaxStr is the maximum amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutStr is the exact amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   */
   public async swapTokensForExactZIL(tokenIn: string, tokenOut: string, amountInMaxStr: string, amountOutStr: string) {
     const tokenInHash = this.getHash(tokenIn)
     const tokenOutHash = this.getHash(tokenOut)
@@ -1883,14 +2120,37 @@ export class ZilSwapV2 {
     return observeTxn
   }
 
-  public async approveTokenTransferIfRequired(token: string, amountStrOrBN: BigNumber | string, spender: string) {
+  /**
+   * Approves allowing the Zilswap-V2 Router contract to transfer ZRC-2 token with `tokenID`, if the current
+   * approved allowance is less than `amount`. If the allowance is sufficient, this method is a no-op.
+   *
+   * The approval is done by calling `IncreaseAllowance` with the allowance amount as the entire
+   * token supply. This is done so that the approval needs to only be done once per token contract,
+   * reducing the number of approval transactions required for users conducting multiple swaps.
+   *
+   * Non-custodial control of the token is ensured by the Zilswap-V2 Router contract itself, which does not
+   * allow for the transfer of tokens unless explicitly invoked by the sender.
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on
+   * a confirmation or rejection event. The transation will be assumed to be expired after the default
+   * deadline buffer, even though there is no deadline block for this transaction.
+   *
+   * @param tokenID is the token ID for the pool, which can be given by either it's symbol (defined in constants.ts),
+   * hash (0x...) or bech32 address (zil...).
+   * @param amountStrOrBN is the required allowance amount the Zilswap contract requires, below which the
+   * `IncreaseAllowance` transition is invoked, as a unitless string or BigNumber.
+   * @param spenderHash (optional) is the spender contract address, defaults to the ZilSwap contract address.
+   *
+   * @returns an ObservedTx if IncreaseAllowance was called, null if not.
+   */
+  public async approveTokenTransferIfRequired(tokenID: string, amountStrOrBN: BigNumber | string, spender: string) {
     // Check logged in
     this.checkAppLoadedWithUser()
 
     // // Localhost
     // await this.updateBlockHeight()
 
-    const tokenHash = this.getHash(token)
+    const tokenHash = this.getHash(tokenID)
     const spenderHash = this.getHash(spender)
 
     const tokenContract = this.getContract(tokenHash)
@@ -1943,9 +2203,6 @@ export class ZilSwapV2 {
     return null
   }
 
-  /////////////////////// Blockchain Helper functions //////////////////
-
-  // Deploy new contract
   private async deployContract(file: string, init: Value[]) {
     console.log("Deploying ZilSwapV2Pool...")
     console.log(init)
@@ -2032,7 +2289,6 @@ export class ZilSwapV2 {
     return tx
   }
 
-  // Check Allowance
   private async checkAllowance(tokenHash: string, amount: string | BigNumber) {
     // Check init
     this.checkAppLoadedWithUser()
@@ -2057,7 +2313,6 @@ export class ZilSwapV2 {
     }
   }
 
-  // Check Balance
   private async checkBalance(tokenHash: string, amount: string | BigNumber) {
     // Check init
     this.checkAppLoadedWithUser()
@@ -2094,39 +2349,6 @@ export class ZilSwapV2 {
     return (this.walletProvider || this.zilliqa).contracts.at(address)
   }
 
-  public async fetchContractInit(contract: Contract): Promise<any> {
-    // try to use cache first
-    const lsCacheKey = `contractInit:${contract.address!}`
-    if (isLocalStorageAvailable()) {
-      const result = localStorage.getItem(lsCacheKey)
-      if (result && result !== '') {
-        try {
-          return JSON.parse(result)
-        } catch (e) {
-          console.error(e)
-        }
-      }
-    }
-    // motivation: workaround api.zilliqa.com intermittent connection issues.
-    try {
-      // some wallet providers throw an uncaught error when address is non-contract
-      const init = await new Zilliqa(this.rpcEndpoint).contracts.at(contract.address!).getInit()
-      if (init === undefined) throw new Error(`Could not retrieve contract init params ${contract.address}`)
-
-      if (isLocalStorageAvailable()) {
-        localStorage.setItem(lsCacheKey, JSON.stringify(init))
-      }
-      return init
-    } catch (err) {
-      if ((err as any).message === 'Network request failed') {
-        // make another fetch attempt after 800ms
-        return this.fetchContractInit(contract)
-      } else {
-        throw err
-      }
-    }
-  }
-
   /**
    * Converts an amount to it's human representation (with decimals based on token contract, or 12 decimals for ZIL)
    * from it's unitless representation (integer, no decimals).
@@ -2159,7 +2381,39 @@ export class ZilSwapV2 {
     return amountUnitless.toString()
   }
 
-  // Obtains token details  
+  private async fetchContractInit(contract: Contract): Promise<any> {
+    // try to use cache first
+    const lsCacheKey = `contractInit:${contract.address!}`
+    if (isLocalStorageAvailable()) {
+      const result = localStorage.getItem(lsCacheKey)
+      if (result && result !== '') {
+        try {
+          return JSON.parse(result)
+        } catch (e) {
+          console.error(e)
+        }
+      }
+    }
+    // motivation: workaround api.zilliqa.com intermittent connection issues.
+    try {
+      // some wallet providers throw an uncaught error when address is non-contract
+      const init = await new Zilliqa(this.rpcEndpoint).contracts.at(contract.address!).getInit()
+      if (init === undefined) throw new Error(`Could not retrieve contract init params ${contract.address}`)
+
+      if (isLocalStorageAvailable()) {
+        localStorage.setItem(lsCacheKey, JSON.stringify(init))
+      }
+      return init
+    } catch (err) {
+      if ((err as any).message === 'Network request failed') {
+        // make another fetch attempt after 800ms
+        return this.fetchContractInit(contract)
+      } else {
+        throw err
+      }
+    }
+  }
+
   private async fetchTokenDetails(hash: string): Promise<TokenDetails> {
 
     const contract = this.getContract(hash)
@@ -2200,8 +2454,8 @@ export class ZilSwapV2 {
     }
   }
 
-  // Returns the token hash of the other token in the pool
   private getOtherToken(pool: string, token: string) {
+    // Get token hash of the other token in the pool
     const token0 = this.poolStates![pool]!.token0
     const token1 = this.poolStates![pool]!.token1
     if (token === token0) {
@@ -2255,8 +2509,8 @@ export class ZilSwapV2 {
     }
   }
 
-  // return ((precision - alpha) * ema + alpha * value) / precision; 
   private getEma(ema: string | number | BigNumber, alpha: string | number | BigNumber, value: string | number | BigNumber) {
+    // return ((precision - alpha) * ema + alpha * value) / precision; 
     const a = new BigNumber(PRECISION).minus(alpha).multipliedBy(ema)
     const b = new BigNumber(alpha).multipliedBy(value)
     return (a.plus(b)).dividedToIntegerBy(PRECISION)
@@ -2373,17 +2627,16 @@ export class ZilSwapV2 {
     return zInPrecision
   }
 
-  // return (x*y)/z
-  private frac(x: string | number | BigNumber, y: string | number | BigNumber, z: string | number | BigNumber): BigNumber {
+  private frac(x: string | number | BigNumber, y: string | number | BigNumber, z: string | number | BigNumber) {
+    // return (x*y)/z
     return new BigNumber(x).multipliedBy(y).dividedToIntegerBy(z)
   }
 
-  // return (x*y)/PRECISION
-  private mulInPrecision(x: string | number | BigNumber, y: string | number | BigNumber): BigNumber {
+  private mulInPrecision(x: string | number | BigNumber, y: string | number | BigNumber) {
+    // return (x*y)/PRECISION
     return this.frac(x, y, PRECISION)
   }
 
-  // Used for calculating the output amount for swapping with exact inputs
   private async getAmountOut(amountIn: string | number | BigNumber, pool: string, tokenIn: string) {
     // Update pool state of specified pool
     await this.updateSinglePoolState(pool)
@@ -2463,8 +2716,10 @@ export class ZilSwapV2 {
     return numerator.plus(denominator.minus(1)).dividedToIntegerBy(denominator)
   }
 
-  /////////////////////// App Helper functions //////////////////
-
+  /**
+   * Updates the app state based on blockchain info.
+   * 
+   */
   private async updateAppState(): Promise<void> {
     await this.updateRouterState()
     await this.updatePoolStates()
@@ -2475,7 +2730,10 @@ export class ZilSwapV2 {
     this.subscribeToAppChanges()
   }
 
-  // Updates the router state
+  /**
+   * Updates the app with the router state based on blockchain info.
+   * 
+   */
   private async updateRouterState(): Promise<void> {
     const requests: BatchRequest[] = []
     const address = this.contractHash.replace('0x', '')
@@ -2487,7 +2745,10 @@ export class ZilSwapV2 {
     this.routerState = routerState;
   }
 
-  // Updates the state of all pools
+  /**
+   * Updates the app with the state of all pools based on blockchain info.
+   * 
+   */
   private async updatePoolStates(): Promise<void> {
     if (this.routerState) {
       const allPools = this.routerState.all_pools
@@ -2513,6 +2774,10 @@ export class ZilSwapV2 {
     }
   }
 
+  /**
+   * Updates the app with the state of all pools based on blockchain info.
+   * 
+   */
   private async updateTokens(): Promise<void> {
     const tokenHash: string[] = []
     const poolStates = this.poolStates!
@@ -2559,6 +2824,10 @@ export class ZilSwapV2 {
     }
   }
 
+  /**
+   * Updates the app with the mapping of tokens to pools based on blockchain info.
+   * 
+   */
   private updateTokenPools(): void {
     const tokenPools: { [key in string]?: string[] } = {}
     if (Object.keys(this.tokens!).length === 0) {
@@ -2692,7 +2961,11 @@ export class ZilSwapV2 {
     }
   }
 
-  // Updates the user's ZIL balance and nonce
+  /**
+   * Updates the app with the latest ZIL balance and nonce based on blockchain info.
+   * 
+   * @param poolHash is the hash of the pool.
+   */
   private async updateZILBalanceAndNonce() {
     if (this.currentUser) {
       try {
@@ -2719,8 +2992,12 @@ export class ZilSwapV2 {
     }
   }
 
-  // Updates the poolState of a single pool
-  // To be used when the state of a single pool has changed
+  /**
+   * Updates the app with the latest state of a specified pool based on blockchain info.
+   * Used when the state of a single pool has changed
+   * 
+   * @param poolHash is the hash of the pool.
+   */
   private async updateSinglePoolState(poolHash: string) {
     if (!this.poolStates![poolHash]) {
       throw new Error("Pool does not exist")
@@ -2734,7 +3011,18 @@ export class ZilSwapV2 {
     this.poolStates![poolHash] = poolState;
   }
 
-  // Check if the user is loggged in
+  /**
+   * Updates the app's `currentBlock` to the blockchain's latest blockcount.
+   */
+  private async updateBlockHeight(): Promise<void> {
+    const response = await this.zilliqa.blockchain.getLatestTxBlock()
+    const bNum = parseInt(response.result!.header.BlockNum, 10)
+    this.currentBlock = bNum
+  }
+
+  /**
+   * Checks if the user is logged in.
+   */
   public checkAppLoadedWithUser() {
     if (!this.routerState) {
       throw new Error('App state not loaded, call #initialize first.')
@@ -2751,6 +3039,87 @@ export class ZilSwapV2 {
     if (this.walletProvider && this.walletProvider.wallet.net.toLowerCase() !== this.network.toLowerCase()) {
       throw new Error('Wallet is connected to wrong network.')
     }
+  }
+
+  /**
+   * Sets the number of blocks to use as the allowable buffer duration before transactions
+   * are considered invalid.
+   *
+   * When a transaction is signed, the deadline block by adding the buffer blocks to
+   * the latest confirmed block height.
+   *
+   * @param bufferBlocks is the number of blocks to use as buffer for the deadline block.
+   */
+  public setDeadlineBlocks(bufferBlocks: number) {
+    if (bufferBlocks <= 0) {
+      throw new Error('Buffer blocks must be greater than 0.')
+    }
+    this.deadlineBuffer = bufferBlocks
+  }
+
+  /**
+   * Observes the given transaction until the deadline block.
+   *
+   * Calls the `OnUpdate` callback given during `initialize` with the updated ObservedTx
+   * when a change has been observed.
+   *
+   * @param observedTx is the txn hash of the txn to observe with the deadline block number.
+   */
+  public async observeTx(observedTx: ObservedTx) {
+    const release = await this.observerMutex.acquire()
+    try {
+      this.observedTxs.push(observedTx)
+    } finally {
+      release()
+    }
+  }
+
+  /**
+   * Gets the currently observed transactions.
+   */
+  public async getObservedTxs(): Promise<ObservedTx[]> {
+    const release = await this.observerMutex.acquire()
+    try {
+      return [...this.observedTxs]
+    } finally {
+      release()
+    }
+  }
+
+  /**
+   * Gets the routerState, poolStates and tokenPools.
+   */
+  public getAppState() {
+    const appState = { routerState: this.routerState, poolStates: this.poolStates, tokenPools: this.tokenPools }
+    return appState
+  }
+
+  /**
+   * Gets the routerState.
+   */
+  public getRouterState(): RouterState | undefined {
+    return this.routerState
+  }
+
+  /**
+   * Gets the poolStates.
+   */
+  public getPoolStates(): { [key in string]?: PoolState } | undefined {
+    return this.poolStates
+  }
+
+  /**
+   * Gets the mapping of tokens to pools.
+   */
+  public getTokenPools(): { [key in string]?: string[] } | undefined {
+    return this.tokenPools
+  }
+
+  /**
+   * Gets the array of pool tokens and LP tokens
+   */
+  public getTokens(): { [key in string]?: TokenDetails } | undefined {
+    return this.tokens
   }
 
   /**
@@ -2791,78 +3160,6 @@ export class ZilSwapV2 {
 
   public deadlineBlock(): number {
     return this.currentBlock + this.deadlineBuffer!
-  }
-
-  /**
- * Sets the number of blocks to use as the allowable buffer duration before transactions
- * are considered invalid.
- *
- * When a transaction is signed, the deadline block by adding the buffer blocks to
- * the latest confirmed block height.
- *
- * @param bufferBlocks is the number of blocks to use as buffer for the deadline block.
- */
-  public setDeadlineBlocks(bufferBlocks: number) {
-    if (bufferBlocks <= 0) {
-      throw new Error('Buffer blocks must be greater than 0.')
-    }
-    this.deadlineBuffer = bufferBlocks
-  }
-
-  private async updateBlockHeight(): Promise<void> {
-    const response = await this.zilliqa.blockchain.getLatestTxBlock()
-    const bNum = parseInt(response.result!.header.BlockNum, 10)
-    this.currentBlock = bNum
-  }
-
-  /**
-   * Observes the given transaction until the deadline block.
-   *
-   * Calls the `OnUpdate` callback given during `initialize` with the updated ObservedTx
-   * when a change has been observed.
-   *
-   * @param observedTx is the txn hash of the txn to observe with the deadline block number.
-   */
-  public async observeTx(observedTx: ObservedTx) {
-    const release = await this.observerMutex.acquire()
-    try {
-      this.observedTxs.push(observedTx)
-    } finally {
-      release()
-    }
-  }
-
-  /**
-   * Gets the currently observed transactions.
-   */
-  public async getObservedTxs(): Promise<ObservedTx[]> {
-    const release = await this.observerMutex.acquire()
-    try {
-      return [...this.observedTxs]
-    } finally {
-      release()
-    }
-  }
-
-  public getAppState() {
-    const appState = { routerState: this.routerState, poolState: this.poolStates, tokenPools: this.tokenPools }
-    return appState
-  }
-
-  public getRouterState(): RouterState | undefined {
-    return this.routerState
-  }
-
-  public getPoolStates(): { [key in string]?: PoolState } | undefined {
-    return this.poolStates
-  }
-
-  public getTokenPools(): { [key in string]?: string[] } | undefined {
-    return this.tokenPools
-  }
-
-  public getTokens(): { [key in string]?: TokenDetails } | undefined {
-    return this.tokens
   }
 
   private param = (vname: string, type: string, value: any) => {

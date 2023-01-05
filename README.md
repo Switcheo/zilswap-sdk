@@ -130,7 +130,7 @@ Generate documentation with typedoc. Install with:
 
 then run:
 
-`typedoc --out ./doc ./src --excludePrivate --excludeNotExported --plugin typedoc-plugin-markdown`
+`typedoc --out ./docs ./src --excludePrivate --plugin typedoc-plugin-markdown`
 
 ## Contributing
 
