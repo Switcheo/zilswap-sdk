@@ -106,6 +106,8 @@ The following is a list of methods to quickly get you started:
 - `getTokenPools` - gets a mapping of tokens to pools
 - `getTokens` - gets an array of tokens in the pools, including the pool LP tokens
 - `getObservedTxs` - gets the txs that the SDK is observing
+- `getOutputForExactInput` - get the estimated output amount for a pool by giving an input amount.
+- `getInputForExactOutput` - get the estimated input amount for a pool by giving an output amount.
 
 #### Configuration
 
