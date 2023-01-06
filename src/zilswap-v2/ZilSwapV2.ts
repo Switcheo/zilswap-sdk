@@ -831,8 +831,8 @@ export class ZilSwapV2 {
    *
    * @param tokenInID is the token ID to be sent to the pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
-   * @param amountInStr is the exact amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
-   * @param amountOutMinStr is the minimum amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   * @param amountInStr is the exact amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutMinStr is the minimum amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
    */
   public async swapExactTokensForTokens(
     tokenInID: string,
@@ -1051,8 +1051,8 @@ export class ZilSwapV2 {
    *
    * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
-   * @param amountInMaxStr is the maximum amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
-   * @param amountOutStr is the exact amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   * @param amountInMaxStr is the maximum amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutStr is the exact amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
    */
   public async swapTokensForExactTokens(
     tokenInID: string,
@@ -1272,8 +1272,8 @@ export class ZilSwapV2 {
    *
    * @param tokenInID is the wZIL ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
-   * @param amountInStr is the exact amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
-   * @param amountOutMinStr is the minimum amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   * @param amountInStr is the exact amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutMinStr is the minimum amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
    */
   public async swapExactZILForTokens(
     tokenInID: string,
@@ -1490,10 +1490,15 @@ export class ZilSwapV2 {
    *
    * @param tokenInID is the wZIL ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
-   * @param amountInMaxStr is the maximum amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
-   * @param amountOutStr is the exact amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   * @param amountInMaxStr is the maximum amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutStr is the exact amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
    */
-  public async swapZILForExactTokens(tokenInID: string, tokenOutID: string, amountInMaxStr: string, amountOutStr: string) {
+  public async swapZILForExactTokens(
+    tokenInID: string,
+    tokenOutID: string,
+    amountInMaxStr: string,
+    amountOutStr: string
+  ): Promise<ObservedTx> {
     const tokenInHash = this.getHash(tokenInID)
     const tokenOutHash = this.getHash(tokenOutID)
 
@@ -1702,12 +1707,17 @@ export class ZilSwapV2 {
    *
    * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param tokenOutID is the wZIL ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
-   * @param amountInStr is the exact amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
-   * @param amountOutMinStr is the minimum amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   * @param amountInStr is the exact amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutMinStr is the minimum amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
    */
-  public async swapExactTokensForZIL(tokenIn: string, tokenOut: string, amountInStr: string, amountOutMinStr: string) {
-    const tokenInHash = this.getHash(tokenIn)
-    const tokenOutHash = this.getHash(tokenOut)
+  public async swapExactTokensForZIL(
+    tokenInID: string,
+    tokenOutID: string,
+    amountInStr: string,
+    amountOutMinStr: string
+  ): Promise<ObservedTx> {
+    const tokenInHash = this.getHash(tokenInID)
+    const tokenOutHash = this.getHash(tokenOutID)
 
     if (!(this.tokens![tokenInHash] && this.tokens![tokenOutHash])) {
       throw new Error("Token Pair does not exist")
@@ -1903,7 +1913,6 @@ export class ZilSwapV2 {
     return observeTxn
   }
 
-  // tokenOut: wZIL address
   /**
    * Swaps ZRC-2 token with `tokenInID` for a corresponding ZIL.
    *
@@ -1919,12 +1928,17 @@ export class ZilSwapV2 {
    *
    * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param tokenOutID is the wZIL ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
-   * @param amountInMaxStr is the maximum amount of ZRC-2 token to add to the pool as a unitless string (integer, no decimals).
-   * @param amountOutStr is the exact amount of ZRC-2 token to receive from the pool as a unitless string (integer, no decimals).
+   * @param amountInMaxStr is the maximum amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutStr is the exact amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
    */
-  public async swapTokensForExactZIL(tokenIn: string, tokenOut: string, amountInMaxStr: string, amountOutStr: string) {
-    const tokenInHash = this.getHash(tokenIn)
-    const tokenOutHash = this.getHash(tokenOut)
+  public async swapTokensForExactZIL(
+    tokenInID: string,
+    tokenOutID: string,
+    amountInMaxStr: string,
+    amountOutStr: string
+  ): Promise<ObservedTx> {
+    const tokenInHash = this.getHash(tokenInID)
+    const tokenOutHash = this.getHash(tokenOutID)
 
     if (!(this.tokens![tokenInHash] && this.tokens![tokenOutHash])) {
       throw new Error("Token Pair does not exist")
@@ -2143,7 +2157,11 @@ export class ZilSwapV2 {
    *
    * @returns an ObservedTx if IncreaseAllowance was called, null if not.
    */
-  public async approveTokenTransferIfRequired(tokenID: string, amountStrOrBN: BigNumber | string, spender: string) {
+  public async approveTokenTransferIfRequired(
+    tokenID: string,
+    amountStrOrBN: BigNumber | string,
+    spender: string
+  ): Promise<ObservedTx | null> {
     // Check logged in
     this.checkAppLoadedWithUser()
 
@@ -2201,6 +2219,184 @@ export class ZilSwapV2 {
     }
 
     return null
+  }
+
+  /**
+   * Calculates the amount of tokens to be sent in (sold) for an exact amount of tokens to be received (bought).
+   *
+   * The exact amount of tokens to be received (bought) is `amountOutStr`. 
+   * The SDK determines the path that returns the least token input and returns the estimated input amount.
+   * 
+   * This method works even if the token to be received (bought) is ZIL. Note that if the token to be received is ZIL, 
+   * the tokenOutID should be that of wZIL.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInMaxStr is the maximum amount of tokens to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutStr is the exact amount of tokens to receive from the pool as a unitless string (integer, no decimals).
+   */
+  public async getInputForExactOutput(
+    tokenInID: string,
+    tokenOutID: string,
+    amountInMaxStr: string,
+    amountOutStr: string
+  ): Promise<string> {
+    const tokenInHash = this.getHash(tokenInID)
+    const tokenOutHash = this.getHash(tokenOutID)
+
+    if (!(this.tokens![tokenInHash] && this.tokens![tokenOutHash])) {
+      throw new Error("Token Pair does not exist")
+    }
+    if (tokenInHash === tokenOutHash) {
+      throw new Error("Invalid Token Pair")
+    }
+
+    const amountInMax = unitlessBigNumber(amountInMaxStr)
+    const amountOut = unitlessBigNumber(amountOutStr)
+    if (amountInMax.isLessThan(0) || amountOut.isLessThan(0)) { throw new Error("Invalid amountInMax or amountOut") }
+
+    let amountIn: BigNumber = amountInMax
+    let pool1AmtIn: BigNumber;
+    let pool2AmtIn: BigNumber;
+    let pool3AmtIn: BigNumber;
+
+    for (let i = 0; i < this.tokenPools![tokenOutHash]!.length; i++) {
+      let pool3 = this.tokenPools![tokenOutHash]![i]
+      let pool3TokenIn = this.getOtherToken(pool3, tokenOutHash)
+      pool3AmtIn = await this.getAmountIn(amountOut, pool3, pool3TokenIn)
+
+      // First pool has the desired token pair && amountOutTemp > amountOut
+      if (tokenInHash === pool3TokenIn && pool3AmtIn.lt(amountIn) && pool3AmtIn.isGreaterThan(0)) {
+        // console.log("pool3AmtIn", pool3AmtIn.toString())
+        amountIn = pool3AmtIn
+        continue;
+      }
+
+      for (let j = 0; j < this.tokenPools![pool3TokenIn]!.length; j++) {
+        let pool2 = this.tokenPools![pool3TokenIn]![j]
+        if (pool2 === pool3) { continue }
+        let pool2TokenIn = this.getOtherToken(pool2, pool3TokenIn)
+        pool2AmtIn = await this.getAmountIn(pool3AmtIn, pool2, pool2TokenIn)
+
+        // Second pool has the desired token pair && current amountOut > previous amountOut
+        if (tokenInHash === pool2TokenIn && pool2AmtIn.lt(amountIn) && pool2AmtIn.isGreaterThan(0)) {
+          // console.log("pool2AmtIn", pool2AmtIn.toString())
+          amountIn = pool2AmtIn
+          continue;
+        }
+
+        for (let k = 0; k < this.tokenPools![pool2TokenIn]!.length; k++) {
+          let pool1 = this.tokenPools![pool2TokenIn]![k]
+          if (pool1 === pool2 || pool2 === pool3 || pool1 === pool3) { continue }
+          let pool1TokenIn = this.getOtherToken(pool1, pool2TokenIn)
+
+          // Third pool has the desired token pair && current amountOut > previous amountOut
+          if (tokenInHash === pool1TokenIn) {
+            pool1AmtIn = await this.getAmountIn(pool2AmtIn, pool1, pool1TokenIn)
+
+            if (pool1AmtIn.lt(amountOut) && pool1AmtIn.isGreaterThan(0)) {
+              // console.log("pool1AmtIn", pool1AmtIn.toString())
+              amountIn = pool1AmtIn
+              continue;
+            }
+          }
+        }
+      }
+    }
+    return amountIn.toString()
+  }
+
+  /**
+   * Calculates the amount of tokens to be received (bought) for an exact amount of tokens to be sent in (sold).
+   *
+   * The exact amount of tokens to be sent in (sold) is `amountInStr`. 
+   * The SDK determines the path that returns the most token output and returns the estimated input amount.
+   * 
+   * This method works even if the token to be sent in (sold) is ZIL. Note that if the token to be received is ZIL, 
+   * the tokenOutID should be that of wZIL.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInStr is the exact amount of tokens to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutMinStr is the minimum amount of tokens to receive from the pool as a unitless string (integer, no decimals).
+   */
+  public async getOutputForExactInput(
+    tokenInID: string,
+    tokenOutID: string,
+    amountInStr: string,
+    amountOutMinStr: string
+  ): Promise<string> {
+
+    const tokenInHash = this.getHash(tokenInID)
+    const tokenOutHash = this.getHash(tokenOutID)
+
+    if (!(this.tokens![tokenInHash] && this.tokens![tokenOutHash])) {
+      throw new Error("Token Pair does not exist")
+    }
+    if (tokenInHash === tokenOutHash) {
+      throw new Error("Invalid Token Pair")
+    }
+
+    // // Localhost
+    // await this.updateBlockHeight()
+
+    const amountIn = unitlessBigNumber(amountInStr)
+    const amountOutMin = unitlessBigNumber(amountOutMinStr)
+    if (amountOutMin.isLessThan(0) || amountIn.isLessThan(0)) { throw new Error("Invalid amountOutMin or amountIn") }
+
+    let amountOut: BigNumber = new BigNumber(amountOutMin)
+    let pool1AmtOut: BigNumber;
+    let pool2AmtOut: BigNumber;
+    let pool3AmtOut: BigNumber;
+
+    for (let i = 0; i < this.tokenPools![tokenInHash]!.length; i++) {
+      let pool1 = this.tokenPools![tokenInHash]![i]
+      let pool1TokenOut = this.getOtherToken(pool1, tokenInHash)
+      pool1AmtOut = await this.getAmountOut(amountIn, pool1, tokenInHash)
+
+      // First pool has the desired token pair && amountOutTemp > amountOut
+      if (tokenOutHash === pool1TokenOut && pool1AmtOut.gt(amountOut)) {
+        // console.log("pool1AmtOut", pool1AmtOut.toString())
+        amountOut = pool1AmtOut
+        continue;
+      }
+
+      for (let j = 0; j < this.tokenPools![pool1TokenOut]!.length; j++) {
+        let pool2 = this.tokenPools![pool1TokenOut]![j]
+        if (pool1 === pool2) { continue }
+        let pool2TokenOut = this.getOtherToken(pool2, pool1TokenOut)
+        pool2AmtOut = await this.getAmountOut(pool1AmtOut, pool2, pool1TokenOut)
+
+        // Second pool has the desired token pair && current amountOut > previous amountOut
+        if (tokenOutHash === pool2TokenOut && pool2AmtOut.gt(amountOut)) {
+          // console.log("pool2AmtOut", pool2AmtOut.toString())
+          amountOut = pool2AmtOut
+          continue;
+        }
+
+        for (let k = 0; k < this.tokenPools![pool2TokenOut]!.length; k++) {
+          let pool3 = this.tokenPools![pool2TokenOut]![k]
+          if (pool1 === pool2 || pool2 === pool3 || pool1 === pool3) { continue }
+          let pool3TokenOut = this.getOtherToken(pool3, pool2TokenOut)
+
+          // Third pool has the desired token pair && current amountOut > previous amountOut
+          if (tokenOutHash === pool3TokenOut) {
+            pool3AmtOut = await this.getAmountOut(pool2AmtOut, pool3, pool2TokenOut)
+
+            if (pool3AmtOut.gt(amountOut)) {
+              // console.log("pool3AmtOut", pool3AmtOut.toString())
+              amountOut = pool3AmtOut
+              continue;
+            }
+          }
+        }
+      }
+    }
+    return amountOut.toString()
   }
 
   private async deployContract(file: string, init: Value[]) {
