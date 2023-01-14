@@ -833,12 +833,15 @@ export class ZilSwapV2 {
    * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param amountInStr is the exact amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
    * @param amountOutMinStr is the minimum amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
+   * transition will allow before reverting.
    */
   public async swapExactTokensForTokens(
     tokenInID: string,
     tokenOutID: string,
     amountInStr: string,
-    amountOutMinStr: string
+    amountOutMinStr: string,
+    maxAdditionalSlippage: number = 200,
   ): Promise<ObservedTx> {
     const tokenInHash = this.getHash(tokenInID)
     const tokenOutHash = this.getHash(tokenOutID)
@@ -930,6 +933,9 @@ export class ZilSwapV2 {
 
     const deadline = this.deadlineBlock()
 
+    // Calculates the amountOutMin with slippage taken into consideration
+    const amountOutMinWithSlippage = amountOut.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
+
     let txn: { transition: string; args: Value[]; params: CallParams }
 
     if (poolPath.length === 1) {
@@ -937,7 +943,7 @@ export class ZilSwapV2 {
         transition: "SwapExactTokensForTokensOnce",
         args: [
           this.param('amount_in', 'Uint128', amountIn.toString()),
-          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMinWithSlippage.toString()),
           this.param('pool', 'ByStr20', poolPath[0]),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
@@ -957,7 +963,7 @@ export class ZilSwapV2 {
         transition: "SwapExactTokensForTokensTwice",
         args: [
           this.param('amount_in', 'Uint128', amountIn.toString()),
-          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMinWithSlippage.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('path1', 'Pair ByStr20 ByStr20', {
@@ -983,7 +989,7 @@ export class ZilSwapV2 {
         transition: "SwapExactTokensForTokensThrice",
         args: [
           this.param('amount_in', 'Uint128', amountIn.toString()),
-          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMinWithSlippage.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('pool3', 'ByStr20', poolPath[2]),
@@ -1053,12 +1059,15 @@ export class ZilSwapV2 {
    * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param amountInMaxStr is the maximum amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
    * @param amountOutStr is the exact amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
+   * transition will allow before reverting.
    */
   public async swapTokensForExactTokens(
     tokenInID: string,
     tokenOutID: string,
     amountInMaxStr: string,
-    amountOutStr: string
+    amountOutStr: string,
+    maxAdditionalSlippage: number = 200,
   ): Promise<ObservedTx> {
     const tokenInHash = this.getHash(tokenInID)
     const tokenOutHash = this.getHash(tokenOutID)
@@ -1150,6 +1159,9 @@ export class ZilSwapV2 {
 
     const deadline = this.deadlineBlock()
 
+    // Calculates the amountInMax with slippage taken into consideration
+    const amountInMaxWithSlippage = amountIn.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
+
     let txn: { transition: string; args: Value[]; params: CallParams }
 
     if (poolPath.length === 1) {
@@ -1157,7 +1169,7 @@ export class ZilSwapV2 {
         transition: "SwapTokensForExactTokensOnce",
         args: [
           this.param('amount_out', 'Uint128', amountOut.toString()),
-          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMaxWithSlippage.toString()),
           this.param('pool', 'ByStr20', poolPath[0]),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
@@ -1177,7 +1189,7 @@ export class ZilSwapV2 {
         transition: "SwapTokensForExactTokensTwice",
         args: [
           this.param('amount_out', 'Uint128', amountOut.toString()),
-          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMaxWithSlippage.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('path1', 'Pair ByStr20 ByStr20', {
@@ -1203,7 +1215,7 @@ export class ZilSwapV2 {
         transition: "SwapTokensForExactTokensThrice",
         args: [
           this.param('amount_out', 'Uint128', amountOut.toString()),
-          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMaxWithSlippage.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('pool3', 'ByStr20', poolPath[2]),
@@ -1274,12 +1286,15 @@ export class ZilSwapV2 {
    * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param amountInStr is the exact amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
    * @param amountOutMinStr is the minimum amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
+   * transition will allow before reverting.
    */
   public async swapExactZILForTokens(
     tokenInID: string,
     tokenOutID: string,
     amountInStr: string,
-    amountOutMinStr: string
+    amountOutMinStr: string,
+    maxAdditionalSlippage: number = 200,
   ): Promise<ObservedTx> {
     const tokenInHash = this.getHash(tokenInID)
     const tokenOutHash = this.getHash(tokenOutID)
@@ -1371,13 +1386,16 @@ export class ZilSwapV2 {
 
     const deadline = this.deadlineBlock()
 
+    // Calculates the amountOutMin with slippage taken into consideration
+    const amountOutMinWithSlippage = amountOut.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
+
     let txn: { transition: string; args: Value[]; params: CallParams }
 
     if (poolPath.length === 1) {
       txn = {
         transition: "SwapExactZILForTokensOnce",
         args: [
-          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMinWithSlippage.toString()),
           this.param('pool', 'ByStr20', poolPath[0]),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
@@ -1396,7 +1414,7 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapExactZILForTokensTwice",
         args: [
-          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMinWithSlippage.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('path1', 'Pair ByStr20 ByStr20', {
@@ -1421,7 +1439,7 @@ export class ZilSwapV2 {
       txn = {
         transition: "SwapExactZILForTokensThrice",
         args: [
-          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMinWithSlippage.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('pool3', 'ByStr20', poolPath[2]),
@@ -1492,12 +1510,15 @@ export class ZilSwapV2 {
    * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param amountInMaxStr is the maximum amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
    * @param amountOutStr is the exact amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
+   * transition will allow before reverting.
    */
   public async swapZILForExactTokens(
     tokenInID: string,
     tokenOutID: string,
     amountInMaxStr: string,
-    amountOutStr: string
+    amountOutStr: string,
+    maxAdditionalSlippage: number = 200,
   ): Promise<ObservedTx> {
     const tokenInHash = this.getHash(tokenInID)
     const tokenOutHash = this.getHash(tokenOutID)
@@ -1588,6 +1609,9 @@ export class ZilSwapV2 {
 
     const deadline = this.deadlineBlock()
 
+    // Calculates the amountInMax with slippage taken into consideration
+    const amountInMaxWithSlippage = amountIn.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
+
     let txn: { transition: string; args: Value[]; params: CallParams }
 
     if (poolPath.length === 1) {
@@ -1604,7 +1628,7 @@ export class ZilSwapV2 {
           this.param('deadline_block', 'BNum', `${deadline}`),
         ],
         params: {
-          amount: new BN(amountIn.toString()),
+          amount: new BN(amountInMaxWithSlippage.toString()),
           ...this.txParams()
         },
       }
@@ -1629,7 +1653,7 @@ export class ZilSwapV2 {
           this.param('deadline_block', 'BNum', `${deadline}`),
         ],
         params: {
-          amount: new BN(amountIn.toString()),
+          amount: new BN(amountInMaxWithSlippage.toString()),
           ...this.txParams()
         },
       }
@@ -1660,7 +1684,7 @@ export class ZilSwapV2 {
           this.param('deadline_block', 'BNum', `${deadline}`),
         ],
         params: {
-          amount: new BN(amountIn.toString()),
+          amount: new BN(amountInMaxWithSlippage.toString()),
           ...this.txParams()
         }
       }
@@ -1709,12 +1733,15 @@ export class ZilSwapV2 {
    * @param tokenOutID is the wZIL ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param amountInStr is the exact amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
    * @param amountOutMinStr is the minimum amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
+   * transition will allow before reverting.
    */
   public async swapExactTokensForZIL(
     tokenInID: string,
     tokenOutID: string,
     amountInStr: string,
-    amountOutMinStr: string
+    amountOutMinStr: string,
+    maxAdditionalSlippage: number = 200,
   ): Promise<ObservedTx> {
     const tokenInHash = this.getHash(tokenInID)
     const tokenOutHash = this.getHash(tokenOutID)
@@ -1806,6 +1833,9 @@ export class ZilSwapV2 {
 
     const deadline = this.deadlineBlock()
 
+    // Calculates the amountOutMin with slippage taken into consideration
+    const amountOutMinWithSlippage = amountOut.times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
+
     let txn: { transition: string; args: Value[]; params: CallParams }
 
     if (poolPath.length === 1) {
@@ -1813,7 +1843,7 @@ export class ZilSwapV2 {
         transition: "SwapExactTokensForZILOnce",
         args: [
           this.param('amount_in', 'Uint128', amountIn.toString()),
-          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMinWithSlippage.toString()),
           this.param('pool', 'ByStr20', poolPath[0]),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
@@ -1833,7 +1863,7 @@ export class ZilSwapV2 {
         transition: "SwapExactTokensForZILTwice",
         args: [
           this.param('amount_in', 'Uint128', amountIn.toString()),
-          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMinWithSlippage.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('path1', 'Pair ByStr20 ByStr20', {
@@ -1859,7 +1889,7 @@ export class ZilSwapV2 {
         transition: "SwapExactTokensForZILThrice",
         args: [
           this.param('amount_in', 'Uint128', amountIn.toString()),
-          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMinWithSlippage.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('pool3', 'ByStr20', poolPath[2]),
@@ -1930,12 +1960,15 @@ export class ZilSwapV2 {
    * @param tokenOutID is the wZIL ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param amountInMaxStr is the maximum amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
    * @param amountOutStr is the exact amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
+   * transition will allow before reverting.
    */
   public async swapTokensForExactZIL(
     tokenInID: string,
     tokenOutID: string,
     amountInMaxStr: string,
-    amountOutStr: string
+    amountOutStr: string,
+    maxAdditionalSlippage: number = 200,
   ): Promise<ObservedTx> {
     const tokenInHash = this.getHash(tokenInID)
     const tokenOutHash = this.getHash(tokenOutID)
@@ -2027,6 +2060,9 @@ export class ZilSwapV2 {
 
     const deadline = this.deadlineBlock()
 
+    // Calculates the amountInMax with slippage taken into consideration
+    const amountInMaxWithSlippage = amountIn.times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
+
     let txn: { transition: string; args: Value[]; params: CallParams }
 
     if (poolPath.length === 1) {
@@ -2034,7 +2070,7 @@ export class ZilSwapV2 {
         transition: "SwapTokensForExactZILOnce",
         args: [
           this.param('amount_out', 'Uint128', amountOut.toString()),
-          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMaxWithSlippage.toString()),
           this.param('pool', 'ByStr20', poolPath[0]),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
@@ -2054,7 +2090,7 @@ export class ZilSwapV2 {
         transition: "SwapTokensForExactZILTwice",
         args: [
           this.param('amount_out', 'Uint128', amountOut.toString()),
-          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMaxWithSlippage.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('path1', 'Pair ByStr20 ByStr20', {
@@ -2080,7 +2116,7 @@ export class ZilSwapV2 {
         transition: "SwapTokensForExactZILThrice",
         args: [
           this.param('amount_out', 'Uint128', amountOut.toString()),
-          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMaxWithSlippage.toString()),
           this.param('pool1', 'ByStr20', poolPath[0]),
           this.param('pool2', 'ByStr20', poolPath[1]),
           this.param('pool3', 'ByStr20', poolPath[2]),
@@ -2222,10 +2258,14 @@ export class ZilSwapV2 {
   }
 
   /**
-   * Calculates the amount of tokens to be sent in (sold) for an exact amount of tokens to be received (bought).
+   * Calculates the amount of tokens to be sent in (sold) for an exact amount of tokens to be received (bought) at the current instance.
+   * 
+   * This value returned from this method only applies for the reserve level in the Zilswap-V2 Pool contract at the current instance. 
+   * Pool reserves might change in between the time that this method is called, and the time that the swap occurs. 
+   * Additonal slippage will need to be taken into consideration when calling the Swap transitions.
    *
    * The exact amount of tokens to be received (bought) is `amountOutStr`. 
-   * The SDK determines the path that returns the least token input and returns the estimated input amount.
+   * The SDK determines the path that returns the least token input and returns the input amount.
    * 
    * This method works even if the token to be received (bought) is ZIL. Note that if the token to be received is ZIL, 
    * the tokenOutID should be that of wZIL.
@@ -2309,10 +2349,14 @@ export class ZilSwapV2 {
   }
 
   /**
-   * Calculates the amount of tokens to be received (bought) for an exact amount of tokens to be sent in (sold).
+   * Calculates the amount of tokens to be received (bought) for an exact amount of tokens to be sent in (sold) at the current instance.
    *
+   * This value returned from this method only applies for the reserve level in the Zilswap-V2 Pool contract at the current instance. 
+   * Pool reserves might change in between the time that this method is called, and the time that the swap occurs. 
+   * Additonal slippage will need to be taken into consideration when calling the Swap transitions.
+   * 
    * The exact amount of tokens to be sent in (sold) is `amountInStr`. 
-   * The SDK determines the path that returns the most token output and returns the estimated input amount.
+   * The SDK determines the path that returns the most token output and returns the output amount.
    * 
    * This method works even if the token to be sent in (sold) is ZIL. Note that if the token to be received is ZIL, 
    * the tokenOutID should be that of wZIL.
