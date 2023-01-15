@@ -2274,14 +2274,14 @@ export class ZilSwapV2 {
    *
    * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param tokenOutID is the token ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
-   * @param amountInMaxStr is the maximum amount of tokens to add to the pool as a unitless string (integer, no decimals).
    * @param amountOutStr is the exact amount of tokens to receive from the pool as a unitless string (integer, no decimals).
+   * @param amountInMaxStr is the maximum amount of tokens to add to the pool as a unitless string (integer, no decimals).
    */
   public async getInputForExactOutput(
     tokenInID: string,
     tokenOutID: string,
-    amountInMaxStr: string,
-    amountOutStr: string
+    amountOutStr: string,
+    amountInMaxStr: string
   ): Promise<string> {
     const tokenInHash = this.getHash(tokenInID)
     const tokenOutHash = this.getHash(tokenOutID)
@@ -2899,8 +2899,8 @@ export class ZilSwapV2 {
     const isSameOrder = tokenIn === token0
 
     // Not possible to get any tokens if reserve === 0
-    if (isSameOrder && reserve1 === '0') { return BigNumber(0) }
-    else if (!isSameOrder && reserve0 === '0') { return BigNumber(0) }
+    if (isSameOrder && reserve1 === '0') { return new BigNumber(0) }
+    else if (!isSameOrder && reserve0 === '0') { return new BigNumber(0) }
 
     // Calculate feeInPrecision
     const rFactorInPrecision = this.getRFactor(pool)
@@ -2938,8 +2938,8 @@ export class ZilSwapV2 {
     const isSameOrder = tokenIn === token0
 
     // Arbitrarily large number; Not possible to get any tokens if reserve === 0
-    if (isSameOrder && reserve1 === '0') { return BigNumber(100000000000000000000000000000000000000) }
-    else if (!isSameOrder && reserve0 === '0') { return BigNumber(100000000000000000000000000000000000000) }
+    if (isSameOrder && reserve1 === '0') { return new BigNumber(100000000000000000000000000000000000000) }
+    else if (!isSameOrder && reserve0 === '0') { return new BigNumber(100000000000000000000000000000000000000) }
 
     // Calculate feeInPrecision
     const rFactorInPrecision = this.getRFactor(pool)
