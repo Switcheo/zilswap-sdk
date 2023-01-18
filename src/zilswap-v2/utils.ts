@@ -21,10 +21,10 @@ const getNetwork = (): Network => {
       return Network.MainNet
     case 'testnet':
       return Network.TestNet
-    case 'localhost':
-      return Network.LocalHost
+    // case 'localhost':
+    //   return Network.LocalHost
     default:
-      return Network.LocalHost
+      return Network.TestNet
   }
 }
 
