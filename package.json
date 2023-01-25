@@ -10,7 +10,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "test": "tsc && node lib/test.js",
+    "test": "tsc && node lib/zilswap-v2/test.js",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "tslint -p tsconfig.json",
     "prepare": "yarn run build",
