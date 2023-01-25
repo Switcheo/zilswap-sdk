@@ -4,6 +4,7 @@ import { BigNumber } from 'bignumber.js'
 import { ObservedTx, TxParams, Zilswap } from './index'
 import { ILOState } from './constants'
 import { contractInitToMap, unitlessBigNumber } from './utils'
+import { ZilSwapV2 } from './zilswap-v2/ZilSwapV2'
 
 interface ADTValue {
   constructor: string
@@ -74,13 +75,13 @@ export type ZiloAppState = {
  * ```
  */
 export class Zilo {
-  private zilswap: Zilswap
+  private zilswap: Zilswap | ZilSwapV2
   private contract: Contract
   private appState?: ZiloAppState
 
   private stateObserver?: OnStateUpdate
 
-  constructor(zilswap: Zilswap, address: string) {
+  constructor(zilswap: Zilswap | ZilSwapV2, address: string) {
     this.zilswap = zilswap
     this.contract = zilswap.getContract(address)
   }
@@ -312,7 +313,7 @@ export class Zilo {
       'Contribute',
       [],
       {
-        amount: new BN(amountToContribute.toString()), 
+        amount: new BN(amountToContribute.toString()),
         ...this.zilswap.txParams(),
         gasLimit: Long.fromNumber(10000),
         ...opts

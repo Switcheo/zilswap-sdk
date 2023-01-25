@@ -78,51 +78,51 @@ const test = async () => {
       await waitForTx()
     }
 
-    // // add liquidity
-    // tx = await zilswap.addLiquidity(swthHash, hunyHash, pool1, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', 5)
-    // console.log(`\ntx hash: ${tx.hash}\n`)
-    // await waitForTx()
-    // tx = await zilswap.addLiquidityZIL(swthHash, pool2, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', 5)
-    // console.log(`\ntx hash: ${tx.hash}\n`)
-    // await waitForTx()
-    // tx = await zilswap.addLiquidityZIL(hunyHash, pool3, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', 5)
-    // console.log(`\ntx hash: ${tx.hash}\n`)
-    // await waitForTx()
+    // add liquidity
+    tx = await zilswap.addLiquidity(swthHash, hunyHash, pool1, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', 5)
+    console.log(`\ntx hash: ${tx.hash}\n`)
+    await waitForTx()
+    tx = await zilswap.addLiquidityZIL(swthHash, pool2, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', 5)
+    console.log(`\ntx hash: ${tx.hash}\n`)
+    await waitForTx()
+    tx = await zilswap.addLiquidityZIL(hunyHash, pool3, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', 5)
+    console.log(`\ntx hash: ${tx.hash}\n`)
+    await waitForTx()
 
     // swap
     const r1 = await zilswap.getOutputForExactInput(swthHash, hunyHash, new BigNumber(amountIn).toString(), new BigNumber(amountOutMin).toString())
     console.log(`\n${amountIn} SWTH -> HUNY: ${r1} SWTH\n`)
-    tx = await zilswap.swapExactTokensForTokens(swthHash, hunyHash, new BigNumber(amountIn).toString(), new BigNumber(amountOutMin).toString())
+    tx = await zilswap.swapExactTokensForTokens(swthHash, hunyHash, new BigNumber(amountIn).toString(), new BigNumber(r1).toString())
     console.log(`\ntx hash: ${tx.hash}\n`)
     await waitForTx()
 
     const r2 = await zilswap.getInputForExactOutput(swthHash, hunyHash, new BigNumber(amountInMax).toString(), new BigNumber(amountOut).toString())
     console.log(`\nSWTH -> ${amountOut} HUNY: ${r2} SWTH\n`)
-    tx = await zilswap.swapTokensForExactTokens(swthHash, hunyHash, new BigNumber(amountInMax).toString(), new BigNumber(amountOut).toString())
+    tx = await zilswap.swapTokensForExactTokens(swthHash, hunyHash, new BigNumber(r2).toString(), new BigNumber(amountOut).toString())
     console.log(`\ntx hash: ${tx.hash}\n`)
     await waitForTx()
 
     const r3 = await zilswap.getOutputForExactInput(wZilHash, hunyHash, new BigNumber(amountIn).toString(), new BigNumber(amountOutMin).toString())
     console.log(`\n${amountIn} ZIL -> SWTH: ${r3} SWTH\n`)
-    tx = await zilswap.swapExactZILForTokens(wZilHash, swthHash, new BigNumber(amountIn).toString(), new BigNumber(amountOutMin).toString())
+    tx = await zilswap.swapExactZILForTokens(wZilHash, swthHash, new BigNumber(amountIn).toString(), new BigNumber(r3).toString())
     console.log(`\ntx hash: ${tx.hash}\n`)
     await waitForTx()
 
     const r4 = await zilswap.getInputForExactOutput(wZilHash, swthHash, new BigNumber(amountInMax).toString(), new BigNumber(amountOut).toString())
     console.log(`\nZIL -> ${amountOut} SWTH: ${r4} ZIL\n`)
-    tx = await zilswap.swapZILForExactTokens(wZilHash, swthHash, new BigNumber(amountInMax).toString(), new BigNumber(amountOut).toString())
+    tx = await zilswap.swapZILForExactTokens(wZilHash, swthHash, new BigNumber(r4).toString(), new BigNumber(amountOut).toString())
     console.log(`\ntx hash: ${tx.hash}\n`)
     await waitForTx()
 
     const r5 = await zilswap.getOutputForExactInput(hunyHash, wZilHash, new BigNumber(amountIn).toString(), new BigNumber(amountOutMin).toString())
     console.log(`\n${amountIn} HUNY -> ZIL: ${r5} HUNY\n`)
-    tx = await zilswap.swapExactTokensForZIL(hunyHash, wZilHash, new BigNumber(amountIn).toString(), new BigNumber(amountOutMin).toString())
+    tx = await zilswap.swapExactTokensForZIL(hunyHash, wZilHash, new BigNumber(amountIn).toString(), new BigNumber(r5).toString())
     console.log(`\ntx hash: ${tx.hash}\n`)
     await waitForTx()
 
     const r6 = await zilswap.getInputForExactOutput(hunyHash, wZilHash, new BigNumber(amountInMax).toString(), new BigNumber(amountOut).toString())
     console.log(`\nZIL -> ${amountOut} SWTH: ${r6} ZIL\n`)
-    tx = await zilswap.swapTokensForExactZIL(hunyHash, wZilHash, new BigNumber(amountInMax).toString(), new BigNumber(amountOut).toString())
+    tx = await zilswap.swapTokensForExactZIL(hunyHash, wZilHash, new BigNumber(r6).toString(), new BigNumber(amountOut).toString())
     console.log(`\ntx hash: ${tx.hash}\n`)
     await waitForTx()
 
