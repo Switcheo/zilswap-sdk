@@ -10,7 +10,7 @@ import { BigNumber } from 'bignumber.js'
 import 'isomorphic-fetch'
 
 import { BatchRequest, sendBatchRequest } from '../batch'
-import { APIS, BASIS, CHAIN_VERSIONS, Network, WSS, ZILSWAPV2_CONTRACTS, ZIL_HASH } from '../constants'
+import { APIS, BASIS, CHAIN_VERSIONS, Network, WHITELISTED_TOKENS, WSS, ZILSWAPV2_CONTRACTS, ZIL_HASH } from '../constants'
 import { isLocalStorageAvailable, toPositiveQa, unitlessBigNumber } from '../utils'
 import { OnStateUpdate, Zilo } from '../zilo'
 import { compile, LONG_ALPHA, PRECISION, SHORT_ALPHA } from './utils'
@@ -57,12 +57,14 @@ export type TokenDetails = {
   name: string
   symbol: string
   decimals: number
+  registered: boolean // is in default token list
+  whitelisted: boolean // is a verified token
 }
 
 export type AppState = {
   routerState?: RouterState // router contract state
   poolStates?: { [key in string]?: PoolState } // poolHash => poolState mapping 
-  tokens?: { [key in string]?: TokenDetails } // pool tokens & LP tokens => TokenDetails mapping
+  tokens: { [key in string]?: TokenDetails } // pool tokens & LP tokens => TokenDetails mapping
   currentUser: string | null
   currentNonce?: number | null
   currentZILBalance?: BigNumber | null // User'z zil balance
@@ -112,6 +114,7 @@ export class ZilSwapV2 {
   /* Internals */
   private readonly rpcEndpoint: string
   private readonly walletProvider?: WalletProvider // zilpay
+  private tokens: { [key in string]?: string } // symbol => hash mappings
   private tokenPools: { [key in string]?: string[] } // pool tokens => pools mapping
   private appState?: AppState
 
@@ -164,6 +167,7 @@ export class ZilSwapV2 {
     this.contract = (this.walletProvider || this.zilliqa).contracts.at(this.contractAddress)
     this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
     this.tokenPools = {}
+    this.tokens = {}
     this.zilos = {}
     this._txParams.version = CHAIN_VERSIONS[network]
 
@@ -193,7 +197,11 @@ export class ZilSwapV2 {
       this._txParams.gasPrice = new BN(minGasPrice.result)
     }
 
+    await this.loadTokenList()
+    await this.updateBlockHeight()
     await this.updateAppState()
+    await this.updateZILBalanceAndNonce()
+    this.subscribeToAppChanges()
   }
 
   /**
@@ -430,7 +438,7 @@ export class ZilSwapV2 {
    * @param amountBDesiredStr is the target amount of tokenB to contribute to the pool as a unitless string (integer, no decimals).
    * @param amountAMinStr is the minimum amount of tokenA to contribute to the pool as a unitless string (integer, no decimals).
    * @param amountBMinStr is the minimum amount of tokenB to contribute to the pool as a unitless string (integer, no decimals).
-   * @param reserve_ratio_allowance is the allowed pool token reserve ratio in percentage. Eg 5 = 5%.
+   * @param reserve_ratio_allowance is the allowed pool token reserve ratio in percentage. Default value is 5%
    */
   public async addLiquidity(
     tokenAID: string,
@@ -440,7 +448,7 @@ export class ZilSwapV2 {
     amountBDesiredStr: string,
     amountAMinStr: string,
     amountBMinStr: string,
-    reserve_ratio_allowance: number
+    reserve_ratio_allowance: number = 5
   ): Promise<ObservedTx> {
     if (tokenAID === tokenBID) {
       throw new Error("Invalid Token Pair")
@@ -580,7 +588,7 @@ export class ZilSwapV2 {
    * @param amountwZILDesiredStr is the target amount of wZIL to contribute to the pool as a unitless string (integer, no decimals).
    * @param amountTokenMinStr is the minimum amount of token to contribute to the pool as a unitless string (integer, no decimals).
    * @param amountWZILMinStr is the minimum amount of wZIL to contribute to the pool as a unitless string (integer, no decimals).
-   * @param reserve_ratio_allowance is the allowed pool token reserve ratio in percentage. Eg 5 = 5%.
+   * @param reserve_ratio_allowance is the allowed pool token reserve ratio in percentage. Default value is 5%
    */
   public async addLiquidityZIL(
     tokenID: string,
@@ -589,7 +597,7 @@ export class ZilSwapV2 {
     amountwZILDesiredStr: string,
     amountTokenMinStr: string,
     amountWZILMinStr: string,
-    reserve_ratio_allowance: number
+    reserve_ratio_allowance: number = 5
   ): Promise<ObservedTx> {
     // Check logged in
     this.checkAppLoadedWithUser()
@@ -2742,6 +2750,7 @@ export class ZilSwapV2 {
   }
 
   private async fetchTokenDetails(hash: string): Promise<TokenDetails> {
+    if (!!this.appState?.tokens[hash]) return this.appState.tokens[hash]!
 
     const contract = this.getContract(hash)
     const address = toBech32Address(hash)
@@ -2752,8 +2761,10 @@ export class ZilSwapV2 {
     const decimals = parseInt(decimalStr, 10)
     const name = init.find((e: Value) => e.vname === 'name').value as string
     const symbol = init.find((e: Value) => e.vname === 'symbol').value as string
+    const registered = this.tokens[symbol] === address
+    const whitelisted = registered && WHITELISTED_TOKENS[this.network].includes(address)
 
-    return { contract, address, hash, name, symbol, decimals }
+    return { contract, address, hash, name, symbol, decimals, whitelisted, registered }
   }
 
   private getTokenDetails(hash: string): TokenDetails {
@@ -3053,15 +3064,12 @@ export class ZilSwapV2 {
       ? // ugly hack for zilpay provider
       this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
       : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
-    this.appState = { currentUser }
+    this.appState = { currentUser, tokens: {} }
 
     await this.updateRouterState()
     await this.updatePoolStates()
     await this.updateTokens()
-    await this.updateBlockHeight()
-    await this.updateZILBalanceAndNonce()
     this.updateTokenPools()
-    this.subscribeToAppChanges()
   }
 
   /**
@@ -3153,9 +3161,6 @@ export class ZilSwapV2 {
 
       this.appState!.tokens = tokens;
     }
-    else {
-      this.appState!.tokens = {}
-    }
   }
 
   /**
@@ -3224,17 +3229,12 @@ export class ZilSwapV2 {
         // Update single pool state if event thrown from pool
         if (Object.keys(this.appState!.poolStates!).includes(byStr20Address)) {
           this.updateSinglePoolState(byStr20Address)
-            .then(() => { this.updateObservedTxs() })
         }
 
         // Update whole app state when routerState changes
         if (byStr20Address === this.contractHash) {
           for (const event of item.event_logs) {
-            this.updateRouterState()
-              .then(() => { this.updatePoolStates() })
-              .then(() => { this.updateTokens() })
-              .then(() => { this.updateObservedTxs() })
-            this.updateTokenPools()
+            this.updateAppState()
           }
         }
       }
@@ -3353,6 +3353,40 @@ export class ZilSwapV2 {
     this.currentBlock = bNum
   }
 
+  private async loadTokenList() {
+    if (this.network === Network.TestNet) {
+      this.tokens['ZIL'] = 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz'
+      this.tokens['wZIL'] = 'zil1nzn3k336xwal7egdzgalqnclxtgu3dggxed85m'
+      this.tokens['ZWAP'] = 'zil1k2c3ncjfduj9jrhlgx03t2smd6p25ur56cfzgz'
+      this.tokens['gZIL'] = 'zil1fytuayks6njpze00ukasq3m4y4s44k79hvz8q5'
+      this.tokens['SWTH'] = 'zil1d6yfgycu9ythxy037hkt3phc3jf7h6rfzuft0s'
+      this.tokens['XSGD'] = 'zil10a9z324aunx2qj64984vke93gjdnzlnl5exygv'
+      this.tokens['ZLP'] = 'zil1du93l0dpn8wy40769raza23fjkvm868j9rjehn'
+      this.tokens['PORT'] = 'zil10v5nstu2ff9jsm7074wer6s6xtklh9xga7n8xc'
+      this.tokens['REDC'] = 'zil14jmjrkvfcz2uvj3y69kl6gas34ecuf2j5ggmye'
+      this.tokens['STREAM'] = 'zil10w9gdtaau3d5uzqescshuqn9fd23gpa82myjqc'
+      this.tokens['zDAI'] = 'zil1nnga67uer2vk0harvu345vz7vl3v0pta6vr3sf'
+      this.tokens['zETH'] = 'zil1j53x0y8myrcpy6u4n42qe0yuxn5t2ttedah8jp'
+      return
+    } else if (this.network === Network.MainNet) {
+      this.tokens['ZIL'] = 'zil1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9yf6pz'
+      this.tokens['wZIL'] = 'zil1gvr0jgwfsfmxsyx0xsnhtlte4gks6r3yk8x5fn'
+    }
+
+    try {
+      const res = await fetch('https://api.zilstream.com/tokens')
+      const tokens = await res.json()
+      interface ZilStreamToken {
+        symbol: string
+        address_bech32: string
+      }
+
+      tokens.forEach((token: ZilStreamToken) => (this.tokens[token.symbol] = token.address_bech32.split(',')[0]))
+    } catch (err) {
+      console.warn('WARNING: failed to load token list from zilstream, using defaults only.\nError: ' + err)
+    }
+  }
+
   /**
    * Checks if the user is logged in.
    */
@@ -3444,7 +3478,7 @@ export class ZilSwapV2 {
   }
 
   /**
-   * Gets the mapping of tokens to pools.
+   * Gets the array of pool IDs with tokenID as one of the pool tokens
    */
   public getTokenPools(): { [key in string]?: string[] } | undefined {
     return this.tokenPools
