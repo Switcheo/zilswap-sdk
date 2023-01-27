@@ -63,7 +63,7 @@ export type TokenDetails = {
 
 export type AppState = {
   routerState?: RouterState // router contract state
-  poolStates?: { [key in string]?: PoolState } // poolHash => poolState mapping 
+  poolStates?: { [key in string]?: PoolState } // poolHash => poolState mapping
   tokens: { [key in string]?: TokenDetails } // pool tokens & LP tokens => TokenDetails mapping
   currentUser: string | null
   currentNonce?: number | null
@@ -100,6 +100,16 @@ export type PoolState = {
   allowances: { [key in string]?: { [key2 in string]?: string } }
 }
 
+export type Pool = {
+  poolAddress: string
+  token0Reserve: BigNumber
+  token1Reserve: BigNumber
+  exchangeRate: BigNumber // the zero slippage exchange rate
+  totalContribution: BigNumber
+  userContribution: BigNumber
+  contributionPercentage: BigNumber
+}
+
 export type WalletProvider = Omit<
   Zilliqa & { wallet: Wallet & { net: string; defaultAccount: { base16: string; bech32: string } } }, // ugly hack for zilpay non-standard API
   'subscriptionBuilder'
@@ -115,7 +125,7 @@ export class ZilSwapV2 {
   private readonly rpcEndpoint: string
   private readonly walletProvider?: WalletProvider // zilpay
   private tokens: { [key in string]?: string } // symbol => hash mappings
-  private tokenPools: { [key in string]?: string[] } // pool tokens => pools mapping
+  private tokenPools: { [key in string]?: Pool[] } // pool tokens => pools mapping
   private appState?: AppState
 
   /* Txn observers */
@@ -932,7 +942,7 @@ export class ZilSwapV2 {
     let pool3AmtOut: BigNumber;
 
     for (let i = 0; i < this.tokenPools[tokenInHash]!.length; i++) {
-      let pool1 = this.tokenPools[tokenInHash]![i]
+      let pool1 = this.tokenPools[tokenInHash]![i].poolAddress
       let pool1TokenOut = this.getOtherToken(pool1, tokenInHash)
       pool1AmtOut = await this.getAmountOut(amountIn, pool1, tokenInHash)
 
@@ -948,7 +958,7 @@ export class ZilSwapV2 {
       }
 
       for (let j = 0; j < this.tokenPools[pool1TokenOut]!.length; j++) {
-        let pool2 = this.tokenPools[pool1TokenOut]![j]
+        let pool2 = this.tokenPools[pool1TokenOut]![j].poolAddress
         if (pool1 === pool2) { continue }
         let pool2TokenOut = this.getOtherToken(pool2, pool1TokenOut)
         pool2AmtOut = await this.getAmountOut(pool1AmtOut, pool2, pool1TokenOut)
@@ -968,7 +978,7 @@ export class ZilSwapV2 {
         }
 
         for (let k = 0; k < this.tokenPools[pool2TokenOut]!.length; k++) {
-          let pool3 = this.tokenPools[pool2TokenOut]![k]
+          let pool3 = this.tokenPools[pool2TokenOut]![k].poolAddress
           if (pool1 === pool2 || pool2 === pool3 || pool1 === pool3) { continue }
           let pool3TokenOut = this.getOtherToken(pool3, pool2TokenOut)
 
@@ -1159,7 +1169,7 @@ export class ZilSwapV2 {
     let pool3AmtIn: BigNumber;
 
     for (let i = 0; i < this.tokenPools[tokenOutHash]!.length; i++) {
-      let pool3 = this.tokenPools[tokenOutHash]![i]
+      let pool3 = this.tokenPools[tokenOutHash]![i].poolAddress
       let pool3TokenIn = this.getOtherToken(pool3, tokenOutHash)
       pool3AmtIn = await this.getAmountIn(amountOut, pool3, pool3TokenIn)
 
@@ -1175,7 +1185,7 @@ export class ZilSwapV2 {
       }
 
       for (let j = 0; j < this.tokenPools[pool3TokenIn]!.length; j++) {
-        let pool2 = this.tokenPools[pool3TokenIn]![j]
+        let pool2 = this.tokenPools[pool3TokenIn]![j].poolAddress
         if (pool2 === pool3) { continue }
         let pool2TokenIn = this.getOtherToken(pool2, pool3TokenIn)
         pool2AmtIn = await this.getAmountIn(pool3AmtIn, pool2, pool2TokenIn)
@@ -1195,7 +1205,7 @@ export class ZilSwapV2 {
         }
 
         for (let k = 0; k < this.tokenPools[pool2TokenIn]!.length; k++) {
-          let pool1 = this.tokenPools[pool2TokenIn]![k]
+          let pool1 = this.tokenPools[pool2TokenIn]![k].poolAddress
           if (pool1 === pool2 || pool2 === pool3 || pool1 === pool3) { continue }
           let pool1TokenIn = this.getOtherToken(pool1, pool2TokenIn)
 
@@ -1388,7 +1398,7 @@ export class ZilSwapV2 {
     let pool3AmtOut: BigNumber;
 
     for (let i = 0; i < this.tokenPools[tokenInHash]!.length; i++) {
-      let pool1 = this.tokenPools[tokenInHash]![i]
+      let pool1 = this.tokenPools[tokenInHash]![i].poolAddress
       let pool1TokenOut = this.getOtherToken(pool1, tokenInHash)
       pool1AmtOut = await this.getAmountOut(amountIn, pool1, tokenInHash)
 
@@ -1404,7 +1414,7 @@ export class ZilSwapV2 {
       }
 
       for (let j = 0; j < this.tokenPools[pool1TokenOut]!.length; j++) {
-        let pool2 = this.tokenPools[pool1TokenOut]![j]
+        let pool2 = this.tokenPools[pool1TokenOut]![j].poolAddress
         if (pool1 === pool2) { continue }
         let pool2TokenOut = this.getOtherToken(pool2, pool1TokenOut)
         pool2AmtOut = await this.getAmountOut(pool1AmtOut, pool2, pool1TokenOut)
@@ -1424,7 +1434,7 @@ export class ZilSwapV2 {
         }
 
         for (let k = 0; k < this.tokenPools[pool2TokenOut]!.length; k++) {
-          let pool3 = this.tokenPools[pool2TokenOut]![k]
+          let pool3 = this.tokenPools[pool2TokenOut]![k].poolAddress
           if (pool1 === pool2 || pool2 === pool3 || pool1 === pool3) { continue }
           let pool3TokenOut = this.getOtherToken(pool3, pool2TokenOut)
 
@@ -1612,7 +1622,7 @@ export class ZilSwapV2 {
     let pool3AmtIn: BigNumber;
 
     for (let i = 0; i < this.tokenPools[tokenOutHash]!.length; i++) {
-      let pool3 = this.tokenPools[tokenOutHash]![i]
+      let pool3 = this.tokenPools[tokenOutHash]![i].poolAddress
       let pool3TokenIn = this.getOtherToken(pool3, tokenOutHash)
       pool3AmtIn = await this.getAmountIn(amountOut, pool3, pool3TokenIn)
 
@@ -1628,7 +1638,7 @@ export class ZilSwapV2 {
       }
 
       for (let j = 0; j < this.tokenPools[pool3TokenIn]!.length; j++) {
-        let pool2 = this.tokenPools[pool3TokenIn]![j]
+        let pool2 = this.tokenPools[pool3TokenIn]![j].poolAddress
         if (pool2 === pool3) { continue }
         let pool2TokenIn = this.getOtherToken(pool2, pool3TokenIn)
         pool2AmtIn = await this.getAmountIn(pool3AmtIn, pool2, pool2TokenIn)
@@ -1648,7 +1658,7 @@ export class ZilSwapV2 {
         }
 
         for (let k = 0; k < this.tokenPools[pool2TokenIn]!.length; k++) {
-          let pool1 = this.tokenPools[pool2TokenIn]![k]
+          let pool1 = this.tokenPools[pool2TokenIn]![k].poolAddress
           if (pool1 === pool2 || pool2 === pool3 || pool1 === pool3) { continue }
           let pool1TokenIn = this.getOtherToken(pool1, pool2TokenIn)
 
@@ -1836,7 +1846,7 @@ export class ZilSwapV2 {
     let pool3AmtOut: BigNumber;
 
     for (let i = 0; i < this.tokenPools[tokenInHash]!.length; i++) {
-      let pool1 = this.tokenPools[tokenInHash]![i]
+      let pool1 = this.tokenPools[tokenInHash]![i].poolAddress
       let pool1TokenOut = this.getOtherToken(pool1, tokenInHash)
       pool1AmtOut = await this.getAmountOut(amountIn, pool1, tokenInHash)
 
@@ -1852,7 +1862,7 @@ export class ZilSwapV2 {
       }
 
       for (let j = 0; j < this.tokenPools[pool1TokenOut]!.length; j++) {
-        let pool2 = this.tokenPools[pool1TokenOut]![j]
+        let pool2 = this.tokenPools[pool1TokenOut]![j].poolAddress
         if (pool1 === pool2) { continue }
         let pool2TokenOut = this.getOtherToken(pool2, pool1TokenOut)
         pool2AmtOut = await this.getAmountOut(pool1AmtOut, pool2, pool1TokenOut)
@@ -1872,7 +1882,7 @@ export class ZilSwapV2 {
         }
 
         for (let k = 0; k < this.tokenPools[pool2TokenOut]!.length; k++) {
-          let pool3 = this.tokenPools[pool2TokenOut]![k]
+          let pool3 = this.tokenPools[pool2TokenOut]![k].poolAddress
           if (pool1 === pool2 || pool2 === pool3 || pool1 === pool3) { continue }
           let pool3TokenOut = this.getOtherToken(pool3, pool2TokenOut)
 
@@ -2064,7 +2074,7 @@ export class ZilSwapV2 {
     let pool3AmtIn: BigNumber;
 
     for (let i = 0; i < this.tokenPools[tokenOutHash]!.length; i++) {
-      let pool3 = this.tokenPools[tokenOutHash]![i]
+      let pool3 = this.tokenPools[tokenOutHash]![i].poolAddress
       let pool3TokenIn = this.getOtherToken(pool3, tokenOutHash)
       pool3AmtIn = await this.getAmountIn(amountOut, pool3, pool3TokenIn)
 
@@ -2080,7 +2090,7 @@ export class ZilSwapV2 {
       }
 
       for (let j = 0; j < this.tokenPools[pool3TokenIn]!.length; j++) {
-        let pool2 = this.tokenPools[pool3TokenIn]![j]
+        let pool2 = this.tokenPools[pool3TokenIn]![j].poolAddress
         if (pool2 === pool3) { continue }
         let pool2TokenIn = this.getOtherToken(pool2, pool3TokenIn)
         pool2AmtIn = await this.getAmountIn(pool3AmtIn, pool2, pool2TokenIn)
@@ -2100,7 +2110,7 @@ export class ZilSwapV2 {
         }
 
         for (let k = 0; k < this.tokenPools[pool2TokenIn]!.length; k++) {
-          let pool1 = this.tokenPools[pool2TokenIn]![k]
+          let pool1 = this.tokenPools[pool2TokenIn]![k].poolAddress
           if (pool1 === pool2 || pool2 === pool3 || pool1 === pool3) { continue }
           let pool1TokenIn = this.getOtherToken(pool1, pool2TokenIn)
 
@@ -2372,7 +2382,7 @@ export class ZilSwapV2 {
     let poolPath = [];
     let swappablePath = [];
     for (let i = 0; i < this.tokenPools[tokenOutHash]!.length; i++) {
-      let pool3 = this.tokenPools[tokenOutHash]![i]
+      let pool3 = this.tokenPools[tokenOutHash]![i].poolAddress
       let pool3TokenIn = this.getOtherToken(pool3, tokenOutHash)
       pool3AmtIn = await this.getAmountIn(amountOut, pool3, pool3TokenIn)
 
@@ -2388,7 +2398,7 @@ export class ZilSwapV2 {
       }
 
       for (let j = 0; j < this.tokenPools[pool3TokenIn]!.length; j++) {
-        let pool2 = this.tokenPools[pool3TokenIn]![j]
+        let pool2 = this.tokenPools[pool3TokenIn]![j].poolAddress
         if (pool2 === pool3) { continue }
         let pool2TokenIn = this.getOtherToken(pool2, pool3TokenIn)
         pool2AmtIn = await this.getAmountIn(pool3AmtIn, pool2, pool2TokenIn)
@@ -2405,7 +2415,7 @@ export class ZilSwapV2 {
         }
 
         for (let k = 0; k < this.tokenPools[pool2TokenIn]!.length; k++) {
-          let pool1 = this.tokenPools[pool2TokenIn]![k]
+          let pool1 = this.tokenPools[pool2TokenIn]![k].poolAddress
           if (pool1 === pool2 || pool2 === pool3 || pool1 === pool3) { continue }
           let pool1TokenIn = this.getOtherToken(pool1, pool2TokenIn)
 
@@ -2481,7 +2491,7 @@ export class ZilSwapV2 {
     let poolPath = [];
     let swappablePath = [];
     for (let i = 0; i < this.tokenPools[tokenInHash]!.length; i++) {
-      let pool1 = this.tokenPools[tokenInHash]![i]
+      let pool1 = this.tokenPools[tokenInHash]![i].poolAddress
       let pool1TokenOut = this.getOtherToken(pool1, tokenInHash)
       pool1AmtOut = await this.getAmountOut(amountIn, pool1, tokenInHash)
 
@@ -2497,7 +2507,7 @@ export class ZilSwapV2 {
       }
 
       for (let j = 0; j < this.tokenPools[pool1TokenOut]!.length; j++) {
-        let pool2 = this.tokenPools[pool1TokenOut]![j]
+        let pool2 = this.tokenPools[pool1TokenOut]![j].poolAddress
         if (pool1 === pool2) { continue }
         let pool2TokenOut = this.getOtherToken(pool2, pool1TokenOut)
         pool2AmtOut = await this.getAmountOut(pool1AmtOut, pool2, pool1TokenOut)
@@ -2514,7 +2524,7 @@ export class ZilSwapV2 {
         }
 
         for (let k = 0; k < this.tokenPools[pool2TokenOut]!.length; k++) {
-          let pool3 = this.tokenPools[pool2TokenOut]![k]
+          let pool3 = this.tokenPools[pool2TokenOut]![k].poolAddress
           if (pool1 === pool2 || pool2 === pool3 || pool1 === pool3) { continue }
           let pool3TokenOut = this.getOtherToken(pool3, pool2TokenOut)
 
@@ -3172,27 +3182,45 @@ export class ZilSwapV2 {
       return;
     }
 
-    const tokenPools: { [key in string]?: string[] } = {}
+    const tokenPools: { [key in string]?: Pool[] } = {}
     Object.keys(this.appState!.poolStates!).map((poolAddress) => {
       const poolState = this.appState!.poolStates![poolAddress]
       const token0 = poolState!.token0
       const token1 = poolState!.token1
 
+      const token0Reserve = new BigNumber(poolState!.reserve0)
+      const token1Reserve = new BigNumber(poolState!.reserve1)
+      const exchangeRate = token0Reserve.dividedBy(token1Reserve) // token0/ token1
+      const totalContribution = new BigNumber(poolState!.total_supply)
+      const poolBalances = poolState!.balances
+      const userContribution = new BigNumber(poolBalances && this.appState!.currentUser ? poolBalances[this.appState!.currentUser] || 0 : 0)
+      const contributionPercentage = userContribution.dividedBy(totalContribution).times(100)
+
+      const poolInfo: Pool = {
+        poolAddress,
+        token0Reserve,
+        token1Reserve,
+        exchangeRate,
+        totalContribution,
+        userContribution,
+        contributionPercentage,
+      }
+
       if (!tokenPools[token0]) {
-        tokenPools[token0] = [poolAddress]
+        tokenPools[token0] = [poolInfo]
       }
       else {
         const token0Pools = tokenPools[token0]
-        token0Pools!.push(poolAddress)
+        token0Pools!.push(poolInfo)
         tokenPools[token0] = token0Pools
       }
 
       if (!tokenPools[token1]) {
-        tokenPools[token1] = [poolAddress]
+        tokenPools[token1] = [poolInfo]
       }
       else {
         const token1Pools = tokenPools[token1]
-        token1Pools!.push(poolAddress)
+        token1Pools!.push(poolInfo)
         tokenPools[token1] = token1Pools
       }
     })
@@ -3480,7 +3508,7 @@ export class ZilSwapV2 {
   /**
    * Gets the array of pool IDs with tokenID as one of the pool tokens
    */
-  public getTokenPools(): { [key in string]?: string[] } | undefined {
+  public getTokenPools(): { [key in string]?: Pool[] } | undefined {
     return this.tokenPools
   }
 
