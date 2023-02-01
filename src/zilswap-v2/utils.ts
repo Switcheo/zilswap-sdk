@@ -42,10 +42,10 @@ export const param = (vname: string, type: string, value: string) => {
 
 const randomHex = (size: number): string => [...Array(size)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')
 
-const readFile = util.promisify(fs.readFile)
 const matchComments = /[(][*].*?[*][)]/gs
 
 export const compile = async (file: string) => {
+  const readFile = util.promisify(fs.readFile)
   const code = (await readFile(file)).toString()
   return compress(code);
 }

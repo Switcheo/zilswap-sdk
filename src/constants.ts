@@ -3,44 +3,37 @@ import { bytes } from '@zilliqa-js/util'
 export enum Network {
   MainNet = 'MainNet',
   TestNet = 'TestNet',
-  // LocalHost = 'LocalHost'
 }
 type Networks = keyof typeof Network
 
 export const APIS: { [key in Networks]: string } = {
   [Network.MainNet]: 'https://api.zilliqa.com',
   [Network.TestNet]: 'https://dev-api.zilliqa.com',
-  // [Network.LocalHost]: 'http://localhost:5555',
 }
 
 export const WSS: { [key in Networks]: string } = {
   [Network.MainNet]: 'wss://api-ws.zilliqa.com',
   [Network.TestNet]: 'wss://dev-ws.zilliqa.com',
-  // [Network.LocalHost]: '',
 }
 
 export const ZILSWAPV1_CONTRACTS: { [key in Networks]: string } = {
   [Network.MainNet]: 'zil1gkwt95a67lnpe774lcmz72y6ay4jh2asmmjw6u',
   [Network.TestNet]: 'zil1rf3dm8yykryffr94rlrxfws58earfxzu5lw792',
-  // [Network.LocalHost]: '',
 }
 
 export const ZILSWAPV2_CONTRACTS: { [key in Networks]: string } = {
-  [Network.MainNet]: '',
+  [Network.MainNet]: 'zil1207cym7lldlk5xd9397aeakf5vx0q7rtqpp7zr',
   [Network.TestNet]: 'zil1207cym7lldlk5xd9397aeakf5vx0q7rtqpp7zr', // IsValidPoolContract commented out
-  // [Network.LocalHost]: '',
 }
 
 export const ARK_CONTRACTS: { [key in Networks]: string } = {
   [Network.MainNet]: '',
   [Network.TestNet]: 'zil1sgf3zpgt6qeflg053pxjwx9s9pxclx3p7s06gp',
-  // [Network.LocalHost]: '',
 }
 
 export const WZIL_CONTRACTS: { [key in Networks]: string } = {
   [Network.MainNet]: 'zil1gvr0jgwfsfmxsyx0xsnhtlte4gks6r3yk8x5fn',
   [Network.TestNet]: 'zil19hektxuaehcz50a9yhr4c9n78mfxfqxm9qa58z',
-  // [Network.LocalHost]: '',
 }
 
 export const WHITELISTED_TOKENS: { [key in Networks]: string[] } = {
@@ -55,7 +48,6 @@ export const WHITELISTED_TOKENS: { [key in Networks]: string[] } = {
     'zil1yk93f957fanapf0yszgm84p62xrxxfytj4d2tl', // SWTH
   ],
   [Network.TestNet]: [],
-  // [Network.LocalHost]: [],
 }
 
 export enum ILOState {
@@ -69,7 +61,6 @@ export enum ILOState {
 export const CHAIN_VERSIONS: { [key in Networks]: number } = {
   [Network.MainNet]: bytes.pack(1, 1),
   [Network.TestNet]: bytes.pack(333, 1),
-  // [Network.LocalHost]: bytes.pack(222, 1),
 }
 
 export const BASIS = 10000
