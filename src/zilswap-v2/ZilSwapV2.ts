@@ -448,7 +448,8 @@ export class ZilSwapV2 {
     amountBDesiredStr: string,
     amountAMinStr: string,
     amountBMinStr: string,
-    reserve_ratio_allowance: number = 5
+    vReserveLowerBound: number = 0, // default 0, need to pass in for ampPool
+    vReserveUpperBound: number = 0, // default 0, need to pass in for ampPool
   ): Promise<ObservedTx> {
     if (tokenAID === tokenBID) {
       throw new Error("Invalid Token Pair")
@@ -471,8 +472,6 @@ export class ZilSwapV2 {
     // Calculate amount of tokens added
     const reserveA = pool.contractState.reserve0
     const reserveB = pool.contractState.reserve1
-    const vReserveA = pool.contractState.v_reserve0
-    const vReserveB = pool.contractState.v_reserve1
     const amountADesired = unitlessBigNumber(amountADesiredStr)
     const amountBDesired = unitlessBigNumber(amountBDesiredStr)
     const amountAMin = unitlessBigNumber(amountAMinStr)
@@ -502,21 +501,6 @@ export class ZilSwapV2 {
     await this.checkBalance(tokenAHash, amountA)
     await this.checkBalance(tokenBHash, amountB)
 
-    // Generate contract args
-    let v_reserve_min, v_reserve_max
-    if (vReserveA === '0' && vReserveB === '0') {
-      v_reserve_min = '0'
-      v_reserve_max = '0'
-    }
-    else {
-      const q112: any = new BigNumber(2).pow(112)
-      const v_reserve_a = parseInt(vReserveA)
-      const v_reserve_b = parseInt(vReserveB)
-
-      v_reserve_min = new BigNumber((v_reserve_b / v_reserve_a) * (q112) / ((1 + reserve_ratio_allowance / 100))).toString(10)
-      v_reserve_max = new BigNumber((v_reserve_b / v_reserve_a) * (q112) * ((1 + reserve_ratio_allowance / 100))).toString(10)
-    }
-
     const deadline = this.deadlineBlock()
 
     const contract: Contract = this.contract
@@ -532,7 +516,7 @@ export class ZilSwapV2 {
         {
           "constructor": "Pair",
           "argtypes": ["Uint256", "Uint256"],
-          "arguments": [`${v_reserve_min}`, `${v_reserve_max}`]
+          "arguments": [`${vReserveLowerBound}`, `${vReserveUpperBound}`]
         }),
       this.param('deadline_block', 'BNum', `${deadline}`)
     ]
@@ -596,7 +580,8 @@ export class ZilSwapV2 {
     amountwZILDesiredStr: string,
     amountTokenMinStr: string,
     amountWZILMinStr: string,
-    reserve_ratio_allowance: number = 5
+    vReserveLowerBound: number = 0, // default 0, need to pass in for ampPool
+    vReserveUpperBound: number = 0, // default 0, need to pass in for ampPool
   ): Promise<ObservedTx> {
     // Check logged in
     this.checkAppLoadedWithUser()
@@ -614,13 +599,15 @@ export class ZilSwapV2 {
     // Calculate amount of tokens added
     const reserveA = pool.token0Reserve
     const reserveB = pool.token1Reserve
-    const vReserveA = pool.token0vReserve
-    const vReserveB = pool.token1vReserve
     const amountTokenDesired = unitlessBigNumber(amountTokenDesiredStr)
     const amountwZILDesired = unitlessBigNumber(amountwZILDesiredStr)
     const amountTokenMin = unitlessBigNumber(amountTokenMinStr)
     const amountWZILMin = unitlessBigNumber(amountWZILMinStr)
     let amountToken, amountWZIL
+
+    console.log("pool", pool)
+    console.log("reserveA", reserveA)
+    console.log("reserveB", reserveB)
 
     if (reserveA.isZero() && reserveB.isZero()) {
       amountToken = amountTokenDesired
@@ -644,19 +631,6 @@ export class ZilSwapV2 {
     await this.checkBalance(tokenHash, amountToken)
     await this.checkBalance(ZIL_HASH, amountWZIL)
 
-    // Generate contract args
-    let v_reserve_min, v_reserve_max
-    if (vReserveA.isZero() && vReserveB.isZero()) {
-      v_reserve_min = BN_ZERO
-      v_reserve_max = BN_ZERO
-    }
-    else {
-      const q112: any = new BigNumber(2).pow(112)
-
-      v_reserve_min = vReserveB.dividedToIntegerBy(vReserveA).times(q112).dividedToIntegerBy((1 + reserve_ratio_allowance / 100))
-      v_reserve_max = vReserveB.dividedToIntegerBy(vReserveA).times(q112).times((1 + reserve_ratio_allowance / 100))
-    }
-
     const deadline = this.deadlineBlock()
 
     const contract: Contract = this.contract
@@ -670,7 +644,7 @@ export class ZilSwapV2 {
         {
           "constructor": "Pair",
           "argtypes": ["Uint256", "Uint256"],
-          "arguments": [`${v_reserve_min}`, `${v_reserve_max}`]
+          "arguments": [`${vReserveLowerBound}`, `${vReserveUpperBound}`]
         }),
       this.param('deadline_block', 'BNum', `${deadline}`),
     ]
