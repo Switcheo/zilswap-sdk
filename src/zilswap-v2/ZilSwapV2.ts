@@ -2113,7 +2113,7 @@ export class ZilSwapV2 {
     requests.push({ id: '1', method: 'GetSmartContractState', params: [address], jsonrpc: '2.0' })
     const result = await sendBatchRequest(this.rpcEndpoint, requests)
     const poolState = Object.values(result).reduce((a, i) => ({ ...a, ...i }), {})
-    appState.pools[poolHash] = poolState;
+    appState.pools[poolHash] = this.constructPool(poolState, poolHash);
   }
 
   /**
