@@ -926,11 +926,11 @@ export class ZilSwapV2 {
 
     if (path.length === 1) {
       txn = {
-        transition: "SwapExactTokensForZILOnce",
+        transition: "SwapExactTokensForTokensOnce",
         args: [
           this.param('amount_in', 'Uint128', amountIn.toString()),
           this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
-          this.param('pool', 'ByStr20', path[0]),
+          this.param('pool', 'ByStr20', path[0].poolHash),
           this.param('path', 'Pair ByStr20 ByStr20', {
             "constructor": "Pair",
             "argtypes": ["ByStr20", "ByStr20"],
@@ -946,7 +946,7 @@ export class ZilSwapV2 {
     }
     else if (path.length === 2) {
       txn = {
-        transition: "SwapExactTokensForZILTwice",
+        transition: "SwapExactTokensForTokensTwice",
         args: [
           this.param('amount_in', 'Uint128', amountIn.toString()),
           this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
@@ -966,7 +966,7 @@ export class ZilSwapV2 {
     }
     else if (path.length === 3) {
       txn = {
-        transition: "SwapExactTokensForZILThrice",
+        transition: "SwapExactTokensForTokensThrice",
         args: [
           this.param('amount_in', 'Uint128', amountIn.toString()),
           this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
@@ -1051,7 +1051,7 @@ export class ZilSwapV2 {
 
     if (path.length === 1) {
       txn = {
-        transition: "SwapTokensForExactZILOnce",
+        transition: "SwapTokensForExactTokensOnce",
         args: [
           this.param('amount_out', 'Uint128', amountOut.toString()),
           this.param('amount_in_max', 'Uint128', amountInMax.toString()),
@@ -1071,7 +1071,7 @@ export class ZilSwapV2 {
     }
     else if (path.length === 2) {
       txn = {
-        transition: "SwapTokensForExactZILTwice",
+        transition: "SwapTokensForExactTokensTwice",
         args: [
           this.param('amount_out', 'Uint128', amountOut.toString()),
           this.param('amount_in_max', 'Uint128', amountInMax.toString()),
@@ -1091,7 +1091,7 @@ export class ZilSwapV2 {
     }
     else if (path.length === 3) {
       txn = {
-        transition: "SwapTokensForExactZILThrice",
+        transition: "SwapTokensForExactTokensThrice",
         args: [
           this.param('amount_out', 'Uint128', amountOut.toString()),
           this.param('amount_in_max', 'Uint128', amountInMax.toString()),
@@ -1410,6 +1410,8 @@ export class ZilSwapV2 {
       } else if (prevPair && token1 === prevPair[1]) {
         [tokenIn, tokenOut] = [token1, token0];
       }
+
+      accum.push([tokenIn, tokenOut])
 
       return accum;
     }, [] as [string, string][]);
