@@ -108,7 +108,6 @@ export type Pool = {
   token0Address: string
   token1Address: string
   ampBps: BigNumber
-  feeBps: BigNumber
 
   token0Reserve: BigNumber
   token1Reserve: BigNumber
@@ -1973,8 +1972,6 @@ export class ZilSwapV2 {
     const exchangeRate = token0Reserve.times(ampBps).dividedBy(token1Reserve) // token0/ token1
     const totalContribution = new BigNumber(poolState.total_supply)
 
-    const feeBps = this.getFee(poolState.r_factor_in_precision)
-
     const pool: Pool = {
       poolAddress: toBech32Address(poolHash),
       poolHash,
@@ -1982,7 +1979,6 @@ export class ZilSwapV2 {
       token0Address: toBech32Address(token0),
       token1Address: toBech32Address(token1),
       ampBps,
-      feeBps,
 
       token0Reserve,
       token1Reserve,
