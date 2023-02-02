@@ -538,11 +538,6 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    // // Localhost
-    // await this.updateSinglePoolState(poolHash)
-    // await this.updateZILBalanceAndNonce()
-    // return addLiquidityTxn
-
     return observeTxn
   }
 
@@ -659,11 +654,6 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    // // Localhost
-    // await this.updateSinglePoolState(poolHash)
-    // await this.updateZILBalanceAndNonce()
-    // return addLiquidityZilTxn
-
     return observeTxn
   }
 
@@ -751,11 +741,6 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    // // Localhost
-    // await this.updateSinglePoolState(poolHash)
-    // await this.updateZILBalanceAndNonce()
-    // return removeLiquidityTxn
-
     return observeTxn
   }
 
@@ -835,29 +820,21 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    // // Localhost
-    // await this.updateSinglePoolState(poolHash)
-    // await this.updateZILBalanceAndNonce()
-    // return removeLiquidityZilTxn
-
     return observeTxn
   }
 
   /**
-   * Swaps ZRC-2 token with `tokenInID` for a corresponding ZIL.
-   *
-   * The exact amount of ZIL to be sent in (sold) is `amountInStr`. The SDK determines the path that returns the most token output
-   * and calls the corresponding transition `SwapExactTokensForZILOnce`, `SwapExactTokensForZILTwice`, `SwapExactTokensForZILThrice` on 
-   * on the router.The amount received is determined by the contract. A maximum of swaps over 3 pools are allowed
+   * Swaps an exact amount of ZRC-2 token with `tokenInID` for another ZRC-2 token.
+   * 
+   * Depending on the path provided, the SDK calls the corresponding transition `SwapExactTokensForTokensOnce`, 
+   * `SwapExactTokensForTokensTwice`, `SwapExactTokensForTokensThrice` on the router. A maximum of swaps over 3 pools are allowed
    *
    * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
    * 
-   * Note that tokenOutID should be that of wZIL.
-   * 
    * Note that all amounts should be given without decimals, as a unitless integer.
    *
+   * @param path is the array of Pool structs representing the pool path
    * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
-   * @param tokenOutID is the wZIL ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param amountInStr is the exact amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
    * @param amountOutStr is the amount of ZRC-2 tokens users expect to receive from the pool as a unitless string (integer, no decimals).
    * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
@@ -969,20 +946,17 @@ export class ZilSwapV2 {
   }
 
   /**
-   * Swaps ZRC-2 token with `tokenInID` for a corresponding ZIL.
+   * Swaps some ZRC-2 token with `tokenInID` for an exact amount of ZRC-2 token.
    *
-   * The exact amount of ZRC-2 to be received (bought) is `amountOutStr`. The SDK determines the path that returns the most token output
-   * and calls the corresponding transition `SwapTokensForExactZILOnce`, `SwapTokensForExactZILTwice`, `SwapTokensForExactZILThrice` on 
-   * on the router.The amount sold is determined by the contract. A maximum of swaps over 3 pools are allowed
+   * Depending on the path provided, the SDK calls the corresponding transition `SwapTokensForExactTokensOnce`, 
+   * `SwapTokensForExactTokensTwice`, `SwapTokensForExactTokensThrice` on the router. A maximum of swaps over 3 pools are allowed
    *
    * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
    * 
-   * Note that tokenOutID should be that of wZIL.
-   * 
    * Note that all amounts should be given without decimals, as a unitless integer.
    *
+   * @param path is the array of Pool structs representing the pool path
    * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
-   * @param tokenOutID is the wZIL ID to be taken from pool (bought), which can be given by either hash (0x...) or bech32 address (zil...).
    * @param amountInStr is the amount of ZRC-2 tokens users expect to add to the pool as a unitless string (integer, no decimals).
    * @param amountOutStr is the exact amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
    * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
@@ -1079,16 +1053,132 @@ export class ZilSwapV2 {
       throw new Error("Please try again. Or increase slippage")
     }
 
+    const swapTokensForExactTokensTxn = await this.callContract(this.contract, txn.transition, txn.args, txn.params, true)
+    if (swapTokensForExactTokensTxn.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
+    }
+
+    const observeTxn = {
+      hash: swapTokensForExactTokensTxn.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
+
+    return observeTxn
+  }
+
+  /**
+   * Swaps an exact amount of ZRC-2 token with `tokenInID` for ZIL.
+   * 
+   * Depending on the path provided, the SDK calls the corresponding transition `SwapExactTokensForZILOnce`, 
+   * `SwapExactTokensForZILTwice`, `SwapExactTokensForZILThrice` on the router. A maximum of swaps over 3 pools are allowed
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param path is the array of Pool structs representing the pool path
+   * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInStr is the exact amount of ZRC-2 tokens to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutStr is the amount of ZIL users expect to receive from the pool as a unitless string (integer, no decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
+   * transition will allow before reverting.
+   */
+  public async swapExactTokensForZIL(
+    path: Pool[],
+    tokenInID: string,
+    amountInStr: string,
+    amountOutStr: string,
+    maxAdditionalSlippage: number = 200,
+  ): Promise<ObservedTx> {
+    if (!path.length)
+      throw new Error("Invalid swap path");
+
+    this.checkAppLoadedWithUser()
+
+    const amountOutMin = unitlessBigNumber(amountOutStr).times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
+    const amountIn = unitlessBigNumber(amountInStr)
+    if (amountOutMin.isLessThan(0) || amountIn.isLessThan(0)) { throw new Error("Invalid amountOutMin or amountIn") }
+
+    const tokenInHash = this.getHash(tokenInID);
+    const tokenPath = this.getTokenPath(path, tokenInHash);
+
+    // Check Balance and Allowance
+    await this.checkAllowance(tokenInHash, amountIn)
+    await this.checkBalance(tokenInHash, amountIn)
+
+    const deadline = this.deadlineBlock()
+
+    let txn: { transition: string; args: Value[]; params: CallParams }
+
+    if (path.length === 1) {
+      txn = {
+        transition: "SwapExactTokensForZILOnce",
+        args: [
+          this.param('amount_in', 'Uint128', amountIn.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          this.param('pool', 'ByStr20', path[0].poolHash),
+          this.param('path', 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${tokenPath[0][0]}`, `${tokenPath[0][1]}`]
+          }),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(0),
+          ...this.txParams()
+        },
+      }
+    }
+    else if (path.length === 2) {
+      txn = {
+        transition: "SwapExactTokensForZILTwice",
+        args: [
+          this.param('amount_in', 'Uint128', amountIn.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          ...path.map((p, i) => this.param(`pool${i + 1}`, 'ByStr20', p.poolHash)),
+          ...tokenPath.map(([t0, t1], i) => this.param(`path${i + 1}`, 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${t0}`, `${t1}`]
+          })),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(0),
+          ...this.txParams()
+        },
+      }
+    }
+    else if (path.length === 3) {
+      txn = {
+        transition: "SwapExactTokensForZILThrice",
+        args: [
+          this.param('amount_in', 'Uint128', amountIn.toString()),
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          ...path.map((p, i) => this.param(`pool${i + 1}`, 'ByStr20', p.poolHash)),
+          ...tokenPath.map(([t0, t1], i) => this.param(`path${i + 1}`, 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${t0}`, `${t1}`]
+          })),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(0),
+          ...this.txParams()
+        }
+      }
+    }
+    else {
+      throw new Error("Please try again. Or increase slippage")
+    }
+
     const swapTokensForExactZILTxn = await this.callContract(this.contract, txn.transition, txn.args, txn.params, true)
     if (swapTokensForExactZILTxn.isRejected()) {
       throw new Error('Submitted transaction was rejected.')
     }
-
-    // // Localhost
-    // for (var pool of poolPath) {
-    //   await this.updateSinglePoolState(pool)
-    // }
-    // await this.updateZILBalanceAndNonce()
 
     const observeTxn = {
       hash: swapTokensForExactZILTxn.id!,
@@ -1096,8 +1186,365 @@ export class ZilSwapV2 {
     }
     await this.observeTx(observeTxn)
 
-    // // Localhost
-    // return swapTokensForExactZILTxn
+    return observeTxn
+  }
+
+  /**
+   * Swaps some ZRC-2 token with `tokenInID` for an exact amount of ZIL.
+   *
+   * Depending on the path provided, the SDK calls the corresponding transition `SwapTokensForExactZILOnce`, 
+   * `SwapTokensForExactZILTwice`, `SwapTokensForExactZILThrice` on the router. A maximum of swaps over 3 pools are allowed
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param path is the array of Pool structs representing the pool path
+   * @param tokenInID is the token ID to be sent to pool (sold), which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInStr is the amount of ZRC-2 tokens users expect to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutStr is the exact amount of ZIL to receive from the pool as a unitless string (integer, no decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
+   * transition will allow before reverting.
+   */
+  public async swapTokensForExactZIL(
+    path: Pool[],
+    tokenInID: string,
+    amountInStr: string,
+    amountOutStr: string,
+    maxAdditionalSlippage: number = 200,
+  ): Promise<ObservedTx> {
+    if (!path.length)
+      throw new Error("Invalid swap path");
+
+    this.checkAppLoadedWithUser()
+
+    const amountInMax = unitlessBigNumber(amountInStr).times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
+    const amountOut = unitlessBigNumber(amountOutStr)
+    if (amountInMax.isLessThan(0) || amountOut.isLessThan(0)) { throw new Error("Invalid amountInMax or amountOut") }
+
+    const tokenInHash = this.getHash(tokenInID);
+    const tokenPath = this.getTokenPath(path, tokenInHash);
+
+    // Check Balance and Allowance
+    await this.checkAllowance(tokenInHash, amountInMax)
+    await this.checkBalance(tokenInHash, amountInMax)
+
+    const deadline = this.deadlineBlock()
+
+    let txn: { transition: string; args: Value[]; params: CallParams }
+
+    if (path.length === 1) {
+      txn = {
+        transition: "SwapTokensForExactZILOnce",
+        args: [
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
+          this.param('pool', 'ByStr20', path[0].poolHash),
+          this.param('path', 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${tokenPath[0][0]}`, `${tokenPath[0][1]}`]
+          }),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(0),
+          ...this.txParams()
+        },
+      }
+    }
+    else if (path.length === 2) {
+      txn = {
+        transition: "SwapTokensForExactZILTwice",
+        args: [
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
+          ...path.map((p, i) => this.param(`pool${i + 1}`, 'ByStr20', p.poolHash)),
+          ...tokenPath.map(([t0, t1], i) => this.param(`path${i + 1}`, 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${t0}`, `${t1}`]
+          })),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(0),
+          ...this.txParams()
+        },
+      }
+    }
+    else if (path.length === 3) {
+      txn = {
+        transition: "SwapTokensForExactZILThrice",
+        args: [
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          this.param('amount_in_max', 'Uint128', amountInMax.toString()),
+          ...path.map((p, i) => this.param(`pool${i + 1}`, 'ByStr20', p.poolHash)),
+          ...tokenPath.map(([t0, t1], i) => this.param(`path${i + 1}`, 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${t0}`, `${t1}`]
+          })),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(0),
+          ...this.txParams()
+        }
+      }
+    }
+    else {
+      throw new Error("Please try again. Or increase slippage")
+    }
+
+    const swapTokensForExactZILTxn = await this.callContract(this.contract, txn.transition, txn.args, txn.params, true)
+    if (swapTokensForExactZILTxn.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
+    }
+
+    const observeTxn = {
+      hash: swapTokensForExactZILTxn.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
+
+    return observeTxn
+  }
+
+  /**
+   * Swaps an exact amount of ZIL for for another ZRC-2 token.
+   * 
+   * Depending on the path provided, the SDK calls the corresponding transition `SwapExactZILForTokensOnce`, 
+   * `SwapExactZILForTokensTwice`, `SwapExactZILForTokensThrice` on the router. A maximum of swaps over 3 pools are allowed
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that tokenInID must be that of wZIL.
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param path is the array of Pool structs representing the pool path
+   * @param tokenInID is the token ID of wZIL, which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInStr is the exact amount of ZIL to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutStr is the amount of ZRC-2 tokens users expect to receive from the pool as a unitless string (integer, no decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
+   * transition will allow before reverting.
+   */
+  public async swapExactZILForTokens(
+    path: Pool[],
+    tokenInID: string,
+    amountInStr: string,
+    amountOutStr: string,
+    maxAdditionalSlippage: number = 200,
+  ): Promise<ObservedTx> {
+    if (!path.length)
+      throw new Error("Invalid swap path");
+
+    this.checkAppLoadedWithUser()
+
+    const amountOutMin = unitlessBigNumber(amountOutStr).times(BASIS).dividedToIntegerBy(BASIS + maxAdditionalSlippage)
+    const amountIn = unitlessBigNumber(amountInStr)
+    if (amountOutMin.isLessThan(0) || amountIn.isLessThan(0)) { throw new Error("Invalid amountOutMin or amountIn") }
+
+    const tokenInHash = this.getHash(tokenInID);
+    const tokenPath = this.getTokenPath(path, tokenInHash);
+
+    // Check Balance
+    await this.checkBalance(ZIL_HASH, amountIn)
+
+    const deadline = this.deadlineBlock()
+
+    let txn: { transition: string; args: Value[]; params: CallParams }
+
+    if (path.length === 1) {
+      txn = {
+        transition: "SwapExactZILForTokensOnce",
+        args: [
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          this.param('pool', 'ByStr20', path[0].poolHash),
+          this.param('path', 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${tokenPath[0][0]}`, `${tokenPath[0][1]}`]
+          }),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(amountIn.toString(10)),
+          ...this.txParams()
+        },
+      }
+    }
+    else if (path.length === 2) {
+      txn = {
+        transition: "SwapExactZILForTokensTwice",
+        args: [
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          ...path.map((p, i) => this.param(`pool${i + 1}`, 'ByStr20', p.poolHash)),
+          ...tokenPath.map(([t0, t1], i) => this.param(`path${i + 1}`, 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${t0}`, `${t1}`]
+          })),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(amountIn.toString(10)),
+          ...this.txParams()
+        },
+      }
+    }
+    else if (path.length === 3) {
+      txn = {
+        transition: "SwapExactZILForTokensThrice",
+        args: [
+          this.param('amount_out_min', 'Uint128', amountOutMin.toString()),
+          ...path.map((p, i) => this.param(`pool${i + 1}`, 'ByStr20', p.poolHash)),
+          ...tokenPath.map(([t0, t1], i) => this.param(`path${i + 1}`, 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${t0}`, `${t1}`]
+          })),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(amountIn.toString(10)),
+          ...this.txParams()
+        }
+      }
+    }
+    else {
+      throw new Error("Please try again. Or increase slippage")
+    }
+
+    const swapExactZILForTokensTxn = await this.callContract(this.contract, txn.transition, txn.args, txn.params, true)
+    if (swapExactZILForTokensTxn.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
+    }
+
+    const observeTxn = {
+      hash: swapExactZILForTokensTxn.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
+
+    return observeTxn
+  }
+
+  /**
+   * Swaps some ZRC-2 token with `tokenInID` for an exact amount of ZIL.
+   *
+   * Depending on the path provided, the SDK calls the corresponding transition `SwapZILForExactTokensOnce`, 
+   * `SwapZILForExactTokensTwice`, `SwapZILForExactTokensThrice` on the router. A maximum of swaps over 3 pools are allowed
+   *
+   * The transaction is added to the list of observedTxs, and the observer will be notified on change in tx status.
+   * 
+   * Note that tokenInID must be that of wZIL.
+   * Note that all amounts should be given without decimals, as a unitless integer.
+   *
+   * @param path is the array of Pool structs representing the pool path
+   * @param tokenInID is the token ID of wZIL, which can be given by either hash (0x...) or bech32 address (zil...).
+   * @param amountInStr is the amount of ZIL users expect to add to the pool as a unitless string (integer, no decimals).
+   * @param amountOutStr is the exact amount of ZRC-2 tokens to receive from the pool as a unitless string (integer, no decimals).
+   * @param maxAdditionalSlippage is the maximum additional slippage (on top of slippage due to formula used by contract) that the
+   * transition will allow before reverting.
+   */
+  public async swapZILForExactTokens(
+    path: Pool[],
+    tokenInID: string,
+    amountInStr: string,
+    amountOutStr: string,
+    maxAdditionalSlippage: number = 200,
+  ): Promise<ObservedTx> {
+    if (!path.length)
+      throw new Error("Invalid swap path");
+
+    this.checkAppLoadedWithUser()
+
+    const amountInMax = unitlessBigNumber(amountInStr).times(BASIS + maxAdditionalSlippage).dividedToIntegerBy(BASIS)
+    const amountOut = unitlessBigNumber(amountOutStr)
+    if (amountInMax.isLessThan(0) || amountOut.isLessThan(0)) { throw new Error("Invalid amountInMax or amountOut") }
+
+    const tokenInHash = this.getHash(tokenInID);
+    const tokenPath = this.getTokenPath(path, tokenInHash);
+
+    // Check Balance
+    await this.checkBalance(ZIL_HASH, amountInMax)
+
+    const deadline = this.deadlineBlock()
+
+    let txn: { transition: string; args: Value[]; params: CallParams }
+
+    if (path.length === 1) {
+      txn = {
+        transition: "SwapZILForExactTokensOnce",
+        args: [
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          this.param('pool', 'ByStr20', path[0].poolHash),
+          this.param('path', 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${tokenPath[0][0]}`, `${tokenPath[0][1]}`]
+          }),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(amountInMax.toString(10)),
+          ...this.txParams()
+        },
+      }
+    }
+    else if (path.length === 2) {
+      txn = {
+        transition: "SwapZILForExactTokensTwice",
+        args: [
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          ...path.map((p, i) => this.param(`pool${i + 1}`, 'ByStr20', p.poolHash)),
+          ...tokenPath.map(([t0, t1], i) => this.param(`path${i + 1}`, 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${t0}`, `${t1}`]
+          })),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(amountInMax.toString(10)),
+          ...this.txParams()
+        },
+      }
+    }
+    else if (path.length === 3) {
+      txn = {
+        transition: "SwapZILForExactTokensThrice",
+        args: [
+          this.param('amount_out', 'Uint128', amountOut.toString()),
+          ...path.map((p, i) => this.param(`pool${i + 1}`, 'ByStr20', p.poolHash)),
+          ...tokenPath.map(([t0, t1], i) => this.param(`path${i + 1}`, 'Pair ByStr20 ByStr20', {
+            "constructor": "Pair",
+            "argtypes": ["ByStr20", "ByStr20"],
+            "arguments": [`${t0}`, `${t1}`]
+          })),
+          this.param('deadline_block', 'BNum', `${deadline}`),
+        ],
+        params: {
+          amount: new BN(amountInMax.toString(10)),
+          ...this.txParams()
+        }
+      }
+    }
+    else {
+      throw new Error("Please try again. Or increase slippage")
+    }
+
+    const swapZILForExactTokensTxn = await this.callContract(this.contract, txn.transition, txn.args, txn.params, true)
+    if (swapZILForExactTokensTxn.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
+    }
+
+    const observeTxn = {
+      hash: swapZILForExactTokensTxn.id!,
+      deadline,
+    }
+    await this.observeTx(observeTxn)
 
     return observeTxn
   }
@@ -1385,7 +1832,7 @@ export class ZilSwapV2 {
     return tokenPath;
   }
 
-  private findSwapPathIn(swapPath: [Pool, boolean][], tokenInHash: string, tokenOutHash: string, tokenAmountIn: BigNumber, poolStepsLeft: number): { swapPath: [Pool, boolean][] | null, expectedAmount: BigNumber } {
+  public findSwapPathIn(swapPath: [Pool, boolean][], tokenInHash: string, tokenOutHash: string, tokenAmountIn: BigNumber, poolStepsLeft: number): { swapPath: [Pool, boolean][] | null, expectedAmount: BigNumber } {
     const { pools } = this.getAppState();
     const poolsPath = swapPath.map(s => s[0]);
 
@@ -1425,7 +1872,7 @@ export class ZilSwapV2 {
     return { swapPath: bestPath, expectedAmount: bestAmount };
   }
 
-  private findSwapPathOut(swapPath: [Pool, boolean][], tokenInHash: string, tokenOutHash: string, tokenAmountOut: BigNumber, poolStepsLeft: number): { swapPath: [Pool, boolean][] | null, expectedAmount: BigNumber } {
+  public findSwapPathOut(swapPath: [Pool, boolean][], tokenInHash: string, tokenOutHash: string, tokenAmountOut: BigNumber, poolStepsLeft: number): { swapPath: [Pool, boolean][] | null, expectedAmount: BigNumber } {
     const { pools } = this.getAppState();
     const poolsPath = swapPath.map(s => s[0]);
 
