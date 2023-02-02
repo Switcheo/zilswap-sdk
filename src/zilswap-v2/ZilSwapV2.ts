@@ -448,8 +448,8 @@ export class ZilSwapV2 {
     amountBDesiredStr: string,
     amountAMinStr: string,
     amountBMinStr: string,
-    vReserveLowerBound: number = 0, // default 0, need to pass in for ampPool
-    vReserveUpperBound: number = 0, // default 0, need to pass in for ampPool
+    vReserveLowerBound: string = '0', // default 0, need to pass in for ampPool
+    vReserveUpperBound: string = '0', // default 0, need to pass in for ampPool
   ): Promise<ObservedTx> {
     if (tokenAID === tokenBID) {
       throw new Error("Invalid Token Pair")
@@ -580,14 +580,11 @@ export class ZilSwapV2 {
     amountwZILDesiredStr: string,
     amountTokenMinStr: string,
     amountWZILMinStr: string,
-    vReserveLowerBound: number = 0, // default 0, need to pass in for ampPool
-    vReserveUpperBound: number = 0, // default 0, need to pass in for ampPool
+    vReserveLowerBound: string = '0', // default 0, need to pass in for ampPool
+    vReserveUpperBound: string = '0', // default 0, need to pass in for ampPool
   ): Promise<ObservedTx> {
     // Check logged in
     this.checkAppLoadedWithUser()
-
-    // // Localhost
-    // await this.updateBlockHeight()
 
     const tokenHash = this.getHash(tokenID)
     const poolHash = this.getHash(poolID)
@@ -604,10 +601,6 @@ export class ZilSwapV2 {
     const amountTokenMin = unitlessBigNumber(amountTokenMinStr)
     const amountWZILMin = unitlessBigNumber(amountWZILMinStr)
     let amountToken, amountWZIL
-
-    console.log("pool", pool)
-    console.log("reserveA", reserveA)
-    console.log("reserveB", reserveB)
 
     if (reserveA.isZero() && reserveB.isZero()) {
       amountToken = amountTokenDesired

@@ -47,6 +47,26 @@ const waitForTx = async () => {
   })
 }
 
+const getvReserverBounds = (poolHash: string): { vReserveMin: string, vReserveMax: string } => {
+  const pools = zilswap.getPools()
+  const pool = pools[poolHash]
+
+  let vReserveA = parseInt(pool.contractState.v_reserve0)
+  let vReserveB = parseInt(pool.contractState.v_reserve1)
+
+  let vReserveMin, vReserveMax;
+  if (vReserveA === 0 && vReserveB === 0) {
+    vReserveMin = '0'
+    vReserveMax = '0'
+  }
+  else {
+    const q112: any = new BigNumber(2).pow(112)
+    vReserveMin = new BigNumber((vReserveB / vReserveA) * q112 / 1.05).toString(10)
+    vReserveMax = new BigNumber((vReserveB / vReserveA) * q112 * 1.05).toString(10)
+  }
+  return { vReserveMin, vReserveMax }
+}
+
 const test = async () => {
   const privateKey = process.env.PRIVATE_KEY!
   const owner = getAddressFromPrivateKey(privateKey).toLowerCase()
@@ -83,16 +103,16 @@ const test = async () => {
       await waitForTx()
     }
 
-    // // add liquidity
-    // tx = await zilswap.addLiquidity(swthHash, hunyHash, pool1Hash, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', 5)
-    // console.log(`\ntx hash: ${tx.hash}\n`)
-    // await waitForTx()
-    // tx = await zilswap.addLiquidityZIL(swthHash, pool2Hash, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', 5)
-    // console.log(`\ntx hash: ${tx.hash}\n`)
-    // await waitForTx()
-    // tx = await zilswap.addLiquidityZIL(hunyHash, pool3Hash, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', 5)
-    // console.log(`\ntx hash: ${tx.hash}\n`)
-    // await waitForTx()
+    // add liquidity
+    tx = await zilswap.addLiquidity(swthHash, hunyHash, pool1Hash, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', getvReserverBounds(pool1Hash).vReserveMin, getvReserverBounds(pool1Hash).vReserveMax)
+    console.log(`\ntx hash: ${tx.hash}\n`)
+    await waitForTx()
+    tx = await zilswap.addLiquidityZIL(swthHash, pool2Hash, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', getvReserverBounds(pool2Hash).vReserveMin, getvReserverBounds(pool2Hash).vReserveMax)
+    console.log(`\ntx hash: ${tx.hash}\n`)
+    await waitForTx()
+    tx = await zilswap.addLiquidityZIL(hunyHash, pool3Hash, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', getvReserverBounds(pool3Hash).vReserveMin, getvReserverBounds(pool3Hash).vReserveMax)
+    console.log(`\ntx hash: ${tx.hash}\n`)
+    await waitForTx()
 
     // swap
     // const r1 = await zilswap.getOutputForExactInput(swthHash, hunyHash, new BigNumber(amountIn).toString(), new BigNumber(amountOutMin).toString())
@@ -154,19 +174,19 @@ const test = async () => {
       await waitForTx()
     }
 
-    // // remove liquidity
-    // const pool1Liquidity = (await getContract(pool1Hash).getState()).balances[owner]
-    // const pool2Liquidity = (await getContract(pool2Hash).getState()).balances[owner]
-    // const pool3Liquidity = (await getContract(pool3Hash).getState()).balances[owner]
-    // tx = await zilswap.removeLiquidity(swthHash, hunyHash, pool3Hash, pool1Liquidity, '0', '0')
-    // console.log(`\ntx hash: ${tx.hash}\n`)
-    // await waitForTx()
-    // tx = await zilswap.removeLiquidityZIL(swthHash, pool2Hash, pool2Liquidity, '0', '0')
-    // console.log(`\ntx hash: ${tx.hash}\n`)
-    // await waitForTx()
-    // tx = await zilswap.removeLiquidityZIL(hunyHash, pool3Hash, pool3Liquidity, '0', '0')
-    // console.log(`\ntx hash: ${tx.hash}\n`)
-    // await waitForTx()
+    // remove liquidity
+    const pool1Liquidity = (await getContract(pool1Hash).getState()).balances[owner]
+    const pool2Liquidity = (await getContract(pool2Hash).getState()).balances[owner]
+    const pool3Liquidity = (await getContract(pool3Hash).getState()).balances[owner]
+    tx = await zilswap.removeLiquidity(swthHash, hunyHash, pool1Hash, pool1Liquidity, '0', '0')
+    console.log(`\ntx hash: ${tx.hash}\n`)
+    await waitForTx()
+    tx = await zilswap.removeLiquidityZIL(swthHash, pool2Hash, pool2Liquidity, '0', '0')
+    console.log(`\ntx hash: ${tx.hash}\n`)
+    await waitForTx()
+    tx = await zilswap.removeLiquidityZIL(hunyHash, pool3Hash, pool3Liquidity, '0', '0')
+    console.log(`\ntx hash: ${tx.hash}\n`)
+    await waitForTx()
   }
   finally {
     await zilswap.teardown()
