@@ -8,7 +8,7 @@ import { BN, Long, units } from '@zilliqa-js/util'
 import { BigNumber } from 'bignumber.js'
 import { Mutex } from 'async-mutex'
 
-import { APIS, WSS, CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH, WHITELISTED_TOKENS } from './constants'
+import { APIS, WSS, ZILSWAPV1_CONTRACTS, CHAIN_VERSIONS, BASIS, Network, ZIL_HASH, WHITELISTED_TOKENS } from './constants'
 import { unitlessBigNumber, toPositiveQa, isLocalStorageAvailable } from './utils'
 import { sendBatchRequest, BatchRequest } from './batch'
 import { Zilo, OnStateUpdate } from './zilo'
@@ -147,7 +147,7 @@ export class Zilswap {
       this.zilliqa = new Zilliqa(this.rpcEndpoint)
     }
 
-    this.contractAddress = CONTRACTS[network]
+    this.contractAddress = ZILSWAPV1_CONTRACTS[network]
     this.contract = (this.walletProvider || this.zilliqa).contracts.at(this.contractAddress)
     this.contractHash = fromBech32Address(this.contractAddress).toLowerCase()
     this.tokens = {}

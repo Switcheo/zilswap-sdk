@@ -16,14 +16,24 @@ export const WSS: { [key in Networks]: string } = {
   [Network.TestNet]: 'wss://dev-ws.zilliqa.com',
 }
 
-export const CONTRACTS: { [key in Networks]: string } = {
+export const ZILSWAPV1_CONTRACTS: { [key in Networks]: string } = {
   [Network.MainNet]: 'zil1gkwt95a67lnpe774lcmz72y6ay4jh2asmmjw6u',
   [Network.TestNet]: 'zil1rf3dm8yykryffr94rlrxfws58earfxzu5lw792',
+}
+
+export const ZILSWAPV2_CONTRACTS: { [key in Networks]: string } = {
+  [Network.MainNet]: 'zil1207cym7lldlk5xd9397aeakf5vx0q7rtqpp7zr',
+  [Network.TestNet]: 'zil1207cym7lldlk5xd9397aeakf5vx0q7rtqpp7zr', // IsValidPoolContract commented out
 }
 
 export const ARK_CONTRACTS: { [key in Networks]: string } = {
   [Network.MainNet]: '',
   [Network.TestNet]: 'zil1sgf3zpgt6qeflg053pxjwx9s9pxclx3p7s06gp',
+}
+
+export const WZIL_CONTRACTS: { [key in Networks]: string } = {
+  [Network.MainNet]: 'zil1gvr0jgwfsfmxsyx0xsnhtlte4gks6r3yk8x5fn',
+  [Network.TestNet]: 'zil19hektxuaehcz50a9yhr4c9n78mfxfqxm9qa58z',
 }
 
 export const WHITELISTED_TOKENS: { [key in Networks]: string[] } = {
