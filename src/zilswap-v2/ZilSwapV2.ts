@@ -13,7 +13,13 @@ import { BatchRequest, sendBatchRequest } from '../batch'
 import { APIS, BASIS, CHAIN_VERSIONS, Network, WSS, ZILSWAPV2_CONTRACTS, ZIL_HASH } from '../constants'
 import { isLocalStorageAvailable, toPositiveQa, unitlessBigNumber } from '../utils'
 import { OnStateUpdate, Zilo } from '../zilo'
-import { compile, LONG_ALPHA, PRECISION, SHORT_ALPHA } from './utils'
+import { LONG_ALPHA, PRECISION, SHORT_ALPHA } from './utils'
+
+import POOL_CODE from "./contracts/ZilSwapPool.scilla"
+
+declare module '*.scilla' {}
+
+export { Network }
 
 BigNumber.config({ EXPONENTIAL_AT: 1e9 }) // never!
 
@@ -116,7 +122,7 @@ export type Pool = {
   token1vReserve: BigNumber
 
   exchangeRate: BigNumber // the zero slippage exchange rate
-  totalContribution: BigNumber
+  totalSupply: BigNumber
 
   contractState: PoolState
 }
@@ -304,7 +310,6 @@ export class ZilSwapV2 {
     const name = `ZilSwap V2 ${pair} LP Token`
     const symbol = `ZWAPv2LP.${pair}`
 
-    const file = `./src/zilswap-v2/contracts/ZilSwapPool.scilla`
     const init = [
       this.param('_scilla_version', 'Uint32', '0'),
       this.param('init_token0', 'ByStr20', token0Hash),
@@ -319,7 +324,7 @@ export class ZilSwapV2 {
     ];
 
     // Deploy pool
-    const pool = await this.deployContract(file, init)
+    const pool = await this.deployPoolContract(init)
 
     // Add pool
     const tx = await this.addPool(pool.address!.toLowerCase())
@@ -358,7 +363,6 @@ export class ZilSwapV2 {
     const name = `ZilSwap V2 ${pair} LP Token`
     const symbol = `ZWAPv2LP.${pair}`
 
-    const file = `./src/zilswap-v2/contracts/ZilSwapPool.scilla`
     const init = [
       this.param('_scilla_version', 'Uint32', '0'),
       this.param('init_token0', 'ByStr20', token0Hash),
@@ -373,7 +377,7 @@ export class ZilSwapV2 {
     ];
 
     // Call deployContract
-    const pool = await this.deployContract(file, init)
+    const pool = await this.deployPoolContract(init)
     return pool
   }
 
@@ -1723,11 +1727,10 @@ export class ZilSwapV2 {
     return expectedAmount.toString()
   }
 
-  private async deployContract(file: string, init: Value[]) {
+  private async deployPoolContract(init: Value[]) {
     console.log("Deploying ZilSwapV2Pool...")
     console.log(init)
-    const code = await compile(file)
-    const contract = this.zilliqa.contracts.new(code, init)
+    const contract = this.zilliqa.contracts.new(POOL_CODE, init)
     const [deployTx, state] = await contract.deployWithoutConfirm(this._txParams, false)
 
     // Check for txn acceptance
@@ -1746,7 +1749,7 @@ export class ZilSwapV2 {
           const errorMsgList = errors[depth].map((num: any) => TransactionError[num])
           return { ...acc, [depth]: errorMsgList }
         }, {}))
-      const error = `Failed to deploy contract at ${file}!\n${errMsgs}`
+      const error = `Failed to deploy contract\n${errMsgs}`
       throw new Error(error)
     }
 
@@ -1844,9 +1847,9 @@ export class ZilSwapV2 {
     let bestPath: [Pool, boolean][] | null = null;
     for (const pool of optionPools) {
       const isSameOrder = pool.contractState.token0 === tokenInHash;
-      const newPath = swapPath.concat([pool, isSameOrder]);
+      const newPath = swapPath.concat([[pool, isSameOrder]]);
       const [poolTokenIn, poolTokenOut] = isSameOrder ? [pool.contractState.token0, pool.contractState.token1] : [pool.contractState.token1, pool.contractState.token0];
-      const foundEndPool = poolTokenOut !== tokenOutHash;
+      const foundEndPool = poolTokenOut === tokenOutHash;
 
       if (!foundEndPool && poolStepsLeft - 1 <= 0) {
         continue;
@@ -1859,7 +1862,6 @@ export class ZilSwapV2 {
           bestPath = newPath;
           bestAmount = expAmount;
         }
-        // else ignore
       } else {
         const { swapPath, expectedAmount } = this.findSwapPathIn(newPath, poolTokenOut, tokenOutHash, expAmount, poolStepsLeft - 1);
         if (swapPath && expectedAmount.gt(bestAmount)) {
@@ -1868,6 +1870,8 @@ export class ZilSwapV2 {
         }
       }
     }
+
+    console.log("xx path", bestPath, bestAmount.toString(10))
 
     return { swapPath: bestPath, expectedAmount: bestAmount };
   }
@@ -1899,7 +1903,7 @@ export class ZilSwapV2 {
           bestPath = newPath;
           bestAmount = expAmount;
         }
-        // else ignore
+        break;
       } else {
         const { swapPath, expectedAmount } = this.findSwapPathOut(newPath, tokenInHash, poolTokenIn, expAmount, poolStepsLeft - 1);
         if (swapPath && expectedAmount.lt(bestAmount)) {
@@ -2386,7 +2390,7 @@ export class ZilSwapV2 {
     const token0vReserve = new BigNumber(poolState.v_reserve0)
     const token1vReserve = new BigNumber(poolState.v_reserve1)
     const exchangeRate = token0Reserve.times(ampBps).dividedBy(token1Reserve) // token0/ token1
-    const totalContribution = new BigNumber(poolState.total_supply)
+    const totalSupply = new BigNumber(poolState.total_supply)
 
     const pool: Pool = {
       poolAddress: toBech32Address(poolHash),
@@ -2401,7 +2405,7 @@ export class ZilSwapV2 {
       token0vReserve,
       token1vReserve,
       exchangeRate,
-      totalContribution,
+      totalSupply,
 
       contractState: poolState,
     };

@@ -9,7 +9,7 @@
   "author": "Switcheo <engineering@switcheo.network>",
   "license": "MIT",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp -r src/zilswap-v2/contracts lib/zilswap-v2/.",
     "test": "tsc && node lib/zilswap-v2/test.js",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "tslint -p tsconfig.json",
