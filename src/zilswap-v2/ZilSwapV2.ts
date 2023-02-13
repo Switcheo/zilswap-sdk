@@ -1,13 +1,12 @@
-import { Transaction, TxReceipt as _TxReceipt, Wallet } from '@zilliqa-js/account'
+import { Transaction, TxReceipt as _TxReceipt, Wallet, TxStatus as _TxStatus } from '@zilliqa-js/account'
 import { CallParams, Contract, Value } from '@zilliqa-js/contract'
-import { TransactionError } from '@zilliqa-js/core'
+import { TransactionError, Provider } from '@zilliqa-js/core'
 import { fromBech32Address, toBech32Address } from '@zilliqa-js/crypto'
 import { MessageType, NewEventSubscription, StatusType } from '@zilliqa-js/subscriptions'
 import { BN, Long, units } from '@zilliqa-js/util'
 import { Zilliqa } from '@zilliqa-js/zilliqa'
 import { Mutex } from 'async-mutex'
 import { BigNumber } from 'bignumber.js'
-import 'isomorphic-fetch'
 
 import { BatchRequest, sendBatchRequest } from '../batch'
 import { APIS, BASIS, CHAIN_VERSIONS, Network, WSS, ZILSWAPV2_CONTRACTS, ZIL_HASH } from '../constants'
@@ -15,9 +14,9 @@ import { isLocalStorageAvailable, toPositiveQa, unitlessBigNumber } from '../uti
 import { OnStateUpdate, Zilo } from '../zilo'
 import { LONG_ALPHA, PRECISION, SHORT_ALPHA } from './utils'
 
-import POOL_CODE from "./contracts/ZilSwapPool.scilla"
+import poolContractPath from "./contracts/ZilSwapPool.scilla"
 
-declare module '*.scilla' {}
+declare module '*.scilla' { }
 
 export { Network }
 
@@ -1730,39 +1729,53 @@ export class ZilSwapV2 {
   private async deployPoolContract(init: Value[]) {
     console.log("Deploying ZilSwapV2Pool...")
     console.log(init)
-    const contract = this.zilliqa.contracts.new(POOL_CODE, init)
-    const [deployTx, state] = await contract.deployWithoutConfirm(this._txParams, false)
+    const code = await fetch(poolContractPath).then(r => r.text());
+    const { result: minGasPrice } = await this.zilliqa.blockchain.getMinimumGasPrice();
+    const contract = (this.walletProvider || this.zilliqa).contracts.new(code, init)
+    const transaction = new Transaction({
+      version: this._txParams.version,
+      toAddr: ZIL_HASH,
+      data: JSON.stringify(init),
+      code,
+      amount: units.toQa(0, units.Units.Zil),
+      gasPrice: new BN(minGasPrice!),
+      gasLimit: Long.fromNumber(80000),
+    },
+      (this.walletProvider?.provider ?? this.zilliqa.provider) as Provider,
+      _TxStatus.Initialised,
+      false,
+      false,
+    );
 
-    // Check for txn acceptance
-    if (!deployTx.id) {
-      throw new Error(JSON.stringify(state.error || 'Failed to get tx id!', null, 2))
+    const deadline = this.deadlineBlock()
+
+    let tx: any
+    if (this.walletProvider) {
+      // ugly hack for zilpay provider
+      const tx: any = await this.walletProvider?.blockchain.createTransaction(transaction);
+      tx.id = tx.ID
+      tx.isRejected = function (this: { errors: any[]; exceptions: any[] }) {
+        return this.errors.length > 0 || this.exceptions.length > 0
+      }
+    } else {
+      tx = await this.zilliqa.blockchain.createTransactionWithoutConfirm(transaction);
     }
-    console.info(`Deployment transaction id: ${deployTx.id}`)
 
-    const confirmedTx = await deployTx.confirm(deployTx.id, 50, 1000);
-
-    // Check for txn execution success
-    if (!confirmedTx.txParams.receipt!.success) {
-      const errors = confirmedTx.txParams.receipt!.errors || {}
-      const errMsgs = JSON.stringify(
-        Object.keys(errors).reduce((acc, depth) => {
-          const errorMsgList = errors[depth].map((num: any) => TransactionError[num])
-          return { ...acc, [depth]: errorMsgList }
-        }, {}))
-      const error = `Failed to deploy contract\n${errMsgs}`
-      throw new Error(error)
+    if (tx.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
     }
 
-    // Add to observedTx
     const observeTxn = {
-      hash: confirmedTx.id!,
-      deadline: this.deadlineBlock(),
+      hash: tx.id!,
+      deadline,
     }
     await this.observeTx(observeTxn)
 
-    console.log(`The contract address is: ${state.address!}`)
+    const { result: address } = await this.zilliqa.blockchain.getContractAddressFromTransactionID(observeTxn.hash);
+    console.log(`The contract address is: ${address!}`)
 
-    const deployedContract = this.getContract(state.address!)
+    const deployedContract = this.getContract(address!)
+
     return deployedContract
   }
 
