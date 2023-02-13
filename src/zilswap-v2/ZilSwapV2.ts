@@ -1,13 +1,12 @@
-import { Transaction, TxReceipt as _TxReceipt, Wallet } from '@zilliqa-js/account'
+import { Transaction, TxReceipt as _TxReceipt, TxStatus as _TxStatus, Wallet } from '@zilliqa-js/account'
 import { CallParams, Contract, Value } from '@zilliqa-js/contract'
-import { TransactionError } from '@zilliqa-js/core'
+import { Provider } from '@zilliqa-js/core'
 import { fromBech32Address, toBech32Address } from '@zilliqa-js/crypto'
 import { MessageType, NewEventSubscription, StatusType } from '@zilliqa-js/subscriptions'
 import { BN, Long, units } from '@zilliqa-js/util'
 import { Zilliqa } from '@zilliqa-js/zilliqa'
 import { Mutex } from 'async-mutex'
 import { BigNumber } from 'bignumber.js'
-import 'isomorphic-fetch'
 
 import { BatchRequest, sendBatchRequest } from '../batch'
 import { APIS, BASIS, CHAIN_VERSIONS, Network, WSS, ZILSWAPV2_CONTRACTS, ZIL_HASH } from '../constants'
@@ -15,9 +14,9 @@ import { isLocalStorageAvailable, toPositiveQa, unitlessBigNumber } from '../uti
 import { OnStateUpdate, Zilo } from '../zilo'
 import { LONG_ALPHA, PRECISION, SHORT_ALPHA } from './utils'
 
-import POOL_CODE from "./contracts/ZilSwapPool.scilla"
+import poolContractPath from "./contracts/ZilSwapPool.scilla"
 
-declare module '*.scilla' {}
+declare module '*.scilla' { }
 
 export { Network }
 
@@ -291,46 +290,46 @@ export class ZilSwapV2 {
    * {@link https://www.investopedia.com/terms/b/basispoint.asp basis points}.
    * 10000 basis points = 100%
    */
-  public async deployAndAddPool(token0ID: string, token1ID: string, initAmpBps: string): Promise<(Contract | ObservedTx)[]> {
-    // Check logged in
-    this.checkAppLoadedWithUser()
+  // public async deployAndAddPool(token0ID: string, token1ID: string, initAmpBps: string): Promise<(Contract | ObservedTx)[]> {
+  //   // Check logged in
+  //   this.checkAppLoadedWithUser()
 
-    let token0Hash = this.getHash(token0ID)
-    let token1Hash = this.getHash(token1ID)
+  //   let token0Hash = this.getHash(token0ID)
+  //   let token1Hash = this.getHash(token1ID)
 
-    if (parseInt(token0Hash, 16) > parseInt(token1Hash, 16)) [token0Hash, token1Hash] = [token1Hash, token0Hash]
+  //   if (parseInt(token0Hash, 16) > parseInt(token1Hash, 16)) [token0Hash, token1Hash] = [token1Hash, token0Hash]
 
-    const token0Contract: Contract = this.getContract(token0Hash)
-    const token1Contract: Contract = this.getContract(token1Hash)
+  //   const token0Contract: Contract = this.getContract(token0Hash)
+  //   const token1Contract: Contract = this.getContract(token1Hash)
 
-    const t0State = await this.fetchContractInit(token0Contract)
-    const t1State = await this.fetchContractInit(token1Contract)
+  //   const t0State = await this.fetchContractInit(token0Contract)
+  //   const t1State = await this.fetchContractInit(token1Contract)
 
-    const pair = `${t0State.find((i: Value) => i.vname == 'symbol').value}-${t1State.find((i: Value) => i.vname == 'symbol').value}`
-    const name = `ZilSwap V2 ${pair} LP Token`
-    const symbol = `ZWAPv2LP.${pair}`
+  //   const pair = `${t0State.find((i: Value) => i.vname == 'symbol').value}-${t1State.find((i: Value) => i.vname == 'symbol').value}`
+  //   const name = `ZilSwap V2 ${pair} LP Token`
+  //   const symbol = `ZWAPv2LP.${pair}`
 
-    const init = [
-      this.param('_scilla_version', 'Uint32', '0'),
-      this.param('init_token0', 'ByStr20', token0Hash),
-      this.param('init_token1', 'ByStr20', token1Hash),
-      this.param('init_factory', 'ByStr20', this.contractHash),
-      this.param('init_amp_bps', 'Uint128', initAmpBps),
-      this.param('contract_owner', 'ByStr20', this.contractHash),
-      this.param('name', 'String', name),
-      this.param('symbol', 'String', symbol),
-      this.param('decimals', 'Uint32', '12'),
-      this.param('init_supply', 'Uint128', '0'),
-    ];
+  //   const init = [
+  //     this.param('_scilla_version', 'Uint32', '0'),
+  //     this.param('init_token0', 'ByStr20', token0Hash),
+  //     this.param('init_token1', 'ByStr20', token1Hash),
+  //     this.param('init_factory', 'ByStr20', this.contractHash),
+  //     this.param('init_amp_bps', 'Uint128', initAmpBps),
+  //     this.param('contract_owner', 'ByStr20', this.contractHash),
+  //     this.param('name', 'String', name),
+  //     this.param('symbol', 'String', symbol),
+  //     this.param('decimals', 'Uint32', '12'),
+  //     this.param('init_supply', 'Uint128', '0'),
+  //   ];
 
-    // Deploy pool
-    const pool = await this.deployPoolContract(init)
+  //   // Deploy pool
+  //   const pool = await this.deployPoolContract(init)
 
-    // Add pool
-    const tx = await this.addPool(pool.address!.toLowerCase())
+  //   // Add pool
+  //   const tx = await this.addPool(pool.address!.toLowerCase())
 
-    return [pool, tx]
-  }
+  //   return [pool, tx]
+  // }
 
   /**
    * Deploys new pool contract only, without adding to the router.
@@ -344,7 +343,7 @@ export class ZilSwapV2 {
    * {@link https://www.investopedia.com/terms/b/basispoint.asp basis points}.
    * 10000 = 100%
    */
-  public async deployPool(token0ID: string, token1ID: string, initAmpBps: string): Promise<Contract> {
+  public async deployPool(token0ID: string, token1ID: string, initAmpBps: string): Promise<ObservedTx> {
     // Check logged in
     this.checkAppLoadedWithUser()
 
@@ -377,8 +376,7 @@ export class ZilSwapV2 {
     ];
 
     // Call deployContract
-    const pool = await this.deployPoolContract(init)
-    return pool
+    return await this.deployPoolContract(init)
   }
 
   /**
@@ -1730,40 +1728,49 @@ export class ZilSwapV2 {
   private async deployPoolContract(init: Value[]) {
     console.log("Deploying ZilSwapV2Pool...")
     console.log(init)
-    const contract = this.zilliqa.contracts.new(POOL_CODE, init)
-    const [deployTx, state] = await contract.deployWithoutConfirm(this._txParams, false)
+    const code = await fetch(poolContractPath).then(r => r.text());
+    const { result: minGasPrice } = await this.zilliqa.blockchain.getMinimumGasPrice();
+    const contract = (this.walletProvider || this.zilliqa).contracts.new(code, init)
+    const transaction = new Transaction({
+      version: this._txParams.version,
+      toAddr: ZIL_HASH,
+      data: JSON.stringify(init),
+      code,
+      amount: units.toQa(0, units.Units.Zil),
+      gasPrice: new BN(minGasPrice!),
+      gasLimit: Long.fromNumber(80000),
+    },
+      (this.walletProvider?.provider ?? this.zilliqa.provider) as Provider,
+      _TxStatus.Initialised,
+      false,
+      false,
+    );
 
-    // Check for txn acceptance
-    if (!deployTx.id) {
-      throw new Error(JSON.stringify(state.error || 'Failed to get tx id!', null, 2))
+    const deadline = this.deadlineBlock()
+
+    let tx: any
+    if (this.walletProvider) {
+      // ugly hack for zilpay provider
+      tx = await this.walletProvider?.blockchain.createTransaction(transaction);
+      tx.id = tx.ID
+      tx.isRejected = function (this: { errors: any[]; exceptions: any[] }) {
+        return this.errors.length > 0 || this.exceptions.length > 0
+      }
+    } else {
+      tx = await this.zilliqa.blockchain.createTransactionWithoutConfirm(transaction);
     }
-    console.info(`Deployment transaction id: ${deployTx.id}`)
 
-    const confirmedTx = await deployTx.confirm(deployTx.id, 50, 1000);
-
-    // Check for txn execution success
-    if (!confirmedTx.txParams.receipt!.success) {
-      const errors = confirmedTx.txParams.receipt!.errors || {}
-      const errMsgs = JSON.stringify(
-        Object.keys(errors).reduce((acc, depth) => {
-          const errorMsgList = errors[depth].map((num: any) => TransactionError[num])
-          return { ...acc, [depth]: errorMsgList }
-        }, {}))
-      const error = `Failed to deploy contract\n${errMsgs}`
-      throw new Error(error)
-    }
-
-    // Add to observedTx
+    console.log("obv tx", tx)
     const observeTxn = {
-      hash: confirmedTx.id!,
-      deadline: this.deadlineBlock(),
+      hash: tx.id!,
+      deadline,
     }
     await this.observeTx(observeTxn)
 
-    console.log(`The contract address is: ${state.address!}`)
+    // const { result: address } = await this.zilliqa.blockchain.getContractAddressFromTransactionID(observeTxn.hash);
+    // console.log(`The contract address is: ${address!}`)
 
-    const deployedContract = this.getContract(state.address!)
-    return deployedContract
+    return observeTxn;
   }
 
   public async callContract(
