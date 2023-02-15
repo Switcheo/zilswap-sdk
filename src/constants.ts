@@ -33,7 +33,7 @@ export const ARK_CONTRACTS: { [key in Networks]: string } = {
 
 export const WZIL_CONTRACTS: { [key in Networks]: string } = {
   [Network.MainNet]: 'zil1gvr0jgwfsfmxsyx0xsnhtlte4gks6r3yk8x5fn',
-  [Network.TestNet]: 'zil19hektxuaehcz50a9yhr4c9n78mfxfqxm9qa58z',
+  [Network.TestNet]: 'zil1nzn3k336xwal7egdzgalqnclxtgu3dggxed85m',
 }
 
 export const WHITELISTED_TOKENS: { [key in Networks]: string[] } = {

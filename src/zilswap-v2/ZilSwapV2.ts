@@ -360,7 +360,7 @@ export class ZilSwapV2 {
 
     const pair = `${t0State.find((i: Value) => i.vname == 'symbol').value}-${t1State.find((i: Value) => i.vname == 'symbol').value}`
     const name = `ZilSwap V2 ${pair} LP Token`
-    const symbol = `ZWAPv2LP.${pair}`
+    const symbol = `${pair}.ZWAPv2LP`
 
     const init = [
       this.param('_scilla_version', 'Uint32', '0'),
@@ -1760,7 +1760,10 @@ export class ZilSwapV2 {
       tx = await this.zilliqa.blockchain.createTransactionWithoutConfirm(transaction);
     }
 
-    console.log("obv tx", tx)
+    if (tx.isRejected()) {
+      throw new Error('Submitted transaction was rejected.')
+    }
+
     const observeTxn = {
       hash: tx.id!,
       deadline,
