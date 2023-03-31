@@ -6,7 +6,7 @@ import { getContract, network } from './utils'
 import { ObservedTx, TxReceipt, TxStatus, ZilSwapV2 } from './ZilSwapV2'
 dotenv.config()
 
-const init_liquidity = 10000
+const initLiquidity = 10000
 const amountIn = 10
 const amountInMax = 100
 const amountOut = 10
@@ -51,8 +51,8 @@ const getvReserverBounds = (poolHash: string): { vReserveMin: string, vReserveMa
   const pools = zilswap.getPools()
   const pool = pools[poolHash]
 
-  let vReserveA = parseInt(pool.contractState.v_reserve0)
-  let vReserveB = parseInt(pool.contractState.v_reserve1)
+  const vReserveA = parseInt(pool.contractState.v_reserve0, 10)
+  const vReserveB = parseInt(pool.contractState.v_reserve1, 10)
 
   let vReserveMin, vReserveMax;
   if (vReserveA === 0 && vReserveB === 0) {
@@ -104,13 +104,13 @@ const test = async () => {
     }
 
     // add liquidity
-    tx = await zilswap.addLiquidity(swthHash, hunyHash, pool1Hash, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', getvReserverBounds(pool1Hash).vReserveMin, getvReserverBounds(pool1Hash).vReserveMax)
+    tx = await zilswap.addLiquidity(swthHash, hunyHash, pool1Hash, new BigNumber(initLiquidity).toString(), new BigNumber(initLiquidity).toString(), '0', '0', getvReserverBounds(pool1Hash).vReserveMin, getvReserverBounds(pool1Hash).vReserveMax)
     console.log(`\ntx hash: ${tx.hash}\n`)
     await waitForTx()
-    tx = await zilswap.addLiquidityZIL(swthHash, pool2Hash, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', getvReserverBounds(pool2Hash).vReserveMin, getvReserverBounds(pool2Hash).vReserveMax)
+    tx = await zilswap.addLiquidityZIL(swthHash, pool2Hash, new BigNumber(initLiquidity).toString(), new BigNumber(initLiquidity).toString(), '0', '0', getvReserverBounds(pool2Hash).vReserveMin, getvReserverBounds(pool2Hash).vReserveMax)
     console.log(`\ntx hash: ${tx.hash}\n`)
     await waitForTx()
-    tx = await zilswap.addLiquidityZIL(hunyHash, pool3Hash, new BigNumber(init_liquidity).toString(), new BigNumber(init_liquidity).toString(), '0', '0', getvReserverBounds(pool3Hash).vReserveMin, getvReserverBounds(pool3Hash).vReserveMax)
+    tx = await zilswap.addLiquidityZIL(hunyHash, pool3Hash, new BigNumber(initLiquidity).toString(), new BigNumber(initLiquidity).toString(), '0', '0', getvReserverBounds(pool3Hash).vReserveMin, getvReserverBounds(pool3Hash).vReserveMax)
     console.log(`\ntx hash: ${tx.hash}\n`)
     await waitForTx()
 

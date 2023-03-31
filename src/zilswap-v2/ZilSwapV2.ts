@@ -358,7 +358,7 @@ export class ZilSwapV2 {
     const t0State = await this.fetchContractInit(token0Contract)
     const t1State = await this.fetchContractInit(token1Contract)
 
-    const pair = `${t0State.find((i: Value) => i.vname == 'symbol').value}-${t1State.find((i: Value) => i.vname == 'symbol').value}`
+    const pair = `${t0State.find((i: Value) => i.vname === 'symbol').value}-${t1State.find((i: Value) => i.vname === 'symbol').value}`
     const name = `ZilSwap V2 ${pair} LP Token`
     const symbol = `${pair}.ZWAPv2LP`
 
@@ -390,7 +390,7 @@ export class ZilSwapV2 {
     // Check logged in
     this.checkAppLoadedWithUser()
 
-    let poolHash = this.getHash(pool)
+    const poolHash = this.getHash(pool)
 
     const contract: Contract = this.contract
     const args: any = [
@@ -1845,9 +1845,9 @@ export class ZilSwapV2 {
     return tokenPath;
   }
 
-  public findSwapPathIn(swapPath: [Pool, boolean][], tokenInHash: string, tokenOutHash: string, tokenAmountIn: BigNumber, poolStepsLeft: number): { swapPath: [Pool, boolean][] | null, expectedAmount: BigNumber } {
+  public findSwapPathIn(path: [Pool, boolean][], tokenInHash: string, tokenOutHash: string, tokenAmountIn: BigNumber, poolStepsLeft: number): { swapPath: [Pool, boolean][] | null, expectedAmount: BigNumber } {
     const { pools } = this.getAppState();
-    const poolsPath = swapPath.map(s => s[0]);
+    const poolsPath = path.map(s => s[0]);
 
     const optionPools = Object.values(pools).filter((pool) => {
       if (poolsPath.includes(pool)) return false;
@@ -1857,7 +1857,7 @@ export class ZilSwapV2 {
     let bestPath: [Pool, boolean][] | null = null;
     for (const pool of optionPools) {
       const isSameOrder = pool.contractState.token0 === tokenInHash;
-      const newPath = swapPath.concat([[pool, isSameOrder]]);
+      const newPath = path.concat([[pool, isSameOrder]]);
       const [poolTokenIn, poolTokenOut] = isSameOrder ? [pool.contractState.token0, pool.contractState.token1] : [pool.contractState.token1, pool.contractState.token0];
       const foundEndPool = poolTokenOut === tokenOutHash;
 
@@ -1886,9 +1886,9 @@ export class ZilSwapV2 {
     return { swapPath: bestPath, expectedAmount: bestAmount };
   }
 
-  public findSwapPathOut(swapPath: [Pool, boolean][], tokenInHash: string, tokenOutHash: string, tokenAmountOut: BigNumber, poolStepsLeft: number): { swapPath: [Pool, boolean][] | null, expectedAmount: BigNumber } {
+  public findSwapPathOut(path: [Pool, boolean][], tokenInHash: string, tokenOutHash: string, tokenAmountOut: BigNumber, poolStepsLeft: number): { swapPath: [Pool, boolean][] | null, expectedAmount: BigNumber } {
     const { pools } = this.getAppState();
-    const poolsPath = swapPath.map(s => s[0]);
+    const poolsPath = path.map(s => s[0]);
 
     const optionPools = Object.values(pools).filter((pool) => {
       if (poolsPath.includes(pool)) return false;
@@ -1898,7 +1898,7 @@ export class ZilSwapV2 {
     let bestPath: [Pool, boolean][] | null = null;
     for (const pool of optionPools) {
       const isSameOrder = pool.contractState.token1 === tokenOutHash;
-      const newPath: [Pool, boolean][] = [[pool, isSameOrder], ...swapPath];
+      const newPath: [Pool, boolean][] = [[pool, isSameOrder], ...path];
       const [poolTokenIn, poolTokenOut] = isSameOrder ? [pool.contractState.token0, pool.contractState.token1] : [pool.contractState.token1, pool.contractState.token0];
       const foundStartPool = poolTokenIn !== tokenInHash;
 
@@ -1980,8 +1980,8 @@ export class ZilSwapV2 {
   }
 
   /**
-  * Gets the contract with the given address that can be called by the default account.
-  */
+   * Gets the contract with the given address that can be called by the default account.
+   */
   public getContract(address: string): Contract {
     return (this.walletProvider || this.zilliqa).contracts.at(address)
   }
@@ -2282,7 +2282,7 @@ export class ZilSwapV2 {
     // get_amount_in
     let numerator = new BigNumber(reserveIn).multipliedBy(amountOut)
     let denominator = new BigNumber(reserveOut).minus(amountOut)
-    let amountIn = numerator.dividedToIntegerBy(denominator).plus(1)
+    const amountIn = numerator.dividedToIntegerBy(denominator).plus(1)
     numerator = amountIn.multipliedBy(PRECISION)
     denominator = new BigNumber(PRECISION).minus(feeInPrecision)
     return numerator.plus(denominator.minus(1)).dividedToIntegerBy(denominator)
@@ -2457,7 +2457,7 @@ export class ZilSwapV2 {
 
         // Update whole app state when routerState changes
         if (byStr20Address === this.contractHash) {
-          for (const event of item.event_logs) {
+          for (const _ of item.event_logs) {
             this.updateAppState()
           }
         }

@@ -15,21 +15,21 @@ export const SHORT_ALPHA = 370301795963710
 export const LONG_ALPHA = 185168039996296
 
 const getNetwork = (): Network => {
-  const network: string = (process.env.NETWORK || '').toLowerCase()
-  switch (network) {
+  const net: string = (process.env.NETWORK || '').toLowerCase()
+  switch (net) {
     case 'mainnet':
       return Network.MainNet
     case 'testnet':
       return Network.TestNet
     // case 'localhost':
-    //   return Network.LocalHost
+      // return Network.LocalHost
     default:
       return Network.TestNet
   }
 }
 
-const getRPC = (network: Network): string => {
-  return APIS[network]
+const getRPC = (net: Network): string => {
+  return APIS[net]
 }
 
 export const network = getNetwork()
@@ -377,7 +377,7 @@ export async function deployZilswapV2Pool(privateKey: string, { router, token0, 
     const t0State = await token0.getInit()
     const t1State = await token1.getInit()
 
-    const pair = `${t0State.find((i: Value) => i.vname == 'symbol').value}-${t1State.find((i: Value) => i.vname == 'symbol').value}`
+    const pair = `${t0State.find((i: Value) => i.vname === 'symbol').value}-${t1State.find((i: Value) => i.vname === 'symbol').value}`
     if (!name) name = `ZilSwap V2 ${pair} LP Token`
     if (!symbol) symbol = `ZWAPv2LP.${pair}`
   }
