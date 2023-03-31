@@ -1,6 +1,6 @@
 {
   "name": "zilswap-sdk",
-  "version": "2.0.0-rc1",
+  "version": "2.0.0-rc2",
   "description": "Zilswap TypeScript SDK",
   "main": "lib/zilswap-v2/ZilSwapV2.js",
   "types": "lib/zilswap-v2/ZilSwapV2.d.ts",
