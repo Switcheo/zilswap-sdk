@@ -22,7 +22,7 @@ export const ZILSWAPV1_CONTRACTS: { [key in Networks]: string } = {
 }
 
 export const ZILSWAPV2_CONTRACTS: { [key in Networks]: string } = {
-  [Network.MainNet]: 'zil1k46nqa2t28wpfeywq4a6ut25h55jjle4gefxcg',
+  [Network.MainNet]: 'zil1226acme28rfmcqr6p0w3mjr9s548qs54zmjjp9',
   [Network.TestNet]: 'zil1gufq4x62e689ujpetpmx48726rd8rt658lh2ns',
 }
 
