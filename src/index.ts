@@ -419,6 +419,7 @@ export class Zilswap {
     }
     try {
       const details = await this.fetchTokenDetails(tokenAddress)
+      if (details === null) return false
       this.appState!.tokens[details.hash] = details
       return true
     } catch {
@@ -1279,7 +1280,7 @@ export class Zilswap {
     // Get user address
     const currentUser = this.walletProvider
       ? // ugly hack for zilpay provider
-        this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
+      this.walletProvider.wallet.defaultAccount.base16.toLowerCase()
       : this.zilliqa.wallet.defaultAccount?.address?.toLowerCase() || null
 
     // Get the contract state
@@ -1317,6 +1318,8 @@ export class Zilswap {
     const promises = tokenHashes.map(async hash => {
       try {
         const d = await this.fetchTokenDetails(hash)
+        if (d === null) return
+
         tokens[hash] = d
       } catch (err) {
         if (
@@ -1329,6 +1332,7 @@ export class Zilswap {
       }
     })
     await Promise.all(promises)
+
 
     // Get exchange rates
     const pools: { [key in string]: Pool } = {}
@@ -1353,6 +1357,7 @@ export class Zilswap {
         contributionPercentage,
       }
     })
+
 
     // Set new state
     this.appState = {
@@ -1476,7 +1481,7 @@ export class Zilswap {
     const lsCacheKey = `contractInit:${contract.address!}`
     if (isLocalStorageAvailable()) {
       const result = localStorage.getItem(lsCacheKey)
-      if (result && result !== '') {
+      if (result && result !== '""') {
         try {
           return JSON.parse(result)
         } catch (e) {
@@ -1489,6 +1494,7 @@ export class Zilswap {
       // some wallet providers throw an uncaught error when address is non-contract
       const init = await new Zilliqa(this.rpcEndpoint).contracts.at(contract.address!).getInit()
       if (init === undefined) throw new Error(`Could not retrieve contract init params ${contract.address}`)
+      if (!init) return null;
 
       if (isLocalStorageAvailable()) {
         localStorage.setItem(lsCacheKey, JSON.stringify(init))
@@ -1504,7 +1510,7 @@ export class Zilswap {
     }
   }
 
-  private async fetchTokenDetails(id: string): Promise<TokenDetails> {
+  private async fetchTokenDetails(id: string): Promise<TokenDetails | null> {
     const { hash, address } = this.getTokenAddresses(id)
 
     if (!!this.appState?.tokens[hash]) return this.appState.tokens[hash]
@@ -1516,6 +1522,7 @@ export class Zilswap {
     }
 
     const init = await this.fetchContractInit(contract)
+    if (init === null) return null
 
     const decimalStr = init.find((e: Value) => e.vname === 'decimals').value as string
     const decimals = parseInt(decimalStr, 10)
