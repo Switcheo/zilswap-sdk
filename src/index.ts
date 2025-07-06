@@ -179,7 +179,6 @@ export class Zilswap {
       if (!minGasPrice.result) throw new Error('Failed to get min gas price.')
       this._txParams.gasPrice = new BN(minGasPrice.result)
     }
-    this.subscribeToAppChanges()
     await this.loadTokenList()
     await this.updateBlockHeight()
     await this.updateAppState()
@@ -1176,7 +1175,7 @@ export class Zilswap {
     }
   }
 
-  private subscribeToAppChanges() {
+  public subscribeToAppChanges() {
     // clear existing subscription, if any
     this.subscription?.stop()
 
